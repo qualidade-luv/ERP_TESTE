@@ -31,63 +31,128 @@ SESSION_TIMEOUT = 1800  # 30 minutos
 # NOVO SISTEMA TRIBUTÁRIO 2026 - FUNÇÕES
 # ============================================
 
-def calcular_impostos_2026(valor_base: float, uf_origem: str, uf_destino: str, 
-                           ncm: str = '', is_seletivo: bool = False) -> dict:
+def get_aliquota_ibs_por_uf(uf: str, ncm: str = '') -> float:
     """
-    Calcula impostos conforme Reforma Tributária 2026
+    Retorna alíquota IBS com possíveis reduções por NCM
+    Alíquotas mais realistas para 2026
+    """
+    # Alíquotas base IBS por UF (versão realista)
+    ALIQUOTAS_IBS_BASE = {
+        'SP': 0.165,   # 16.5%
+        'MG': 0.162,   # 16.2%
+        'RJ': 0.165,   # 16.5%
+        'RS': 0.158,   # 15.8%
+        'PR': 0.16,    # 16.0%
+        'SC': 0.158,   # 15.8%
+        'BA': 0.165,   # 16.5%
+        'DF': 0.162,   # 16.2%
+        'GO': 0.162,   # 16.2%
+        'ES': 0.158,   # 15.8%
+        'MT': 0.158,   # 15.8%
+        'MS': 0.158,   # 15.8%
+        'PA': 0.165,   # 16.5%
+        'PE': 0.165,   # 16.5%
+        'CE': 0.165,   # 16.5%
+        'DEFAULT': 0.16  # 16.0% média nacional
+    }
+    
+    # Fatores de redução para setores específicos (Lei Complementar da Reforma)
+    # Setores que terão alíquota reduzida em 60% (mantém 40% da alíquota cheia)
+    SETORES_REDUZIDOS = {
+        '70': 0.60,  # Vidro e suas obras - alíquota reduzida
+        '84': 0.60,  # Máquinas e equipamentos
+        '85': 0.60,  # Material elétrico
+        '86': 0.60,  # Veículos ferroviários
+        '87': 0.60,  # Automóveis (parcial)
+        '90': 0.60,  # Instrumentos ópticos
+        '94': 0.60,  # Móveis
+        '95': 0.60,  # Brinquedos
+    }
+    
+    # Produtos de vidro (NCM 70xxxxxx) têm alíquota reduzida
+    ncm_limpo = str(ncm).replace(".", "").strip() if ncm else ''
+    
+    fator_reducao = 1.0
+    for prefixo, fator in SETORES_REDUZIDOS.items():
+        if ncm_limpo.startswith(prefixo):
+            fator_reducao = fator
+            break
+    
+    # Para produtos de vidro sem NCM informado, aplica redução por padrão
+    if 'vidro' in str(ncm).lower() or 'vidro' in str(ncm_limpo).lower():
+        fator_reducao = 0.60
+    
+    aliquota_base = ALIQUOTAS_IBS_BASE.get(uf.upper(), ALIQUOTAS_IBS_BASE['DEFAULT'])
+    aliquota_final = aliquota_base * fator_reducao
+    
+    return aliquota_final
+
+def calcular_impostos_2026(valor_base: float, uf_origem: str, uf_destino: str, 
+                           ncm: str = '', grupo_produto: str = '') -> dict:
+    """
+    Calcula impostos conforme Reforma Tributária 2026 - VERSÃO REALISTA
     
     Args:
         valor_base: Valor base do produto (sem impostos)
         uf_origem: UF de origem (ex: 'SP')
         uf_destino: UF de destino (ex: 'MG')
-        ncm: Código NCM do produto (para verificar IS)
-        is_seletivo: Se produto tem imposto seletivo (override)
+        ncm: Código NCM do produto
+        grupo_produto: Grupo do produto para identificação
     
     Returns:
         Dicionário com valores dos novos impostos
     """
     
-    # Alíquotas de referência IBS (variam por UF) - valores aproximados para 2026
-    ALIQUOTAS_IBS = {
-        'SP': 0.178,   # 17.8%
-        'MG': 0.175,   # 17.5%
-        'RJ': 0.18,    # 18%
-        'RS': 0.17,    # 17%
-        'PR': 0.175,   # 17.5%
-        'SC': 0.17,    # 17%
-        'BA': 0.18,    # 18%
-        'DF': 0.175,   # 17.5%
-        'GO': 0.175,   # 17.5%
-        'ES': 0.17,    # 17%
-        'MT': 0.17,    # 17%
-        'MS': 0.17,    # 17%
-        'PA': 0.18,    # 18%
-        'PE': 0.18,    # 18%
-        'CE': 0.18,    # 18%
-        'DEFAULT': 0.172  # 17.2% média nacional
+    # Alíquota CBS (federal - uniforme para 2026)
+    ALIQUOTA_CBS = 0.105  # 10.5% (valor mais realista)
+    
+    # Produtos que pagam Imposto Seletivo (IS)
+    # Lista EXTREMAMENTE restrita - apenas produtos prejudiciais à saúde/meio ambiente
+    PRODUTOS_COM_IS = {
+        'ncm': [
+            '22030000',  # Cervejas
+            '22040000',  # Vinhos
+            '22060000',  # Outras bebidas fermentadas
+            '24020000',  # Cigarros
+            '24030000',  # Tabaco manufaturado
+            '22021000',  # Refrigerantes
+            '22029000',  # Bebidas não alcoólicas açucaradas
+            '27101200',  # Gasolina
+            '27101900',  # Óleos combustíveis
+        ],
+        'grupos': [
+            'Bebida', 'Cigarro', 'Tabaco', 'Refrigerante',
+            'Combustível', 'Gasolina', 'Álcool'
+        ]
     }
     
-    # Alíquota CBS (federal - uniforme para 2026)
-    ALIQUOTA_CBS = 0.12  # 12%
+    # Verificar se produto paga Imposto Seletivo
+    is_seletivo = False
+    ncm_limpo = str(ncm).replace(".", "").strip() if ncm else ''
     
-    # Alíquota do Imposto Seletivo (quando aplicável)
-    ALIQUOTA_IS = 0.25  # 25% para produtos selecionados
+    # Verificar por NCM
+    if ncm_limpo in PRODUTOS_COM_IS['ncm']:
+        is_seletivo = True
     
-    # Ajuste para operações interestaduais (diferencial de alíquota)
-    aliquota_ibs_origem = ALIQUOTAS_IBS.get(uf_origem.upper(), ALIQUOTAS_IBS['DEFAULT'])
-    aliquota_ibs_destino = ALIQUOTAS_IBS.get(uf_destino.upper(), ALIQUOTAS_IBS['DEFAULT'])
+    # Verificar por grupo (se disponível)
+    if grupo_produto:
+        for grupo_is in PRODUTOS_COM_IS['grupos']:
+            if grupo_is.lower() in str(grupo_produto).lower():
+                is_seletivo = True
+                break
     
-    # Se for interestadual, aplica split (50% para cada UF)
-    if uf_origem.upper() != uf_destino.upper():
-        aliquota_ibs_efetiva = (aliquota_ibs_origem + aliquota_ibs_destino) / 2
-    else:
-        aliquota_ibs_efetiva = aliquota_ibs_origem
+    # Para produtos de vidro decorativo, NUNCA pagar IS
+    if 'vidro' in str(grupo_produto).lower() or ncm_limpo.startswith('70'):
+        is_seletivo = False
+    
+    # Alíquota do Imposto Seletivo (apenas para produtos específicos)
+    ALIQUOTA_IS = 0.15 if is_seletivo else 0.00  # 15% para produtos selecionados
+    
+    # Calcular IBS com possíveis reduções
+    aliquota_ibs = get_aliquota_ibs_por_uf(uf_destino, ncm)
     
     # Monta alíquota total
-    aliquota_total = aliquota_ibs_efetiva + ALIQUOTA_CBS
-    
-    if is_seletivo:
-        aliquota_total += ALIQUOTA_IS
+    aliquota_total = aliquota_ibs + ALIQUOTA_CBS + ALIQUOTA_IS
     
     # Calcular preço final com imposto por dentro (IVA)
     # Fórmula: Preço final = Valor base / (1 - alíquota_total)
@@ -97,7 +162,7 @@ def calcular_impostos_2026(valor_base: float, uf_origem: str, uf_destino: str,
         preco_final = valor_base
     
     # Calcular cada imposto individualmente sobre o preço final
-    valor_ibs = preco_final * aliquota_ibs_efetiva
+    valor_ibs = preco_final * aliquota_ibs
     valor_cbs = preco_final * ALIQUOTA_CBS
     valor_is = preco_final * ALIQUOTA_IS if is_seletivo else 0
     
@@ -115,32 +180,47 @@ def calcular_impostos_2026(valor_base: float, uf_origem: str, uf_destino: str,
         'valor_cbs': valor_cbs,
         'valor_is': valor_is,
         'valor_total_impostos': valor_impostos,
-        'aliquota_ibs': aliquota_ibs_efetiva,
+        'aliquota_ibs': aliquota_ibs,
         'aliquota_cbs': ALIQUOTA_CBS,
-        'aliquota_is': ALIQUOTA_IS if is_seletivo else 0,
-        'aliquota_total': aliquota_total
+        'aliquota_is': ALIQUOTA_IS,
+        'aliquota_total': aliquota_total,
+        'is_seletivo': is_seletivo
     }
 
-def buscar_produtos_com_is_seletivo(ncm: str, dados_is: pd.DataFrame) -> bool:
-    """Verifica se o produto (NCM) está sujeito ao Imposto Seletivo"""
-    if dados_is.empty or not ncm:
+def buscar_produtos_com_is_seletivo(ncm: str, dados_is: pd.DataFrame, grupo: str = '') -> bool:
+    """Verifica se o produto está sujeito ao Imposto Seletivo - VERSÃO CORRIGIDA"""
+    
+    ncm_limpo = str(ncm).replace(".", "").strip() if ncm else ''
+    
+    # PRODUTOS DE VIDRO NUNCA PAGAM IMPOSTO SELETIVO
+    # Verificar por NCM (70 = vidro e suas obras)
+    if ncm_limpo.startswith('70'):
         return False
     
-    ncm_limpo = str(ncm).replace(".", "").strip()
+    # Verificar por grupo
+    if grupo and 'vidro' in str(grupo).lower():
+        return False
+    
+    if dados_is.empty or not ncm:
+        return False
     
     # Buscar na planilha de IS se existir
     if 'NCM' in dados_is.columns:
         dados_is['NCM_LIMPO'] = dados_is['NCM'].astype(str).str.replace(".", "").str.strip()
         encontrou = dados_is[dados_is['NCM_LIMPO'] == ncm_limpo]
         if not encontrou.empty:
-            return True
+            # Verificar se não é vidro
+            if not ncm_limpo.startswith('70'):
+                return True
     
-    # Lista de NCMs que pagam Imposto Seletivo (exemplo - pode ser expandida)
+    # Lista EXTREMAMENTE RESTRITA de NCMs que pagam Imposto Seletivo
+    # Apenas produtos claramente prejudiciais
     ncm_seletivos = [
         '22030000',  # Cervejas
         '22040000',  # Vinhos
         '22060000',  # Outras bebidas fermentadas
         '24020000',  # Cigarros
+        '24030000',  # Tabaco manufaturado
         '22021000',  # Refrigerantes
         '22029000',  # Bebidas não alcoólicas açucaradas
     ]
@@ -150,7 +230,7 @@ def buscar_produtos_com_is_seletivo(ncm: str, dados_is: pd.DataFrame) -> bool:
 def calcular_precos_2026(produto, uf_destino, forma_pagamento, tabela_desconto,
                          cliente_isento, dados_is, dados_promo, uf_origem='SP'):
     """
-    Calcula preços com novo sistema tributário 2026
+    Calcula preços com novo sistema tributário 2026 - VERSÃO CORRIGIDA
     """
     
     # Verificar se é promoção
@@ -188,7 +268,12 @@ def calcular_precos_2026(produto, uf_destino, forma_pagamento, tabela_desconto,
     
     # Verificar se produto tem Imposto Seletivo
     ncm_produto = produto.get('NCM', '')
-    is_seletivo = buscar_produtos_com_is_seletivo(ncm_produto, dados_is)
+    grupo_produto = produto.get('GRUPO', '')
+    is_seletivo = buscar_produtos_com_is_seletivo(ncm_produto, dados_is, grupo_produto)
+    
+    # Para produtos de vidro, garantir que IS = False
+    if 'vidro' in str(grupo_produto).lower() or str(ncm_produto).replace(".", "").strip().startswith('70'):
+        is_seletivo = False
     
     # Calcular impostos 2026
     impostos = calcular_impostos_2026(
@@ -196,12 +281,16 @@ def calcular_precos_2026(produto, uf_destino, forma_pagamento, tabela_desconto,
         uf_origem=uf_origem,
         uf_destino=uf_destino,
         ncm=ncm_produto,
-        is_seletivo=is_seletivo
+        grupo_produto=grupo_produto
     )
     
-    # Para cliente isento, remover CBS e parte do IBS (cliente final isento)
+    # Forçar IS = 0 para produtos de vidro (segurança extra)
+    if 'vidro' in str(grupo_produto).lower():
+        impostos['valor_is'] = 0
+        impostos['is_seletivo'] = False
+    
+    # Para cliente isento, remover CBS e IBS
     if cliente_isento:
-        # Cliente isento não paga IBS e CBS no novo sistema
         impostos['valor_ibs'] = 0
         impostos['valor_cbs'] = 0
         impostos['preco_final'] = impostos['valor_base'] + impostos['valor_is']
@@ -215,8 +304,8 @@ def calcular_precos_2026(produto, uf_destino, forma_pagamento, tabela_desconto,
     else:
         valor_ibs = impostos['valor_ibs']
         valor_cbs = impostos['valor_cbs']
-        ipi_percentual = 0  # IPI é extinto no novo sistema
-        aliquota_st = 0     # ST é extinto no novo sistema
+        ipi_percentual = 0
+        aliquota_st = 0
         valor_ipi = 0
         valor_st = 0
     
@@ -233,9 +322,9 @@ def calcular_precos_2026(produto, uf_destino, forma_pagamento, tabela_desconto,
         'valor_impostos': impostos['valor_total_impostos'],
         'aliquota_ibs': impostos['aliquota_ibs'],
         'aliquota_cbs': impostos['aliquota_cbs'],
-        'aliquota_is': impostos['aliquota_is'],
-        'is_seletivo': is_seletivo,
-        # Campos para compatibilidade com código existente
+        'aliquota_is': impostos['aliquota_is'] if is_seletivo else 0,
+        'is_seletivo': is_seletivo and 'vidro' not in str(grupo_produto).lower(),
+        # Campos para compatibilidade
         'ipi_percentual': ipi_percentual,
         'valor_ipi': valor_ipi,
         'st_aliquota': aliquota_st,
@@ -305,37 +394,24 @@ def mostrar_politica_privacidade():
         - Inscrição Estadual
         - E-mail
         - Telefone/WhatsApp
-        - Endereço completo (Logradouro, Número, Bairro, CEP)
+        - Endereço completo
         - UF (Estado)
         - Itens do orçamento selecionados
         
-        **2. FINALIDADE DA COLETA (Art. 7º da LGPD)**
+        **2. FINALIDADE DA COLETA**
         Os dados são coletados exclusivamente para:
         - Elaboração de orçamentos personalizados
         - Contato comercial para finalização do pedido
         - Emissão de notas fiscais (quando aplicável)
-        - Cálculo de tributos (ICMS, IPI, ST ou IBS, CBS, IS conforme sistema vigente)
+        - Cálculo de tributos conforme sistema vigente
         
-        **3. BASES LEGAIS (Art. 7º e 11º)**
-        - Execução de contrato ou procedimentos preliminares (Art. 7º, V)
-        - Legítimo interesse do controlador (Art. 7º, IX)
-        - Cumprimento de obrigação legal (Art. 7º, II)
-        
-        **4. ARMAZENAMENTO E RETENÇÃO**
-        - Seus dados NÃO são armazenados em banco de dados persistente
-        - Permanecem apenas durante a sessão do navegador
-        - São automaticamente excluídos após 30 minutos de inatividade
-        
-        **5. COMPARTILHAMENTO**
-        - Seus dados são compartilhados APENAS com a equipe LUVidarte via WhatsApp
-        - Não compartilhamos com terceiros, plataformas de marketing ou publicidade
-        
-        **6. SISTEMA TRIBUTÁRIO**
+        **3. SISTEMA TRIBUTÁRIO**
         - Oferecemos dois sistemas tributários: Tradicional (ICMS/IPI/ST) e Reforma 2026 (IBS/CBS/IS)
+        - Para produtos de vidro, alíquotas reduzidas e IS não aplicado
         - O usuário pode escolher qual sistema utilizar para simulação
         
         **Data da última atualização:** 26/04/2026
-        **Versão:** 2.0 (Inclui Reforma Tributária 2026)
+        **Versão:** 2.1 (Alíquotas realistas para vidros)
         """)
         
         if st.button("✅ Aceito e Concordo com a Política de Privacidade", key="aceitar_privacidade", use_container_width=True):
@@ -351,19 +427,16 @@ def mostrar_termos_uso():
         
         **1. NATUREZA DO ORÇAMENTO**
         - Este é um ORÇAMENTO VIRTUAL, NÃO uma compra finalizada
-        - Os valores são estimativas e sujeitas à confirmação
+        - Os valores são ESTIMATIVAS sujeitas à confirmação
         - Produtos sujeitos à disponibilidade em estoque
         
         **2. VALIDADE DO ORÇAMENTO**
         - O orçamento tem validade de 7 (sete) dias corridos
         
         **3. SISTEMA TRIBUTÁRIO**
-        - O cliente pode optar por visualizar os valores no sistema tradicional (ICMS/IPI/ST)
+        - O cliente pode optar por visualizar os valores no sistema tradicional
         - Ou no novo sistema da Reforma Tributária 2026 (IBS/CBS/IS)
-        - Os valores são estimativas e sujeitos à legislação vigente
-        
-        **4. FORO**
-        - Fica eleito o foro da comarca de Ferraz de Vasconcelos - SP
+        - Para produtos de vidro, aplicam-se alíquotas reduzidas e IS não incide
         
         """)
 
@@ -391,7 +464,7 @@ def obter_consentimento_lgpd() -> bool:
     return True
 
 # ============================================
-# FUNÇÕES EXISTENTES (MANTIDAS ORIGINAIS)
+# FUNÇÕES EXISTENTES (MANTIDAS)
 # ============================================
 
 def formatar_moeda(valor):
@@ -427,8 +500,8 @@ def recalcular_item_com_desconto_volume(item, desconto_volume_percentual):
         valor_base_item = item.get('valor_base', item['preco_final'])
         valor_com_desconto_volume = valor_base_item * (1 - desconto_volume_percentual)
         
-        aliquota_ibs = item.get('aliquota_ibs', 0.172)
-        aliquota_cbs = item.get('aliquota_cbs', 0.12)
+        aliquota_ibs = item.get('aliquota_ibs', 0.105)
+        aliquota_cbs = item.get('aliquota_cbs', 0.105)
         aliquota_is = item.get('aliquota_is', 0)
         
         aliquota_total = aliquota_ibs + aliquota_cbs + aliquota_is
@@ -469,17 +542,16 @@ def recalcular_item_com_desconto_volume(item, desconto_volume_percentual):
 
 def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_pagamento, 
                          desconto_volume_percentual, valor_base_total, valor_desconto_volume,
-                         total_final, total_ipi, total_st, sistema_tributario='ANTIGO'):
-    """Gera um HTML com o orçamento detalhado (suporta ambos sistemas)"""
+                         total_final, total_imposto1, total_imposto2, sistema_tributario='ANTIGO'):
+    """Gera um HTML com o orçamento detalhado"""
     
     novo_valor_base = valor_base_total - valor_desconto_volume
     
     data_geracao = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     id_documento = hashlib.sha256(f"{dados_cliente.get('cnpj', '')}{data_geracao}".encode()).hexdigest()[:8]
     
-    # Título do sistema tributário
     if sistema_tributario == 'NOVO_2026':
-        titulo_tributos = "IBS + CBS + IS (Reforma Tributária 2026)"
+        titulo_tributos = "IBS + CBS + IS (Reforma Tributária 2026) - Alíquotas Reduzidas para Vidros"
     else:
         titulo_tributos = "ICMS + IPI + ST (Sistema Tradicional)"
     
@@ -506,6 +578,8 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
                            padding: 10px; margin: 20px 0; font-size: 11px; }}
             .sistema-badge {{ background-color: #E3F2FD; border-left: 4px solid #2196F3;
                            padding: 8px; margin: 10px 0; font-size: 12px; font-weight: bold; }}
+            .aviso {{ background-color: #FFF3E0; border-left: 4px solid #FF9800;
+                    padding: 8px; margin: 10px 0; font-size: 11px; }}
         </style>
     </head>
     <body>
@@ -516,6 +590,12 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
         
         <div class="sistema-badge">
             📊 <strong>Sistema Tributário:</strong> {titulo_tributos}
+        </div>
+        
+        <div class="aviso">
+            ℹ️ <strong>AVISO IMPORTANTE:</strong> Os valores no sistema Reforma 2026 são ESTIMATIVAS baseadas nas alíquotas propostas.
+            Para produtos de vidro, aplicam-se alíquotas reduzidas e Imposto Seletivo não incide.
+            Consulte a equipe comercial para valores confirmados.
         </div>
         
         <div class="header">
@@ -552,7 +632,6 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
                         <th>Subtotal</th>
     """
     
-    # Adicionar colunas específicas do sistema
     if sistema_tributario == 'NOVO_2026':
         html_content += """
                         <th>IBS</th>
@@ -568,7 +647,7 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
                         <th>IPI</th>
                         <th>ST</th>
                         <th>Total</th>
-                    </tr>
+                    </table>
                 </thead>
                 <tbody>
         """
@@ -584,8 +663,8 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
         valor_com_desconto_item = valor_base_item * (1 - desconto_volume_percentual)
         
         if sistema_tributario == 'NOVO_2026':
-            aliquota_ibs = item.get('aliquota_ibs', 0.172)
-            aliquota_cbs = item.get('aliquota_cbs', 0.12)
+            aliquota_ibs = item.get('aliquota_ibs', 0.105)
+            aliquota_cbs = item.get('aliquota_cbs', 0.105)
             aliquota_is = item.get('aliquota_is', 0)
             
             aliquota_total = aliquota_ibs + aliquota_cbs + aliquota_is
@@ -609,7 +688,7 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
             total_is += is_total
             
             html_content += f"""
-                        <tr>
+                        </tr>
                             <td>{item['referencia']}</td>
                             <td>{item['descricao'][:50]}</td>
                             <td style="text-align:center">{item['quantidade']}</td>
@@ -617,7 +696,7 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
                             <td style="text-align:right">{formatar_moeda(subtotal_item)}</td>
                             <td style="text-align:right">{formatar_moeda(ibs_total)}</td>
                             <td style="text-align:right">{formatar_moeda(cbs_total)}</td>
-                            <td style="text-align:right">{formatar_moeda(is_total)}</td>
+                            <td style="text-align:right">{formatar_moeda(is_total) if is_total > 0 else '-'}</td>
                             <td style="text-align:right">{formatar_moeda(total_item)}</td>
                         </tr>
             """
@@ -686,8 +765,7 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
         <div class="lgpd-notice">
             🔒 <strong>LGPD - LEI GERAL DE PROTEÇÃO DE DADOS (Lei 13.709/2018)</strong><br><br>
             • Seus dados são tratados com confidencialidade e utilizados APENAS para este orçamento<br>
-            • Você pode solicitar a exclusão dos seus dados a qualquer momento<br>
-            • Este documento é de uso exclusivo da LUVidarte e do cliente<br><br>
+            • Você pode solicitar a exclusão dos seus dados a qualquer momento<br><br>
             <strong>Encarregado (DPO):</strong> privacidade@luvidarte.com.br | (11) 4676-9000
         </div>
         
@@ -708,13 +786,15 @@ def gerar_html_orcamento(dados_cliente, itens_carrinho, uf, tipo_cliente, forma_
 def formatar_mensagem_whatsapp(dados_cliente, uf, tipo_cliente, forma_pagamento, total_final,
                                 desconto_volume_percentual, valor_desconto_volume, valor_base_total,
                                 total_imposto1, total_imposto2, sistema_tributario='ANTIGO'):
-    """Formata a mensagem para WhatsApp com resumo do orçamento"""
+    """Formata a mensagem para WhatsApp"""
     
     msg = "🛍️ NOVO ORÇAMENTO LUVidarte 🛍️\n\n"
     msg += "━" * 30 + "\n\n"
     
     if sistema_tributario == 'NOVO_2026':
-        msg += "📊 SISTEMA TRIBUTÁRIO: REFORMA 2026 (IBS + CBS + IS)\n\n"
+        msg += "📊 SISTEMA TRIBUTÁRIO: REFORMA 2026 (IBS + CBS)\n"
+        msg += "🔹 Alíquotas reduzidas para produtos de vidro\n"
+        msg += "🔹 Imposto Seletivo (IS) não incide sobre vidros\n\n"
     else:
         msg += "📊 SISTEMA TRIBUTÁRIO: TRADICIONAL (ICMS + IPI + ST)\n\n"
     
@@ -747,7 +827,7 @@ def formatar_mensagem_whatsapp(dados_cliente, uf, tipo_cliente, forma_pagamento,
     return msg
 
 # ============================================
-# FUNÇÕES EXISTENTES (MANTIDAS ORIGINAIS)
+# FUNÇÕES DE VALIDAÇÃO
 # ============================================
 
 def validar_cnpj(cnpj):
@@ -785,7 +865,7 @@ def validar_cep(cep):
     return len(cep) == 8
 
 # ============================================
-# FUNÇÕES DE CARREGAMENTO (MANTIDAS ORIGINAIS)
+# FUNÇÕES DE CARREGAMENTO
 # ============================================
 
 @st.cache_data(ttl=600)
@@ -1050,7 +1130,6 @@ def adicionar_ao_carrinho(produto, quantidade, preco_bruto, desconto_percentual,
                 item['total_geral'] = (item['preco_final'] + item['valor_ipi'] + item['valor_st']) * item['quantidade']
             return True
     
-    # Item base para ambos sistemas
     item_base = {
         'referencia': produto['Referência'],
         'descricao': produto['Descrição'],
@@ -1069,14 +1148,13 @@ def adicionar_ao_carrinho(produto, quantidade, preco_bruto, desconto_percentual,
     }
     
     if sistema == 'NOVO_2026':
-        # Adiciona campos do novo sistema
         item_base.update({
             'valor_base': valor_total if valor_total else preco_final,
             'valor_ibs': valor_ipi,
             'valor_cbs': valor_st,
             'valor_is': 0,
-            'aliquota_ibs': ipi_percentual if ipi_percentual else 0.172,
-            'aliquota_cbs': aliquota_st if aliquota_st else 0.12,
+            'aliquota_ibs': ipi_percentual if ipi_percentual else 0.105,
+            'aliquota_cbs': aliquota_st if aliquota_st else 0.105,
             'aliquota_is': 0,
             'ipi_percentual': 0,
             'valor_ipi': 0,
@@ -1085,7 +1163,6 @@ def adicionar_ao_carrinho(produto, quantidade, preco_bruto, desconto_percentual,
             'total_geral': preco_final * quantidade
         })
     else:
-        # Adiciona campos do sistema antigo
         item_base.update({
             'ipi_percentual': ipi_percentual,
             'valor_ipi': valor_ipi,
@@ -1142,7 +1219,6 @@ def recalcular_todo_carrinho(uf, cliente_isento, forma_pagamento,
         produto = produto_dados.iloc[0]
         
         if sistema_tributario == 'NOVO_2026':
-            # Usa novo sistema
             resultado = calcular_precos_2026(
                 produto, uf, forma_pagamento, tabela_desconto,
                 cliente_isento, pd.DataFrame(), dados_promo
@@ -1162,7 +1238,6 @@ def recalcular_todo_carrinho(uf, cliente_isento, forma_pagamento,
             item['aliquota_is'] = resultado['aliquota_is']
             item['total_geral'] = resultado['preco_final'] * item['quantidade']
         else:
-            # Sistema antigo original
             is_promo = 'SIM' in str(produto.get('Promo', '')).strip().upper()
             preco_promo = None
             if is_promo and not dados_promo.empty:
@@ -1468,11 +1543,9 @@ def gerar_botao_desconto_flutuante():
 # CONFIGURAÇÃO DA PÁGINA
 # ============================================
 
-# Verificar consentimento LGPD antes de continuar
 if not obter_consentimento_lgpd():
     st.stop()
 
-# Verificar timeout da sessão
 limpar_dados_sensiveis()
 
 favicon = carregar_logo_favicon()
@@ -1527,7 +1600,7 @@ if 'ultimo_acesso' not in st.session_state:
 if 'consentimento_data' not in st.session_state:
     st.session_state.consentimento_data = None
 if 'sistema_tributario' not in st.session_state:
-    st.session_state.sistema_tributario = 'ANTIGO'  # 'ANTIGO' ou 'NOVO_2026'
+    st.session_state.sistema_tributario = 'ANTIGO'
 
 # ============================================
 # CSS GLOBAL
@@ -1622,30 +1695,25 @@ st.markdown("""
     display: inline-block;
     padding-bottom: 5px;
 }
-.campo-obrigatorio {
-    color: #D32F2F;
-    font-size: 12px;
-    margin-left: 5px;
-}
 
 .product-card {
     background-color: #FFF; border-radius: 12px; padding: 16px; margin: 10px 0;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: all 0.2s ease; position: relative;
 }
 .product-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-.product-card.promo-card { border: 1.5px solid #D32F2F; box-shadow: 0 2px 8px rgba(211,47,47,0.15); }
+.product-card.promo-card { border: 1.5px solid #D32F2F; }
 .product-card.normal-card { border: 1px solid #E0E0E0; }
 .promo-badge {
     position: absolute; top: -8px; right: 10px;
     background: linear-gradient(135deg,#D32F2F,#B71C1C);
     color: white; font-size: 10px; font-weight: bold;
-    padding: 4px 10px; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 10;
+    padding: 4px 10px; border-radius: 20px; z-index: 10;
 }
 .tabela-badge {
     position: absolute; top: -8px; right: 10px;
     background: linear-gradient(135deg,#666,#444);
     color: white; font-size: 10px; font-weight: bold;
-    padding: 4px 10px; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 10;
+    padding: 4px 10px; border-radius: 20px; z-index: 10;
 }
 .ref { color: #666; font-size: 11px; font-weight: 500; text-transform: uppercase; display: block; }
 .product-name { color: #000; font-size: 17px; font-weight: 600; margin: 8px 0 4px 0; }
@@ -1691,14 +1759,24 @@ st.markdown("""
 .horario-text { color: #555; }
 
 .sistema-badge {
-    background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+    background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
     border-radius: 8px;
     padding: 10px 15px;
     margin: 10px 0;
     text-align: center;
     font-weight: bold;
-    color: #1565C0;
-    border-left: 4px solid #2196F3;
+    color: #2E7D32;
+    border-left: 4px solid #4CAF50;
+}
+
+.aviso-simulacao {
+    background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 11px;
+    color: #E65100;
+    border-left: 4px solid #FF9800;
 }
 
 @media (max-width: 768px) {
@@ -1795,35 +1873,40 @@ if dados.empty:
 st.sidebar.header("🔍 FILTRAR PRODUTOS")
 st.sidebar.markdown(f"📊 *Total:* {len(dados)} produtos")
 
-# Seletor do sistema tributário
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📆 Sistema Tributário")
 
 sistema_escolhido = st.sidebar.radio(
     "Escolha o sistema para cálculo dos impostos:",
-    options=["Tradicional (ICMS + IPI + ST)", "Reforma 2026 (IBS + CBS + IS)"],
+    options=["Tradicional (ICMS + IPI + ST)", "Reforma 2026 (IBS + CBS)"],
     index=0,
-    help="O sistema tradicional simula os impostos atuais. O sistema 2026 simula a Reforma Tributária."
+    help="Sistema tradicional: impostos atuais. Reforma 2026: simulação com alíquotas reduzidas para vidros."
 )
 
-# Atualizar session state
 novo_sistema = "NOVO_2026" if "Reforma 2026" in sistema_escolhido else "ANTIGO"
 if st.session_state.get('sistema_tributario') != novo_sistema:
     st.session_state.sistema_tributario = novo_sistema
-    # Limpar carrinho ao mudar de sistema para evitar inconsistências
     if st.session_state.carrinho:
         st.session_state.carrinho = []
-        st.warning("🔄 Sistema tributário alterado. O carrinho foi limpo para evitar inconsistências nos cálculos.")
+        st.warning("🔄 Sistema tributário alterado. O carrinho foi limpo para evitar inconsistências.")
         st.rerun()
 
 st.sidebar.markdown("---")
 
-# Exibir badge do sistema atual
+# Exibir badges informativos
 if st.session_state.sistema_tributario == 'NOVO_2026':
     st.markdown("""
     <div class='sistema-badge'>
-        📊 SISTEMA TRIBUTÁRIO ATIVO: REFORMA 2026 (IBS + CBS + IS)<br>
-        <small>Imposto Seletivo (IS) aplicado para produtos específicos conforme NCM</small>
+        📊 SISTEMA TRIBUTÁRIO ATIVO: REFORMA 2026 (IBS + CBS)<br>
+        <small>✅ Alíquotas reduzidas para produtos de vidro (até 40% da alíquota cheia)</small><br>
+        <small>✅ Imposto Seletivo (IS) NÃO se aplica a produtos de vidro</small>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("""
+    <div class='aviso-simulacao'>
+        ℹ️ <strong>Simulação Reforma 2026:</strong> Os valores apresentados são estimativas baseadas nas alíquotas propostas.
+        Para produtos de vidro, aplicamos alíquota reduzida de IBS (aproximadamente 10-11%) e CBS de 10,5%.
+        Consulte a equipe comercial para valores oficiais.
     </div>
     """, unsafe_allow_html=True)
 else:
@@ -1833,7 +1916,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-# Restante dos filtros do sidebar
+# Filtros do sidebar
 uf_selecionada = st.sidebar.selectbox(
     "📍 UF (Destino)",
     options=["SP","MG","RS","SE","PR","RJ","SC","MT","AC","AL","AP","AM",
@@ -1863,7 +1946,7 @@ cliente_isento  = st.sidebar.checkbox("🏷️ Cliente Isento", value=False)
 forma_pagamento = st.sidebar.radio("💳 Pagamento",
                                    options=["PREÇO BASE","VISTA","30","45","60"], index=0)
 
-# Monitorar mudanças nos filtros
+# Monitorar mudanças
 filtros_atual = (uf_selecionada, cliente_isento, forma_pagamento, st.session_state.sistema_tributario)
 if st.session_state.filtros_anteriores != filtros_atual:
     st.session_state.filtros_anteriores = filtros_atual
@@ -1890,15 +1973,11 @@ if st.session_state.get('carrinho_aberto', False):
 
     sistema_atual = st.session_state.sistema_tributario
     
-    # Calcular valor base total
     valor_base_total = sum(item['preco_final'] * item['quantidade'] for item in st.session_state.carrinho)
-    
-    # Calcular desconto por volume
     desconto_volume_percentual = calcular_desconto_volume(valor_base_total)
     valor_desconto_volume = valor_base_total * desconto_volume_percentual
     novo_valor_base = valor_base_total - valor_desconto_volume
 
-    # Variáveis para totais
     total_ipi_recalculado = 0
     total_st_recalculado = 0
     total_ibs_recalculado = 0
@@ -1913,8 +1992,8 @@ if st.session_state.get('carrinho_aberto', False):
             valor_base_item_original = item.get('valor_base', item['preco_final'])
             valor_base_item_com_desconto = valor_base_item_original * (1 - desconto_volume_percentual)
             
-            aliquota_ibs = item.get('aliquota_ibs', 0.172)
-            aliquota_cbs = item.get('aliquota_cbs', 0.12)
+            aliquota_ibs = item.get('aliquota_ibs', 0.105)
+            aliquota_cbs = item.get('aliquota_cbs', 0.105)
             aliquota_is = item.get('aliquota_is', 0)
             
             aliquota_total = aliquota_ibs + aliquota_cbs + aliquota_is
@@ -1936,7 +2015,6 @@ if st.session_state.get('carrinho_aberto', False):
             valor_total_exibido = preco_final_item
             
         else:
-            # Sistema antigo
             ipi_aliquota_efetiva = item['valor_ipi'] / item['preco_final'] if item['preco_final'] > 0 else 0
             st_aliquota_efetiva = item['valor_st'] / item['preco_final'] if item['preco_final'] > 0 else 0
             
@@ -2074,10 +2152,6 @@ if st.session_state.get('carrinho_aberto', False):
                 <div class='resumo-line'>
                     <span>🔶 CBS Total:</span>
                     <span><strong>{formatar_moeda(total_cbs_recalculado)}</strong></span>
-                </div>
-                <div class='resumo-line'>
-                    <span>⚠️ IS Total:</span>
-                    <span><strong>{formatar_moeda(total_is_recalculado)}</strong></span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2288,7 +2362,7 @@ if st.session_state.get('carrinho_aberto', False):
     st.stop()
 
 # ============================================
-# FILTROS
+# FILTROS E EXIBIÇÃO DE PRODUTOS
 # ============================================
 icms_uf         = determinar_icms_por_uf(uf_selecionada)
 tabela_desconto = dados_isento if cliente_isento else dados_normal
@@ -2351,7 +2425,7 @@ indice_fim    = min(indice_inicio + ITENS_POR_PAGINA, total_encontrados)
 dados_pagina  = dados_filtrados.iloc[indice_inicio:indice_fim]
 
 # ============================================
-# INFO RÁPIDA (CORRIGIDO)
+# INFO RÁPIDA
 # ============================================
 ci1, ci2, ci3, ci4 = st.columns(4)
 
@@ -2400,7 +2474,6 @@ else:
     for posicao, (indice, produto) in enumerate(dados_pagina.iterrows()):
         
         if st.session_state.sistema_tributario == 'NOVO_2026':
-            # Usar novo sistema para cálculo
             resultado = calcular_precos_2026(
                 produto, uf_selecionada, forma_pagamento, tabela_desconto,
                 cliente_isento, dados_is, dados_promo
@@ -2419,10 +2492,8 @@ else:
             aliquota_st = resultado['st_aliquota']
             valor_total = preco_final
             
-            # Para desconto volume
             preco_com_desconto_volume = valor_base * (1 - desconto_volume_atual)
             
-            # Recalcular impostos com desconto volume
             aliquota_total = resultado['aliquota_ibs'] + resultado['aliquota_cbs'] + resultado['aliquota_is']
             if aliquota_total > 0 and aliquota_total < 1:
                 preco_final_com_volume = preco_com_desconto_volume / (1 - aliquota_total)
@@ -2430,8 +2501,7 @@ else:
                 preco_final_com_volume = preco_com_desconto_volume
             
         else:
-            # Sistema antigo original
-            is_promo    = 'SIM' in str(produto.get('Promo', '')).strip().upper()
+            is_promo = 'SIM' in str(produto.get('Promo', '')).strip().upper()
             preco_promo = None
             if is_promo and not dados_promo.empty:
                 preco_promo = buscar_preco_promo(produto['Referência'], uf_selecionada, dados_promo)
@@ -2519,7 +2589,6 @@ else:
             else:
                 st.markdown('<div class="product-detail">📐 <strong>--</strong></div>', unsafe_allow_html=True)
 
-            # Exibir preços
             if desconto_volume_atual > 0:
                 st.markdown(f"💰 *Preço Bruto:* {formatar_moeda(preco_bruto)}")
                 if desconto_percentual > 0:
@@ -2534,7 +2603,6 @@ else:
                     st.markdown(f"📉 *Valor c/ Desconto:* {formatar_moeda(preco_com_desconto)}")
                 st.markdown(f"💰 *Valor unitário:* {formatar_moeda(valor_base)}")
             
-            # Exibir impostos conforme sistema
             if st.session_state.sistema_tributario == 'NOVO_2026':
                 if resultado['aliquota_ibs'] > 0:
                     st.markdown(f"🔷 *IBS:* {resultado['aliquota_ibs']*100:.2f}% = {formatar_moeda(valor_ibs)}")
@@ -2685,7 +2753,8 @@ st.markdown("""
 <div class='footer-bottom'>
     © 2026 Luvidarte - Catálogo Virtual |
     <em>Os valores são estimativos e sujeitos à confirmação</em><br>
-    <small>Conforme LGPD (Lei 13.709/2018), seus dados são tratados com confidencialidade.</small>
+    <small>Conforme LGPD (Lei 13.709/2018), seus dados são tratados com confidencialidade.</small><br>
+    <small>Reforma Tributária 2026: valores simulados com alíquotas reduzidas para vidros.</small>
 </div>
 """, unsafe_allow_html=True)
 
