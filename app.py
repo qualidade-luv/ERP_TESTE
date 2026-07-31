@@ -2619,189 +2619,6 @@ if aba_selecionada == 'PRENSADOS':
     try:
         client = get_gspread_client()
         if client is not None:
-            sheet_calc = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO).worksheet('TRS_CALCULADO')
-            dados_calc = sheet_calc.get_all_values()
-            if len(dados_calc) > 1:
-                cabecalho_calc = dados_calc[0]
-                # Encontrar índice da coluna AP_TEMPERA
-                idx_ap_tempera = None
-                for i, col in enumerate(cabecalho_calc):
-                    if col.upper().strip() == 'AP_TEMPERA':
-                        idx_ap_tempera = i
-                        break
-                
-                if idx_ap_tempera is not None:
-                    # Criar dicionário com dados de AP_TEMPERA por referência/data
-                    dados_tempera = {}
-                    for row in dados_calc[1:]:
-                        if len(row) > idx_ap_tempera and row[0] and row[1]:
-                            # Usar DATA + REFERÊNCIA como chave composta
-                            chave = f"{row[1].strip()}_{row[0].strip()}"
-                            try:
-                                valor = float(row[idx_ap_tempera].strip().replace(',', '.')) if row[idx_ap_tempera].strip() else 0
-                                dados_tempera[chave] = valor
-                            except:
-                                pass
-                    
-                    # Adicionar coluna TEMPERADO ao df_base_calc
-                    df_base_calc['TEMPERADO'] = df_base_calc.apply(
-                        lambda row: dados_tempera.get(
-                            f"{row['DATA'].strftime('%d/%m/%Y') if pd.notna(row['DATA']) else ''}_{row.get('REFERÊNCIA', '')}", 
-                            0
-                        ),
-                        axis=1
-                    )
-                    
-                    # Converter para numérico
-                    df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['TEMPERADO'], errors='coerce').fillna(0)
-                else:
-                    df_base_calc['TEMPERADO'] = 0
-                    st.info("ℹ️ Coluna AP_TEMPERA não encontrada na aba TRS_CALCULADO")
-            else:
-                df_base_calc['TEMPERADO'] = 0
-        else:
-            df_base_calc['TEMPERADO'] = 0
-    except Exception as e:
-        df_base_calc['TEMPERADO'] = 0
-        st.warning(f"⚠️ Não foi possível carregar dados de TEMPERADO: {str(e)[:100]}")
-
-    # Calcular TRS
-    if 'TRS 100%' in df_base_calc.columns:
-        df_base_calc['TRS 1ª ESCOLHA (%)'] = df_base_calc.apply(
-            lambda row: (row['APROVADO'] / row['TRS 100%'] * 100) if row['TRS 100%'] != 0 else 0, axis=1
-        )
-        df_base_calc['TRS FINAL (%)'] = df_base_calc.apply(
-            lambda row: (row['EMBALADO'] / row['TRS 100%'] * 100) if row['TRS 100%'] != 0 else 0, axis=1
-        )
-    else:
-        df_base_calc['TRS 1ª ESCOLHA (%)'] = 0
-        df_base_calc['TRS FINAL (%)'] = 0
-
-    # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE TÊMPERA =====
-    colunas_defeitos_tempera = [
-        'EMPENADA', 'OVALIZADA T', 'QUEBRA RESFRIAMENTO T', 'EMPENADA T',
-        'QUEBRA T', 'IMPACTO T', 'QUARENTENA T', 'TESTE FURAÇÃO T',
-        'PROCESSOS ANTERIORES T'
-    ]
-    
-    # Mapear colunas existentes no DataFrame
-    defeitos_tempera_existentes = []
-    for col_def in colunas_defeitos_tempera:
-        for col_df in df_base_calc.columns:
-            if col_df.upper().strip() == col_def.upper().strip():
-                defeitos_tempera_existentes.append(col_df)
-                break
-    
-    # Melhores TRS histórico (mantido)
-    melhores_trs_historico = {}
-    if 'REFERÊNCIA' in df_base_calc.columns:
-        for ref in df_base_calc['REFERÊNCIA'].unique():
-            ref_df = df_base_calc[df_base_calc['REFERÊNCIA'] == ref]
-            if not ref_df.empty:
-                max_trs = ref_df['TRS FINAL (%)'].max()
-                if max_trs > 0:
-                    melhores_trs_historico[ref] = max_trs
-
-    # ===== SIDEBAR FILTROS =====
-    with st.sidebar:
-        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin:20px 0 10px;border-top:1px solid {THEME['border_bright']};padding-top:16px'>▸ Filtros · Prensados</div>", unsafe_allow_html=True)
-        filtro_melhores_trs = st.checkbox("Melhores TRS por Referência", value=False)
-        data_ini = st.date_input("Data inicial", value=None, key="prensados_data_ini")
-        data_fim = st.date_input("Data final", value=None, key="prensados_data_fim")
-        turno = st.selectbox("Turno", options=["(Todos)", "M", "T", "N"], key="prensados_turno")
-        referencia = st.text_input("Referência (parte do código)", key="prensados_ref")
-        prensa_tipo = st.selectbox("Tipo de prensa", ["(Todos)", "Semi-Automática", "Automática"], key="prensados_tipo")
-        
-        # NOVO: Filtro por faixa de TRS
-        st.markdown("---")
-        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_yellow']};'>▸ Filtro TRS</div>", unsafe_allow_html=True)
-        faixa_trs = st.selectbox(
-            "Faixa de TRS Final",
-            ["(Todas)", "Excelente (>85%)", "Bom (70-85%)", "Regular (50-70%)", "Crítico (<50%)"],
-            key="prensados_faixa_trs"
-        )
-        
-        st.markdown("---")
-        mostrar_defeitos = st.checkbox("Somatório de Defeitos", value=True, key="prensados_defeitos")
-        qtd = st.number_input("Linhas na tabela (0 = todas)", min_value=0, max_value=5000, value=0, step=10, key="prensados_qtd")
-
-    # ===== APLICAR FILTROS =====
-    df = df_base_calc.copy()
-    
-    if data_ini:
-        df = df[df['DATA'] >= pd.to_datetime(data_ini)]
-    if data_fim:
-        df = df[df['DATA'] <= pd.to_datetime(data_fim)]
-    if turno != "(Todos)" and 'TURNO' in df.columns:
-        df = df[df['TURNO'].fillna('').str.upper() == turno.upper()]
-    if referencia and 'REFERÊNCIA' in df.columns:
-        df = df[df['REFERÊNCIA'].fillna('').str.lower().str.contains(referencia.lower())]
-    if prensa_tipo != "(Todos)" and 'BOQUETA' in df.columns:
-        if "Semi" in prensa_tipo:
-            df = df[df['BOQUETA'] == 1]
-        elif "Auto" in prensa_tipo:
-            df = df[df['BOQUETA'] == 2]
-    
-    # Filtro por faixa de TRS
-    if faixa_trs != "(Todas)" and 'TRS FINAL (%)' in df.columns:
-        if faixa_trs == "Excelente (>85%)":
-            df = df[df['TRS FINAL (%)'] > 85]
-        elif faixa_trs == "Bom (70-85%)":
-            df = df[(df['TRS FINAL (%)'] >= 70) & (df['TRS FINAL (%)'] <= 85)]
-        elif faixa_trs == "Regular (50-70%)":
-            df = df[(df['TRS FINAL (%)'] >= 50) & (df['TRS FINAL (%)'] < 70)]
-        elif faixa_trs == "Crítico (<50%)":
-            df = df[df['TRS FINAL (%)'] < 50]
-
-    # ===== KPIs =====
-    if not df.empty:
-        for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO', 'TEMPERADO']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        total_prod = int(df['PRODUZIDO'].sum())
-        total_apro = int(df['APROVADO'].sum())
-        total_embal = int(df['EMBALADO'].sum()) if 'EMBALADO' in df.columns else 0
-        total_meta = int(df['TRS 100%'].sum()) if 'TRS 100%' in df.columns else 0
-        total_temperado = int(df['TEMPERADO'].sum()) if 'TEMPERADO' in df.columns else 0
-        
-        trs_primeira_escolha = (total_apro / total_meta * 100) if total_meta else 0
-        trs_final_total = (total_embal / total_meta * 100) if total_meta else 0
-    else:
-        total_prod = total_apro = total_embal = total_meta = total_temperado = trs_primeira_escolha = trs_final_total = 0
-
-    # ===== PAGE HEADER =====
-    render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
-
-    # ===== KPIs (7 cards - incluindo TEMPERADO) =====
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
-    with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
-    with c3: render_kpi_card("Meta Líqu# ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
-# ==================================================================================================
-if aba_selecionada == 'PRENSADOS':
-    with st.spinner("Carregando dados..."):
-        df_base = carregar_dados_prensados()
-
-    if df_base.empty:
-        st.warning("Não foi possível carregar os dados.")
-        st.stop()
-
-    # ===== PROCESSAMENTO INICIAL DOS DADOS =====
-    df_base_calc = df_base.copy()
-    
-    # Converter colunas numéricas
-    colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO']
-    for col in colunas_numericas:
-        if col in df_base_calc.columns:
-            df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
-
-    # ===== NOVA COLUNA: TEMPERADO =====
-    # Buscar dados da coluna AP_TEMPERA na aba TRS_CALCULADO
-    try:
-        client = get_gspread_client()
-        if client is not None:
             # Tentar abrir a planilha
             spreadsheet = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO)
             
@@ -2829,8 +2646,7 @@ if aba_selecionada == 'PRENSADOS':
                         dados_tempera = {}
                         for row in dados_calc[1:]:
                             if len(row) > idx_ap_tempera and row[0] and row[1]:
-                                # Usar D_TEMPERA + ? como chave composta
-                                # row[0] = FIFO, row[1] = D_TEMPERA, row[2] = AP_TEMPERA
+                                # Usar D_TEMPERA + FIFO como chave composta
                                 chave = f"{row[1].strip()}_{row[0].strip()}"
                                 try:
                                     valor = float(row[idx_ap_tempera].strip().replace(',', '.')) if row[idx_ap_tempera].strip() else 0
@@ -3757,7 +3573,7 @@ if aba_selecionada == 'PRENSADOS':
         df_def_temp_sum = df_def_temp_sum[df_def_temp_sum > 0]
         
         if not df_def_temp_sum.empty:
-            # Gráfico de barras
+            # Gráfico de barras (sem pizza)
             altura_grafico_temp = max(4, len(df_def_temp_sum) * 0.35)
             
             fig, ax = plt.subplots(figsize=(12, altura_grafico_temp), facecolor=THEME['bg_card'])
