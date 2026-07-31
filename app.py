@@ -2600,9 +2600,9 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
+# PRENSADOS
 # ==================================================================================================
-elif aba_selecionada == 'PRENSADOS':
+if aba_selecionada == 'PRENSADOS':
     with st.spinner("Carregando dados..."):
         df_base = carregar_dados_prensados()
 
@@ -2610,67 +2610,12 @@ elif aba_selecionada == 'PRENSADOS':
         st.warning("Não foi possível carregar os dados.")
         st.stop()
 
-    # ===== PROCESSAMENTO INICIAL DOS DADOS =====
     df_base_calc = df_base.copy()
-    
-    # Converter colunas numéricas
     colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO']
     for col in colunas_numericas:
         if col in df_base_calc.columns:
             df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
 
-    # ===== NOVA COLUNA: TEMPERADO =====
-    # Buscar dados da coluna AP_TEMPERA na aba TRS_CALCULADO
-    try:
-        client = get_gspread_client()
-        if client is not None:
-            sheet_calc = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO).worksheet('TRS_CALCULADO')
-            dados_calc = sheet_calc.get_all_values()
-            if len(dados_calc) > 1:
-                cabecalho_calc = dados_calc[0]
-                # Encontrar índice da coluna AP_TEMPERA
-                idx_ap_tempera = None
-                for i, col in enumerate(cabecalho_calc):
-                    if col.upper().strip() == 'AP_TEMPERA':
-                        idx_ap_tempera = i
-                        break
-                
-                if idx_ap_tempera is not None:
-                    # Criar dicionário com dados de AP_TEMPERA por referência/data
-                    dados_tempera = {}
-                    for row in dados_calc[1:]:
-                        if len(row) > idx_ap_tempera and row[0] and row[1]:
-                            # Usar DATA + REFERÊNCIA como chave composta
-                            chave = f"{row[1].strip()}_{row[0].strip()}"
-                            try:
-                                valor = float(row[idx_ap_tempera].strip().replace(',', '.')) if row[idx_ap_tempera].strip() else 0
-                                dados_tempera[chave] = valor
-                            except:
-                                pass
-                    
-                    # Adicionar coluna TEMPERADO ao df_base_calc
-                    df_base_calc['TEMPERADO'] = df_base_calc.apply(
-                        lambda row: dados_tempera.get(
-                            f"{row['DATA'].strftime('%d/%m/%Y') if pd.notna(row['DATA']) else ''}_{row.get('REFERÊNCIA', '')}", 
-                            0
-                        ),
-                        axis=1
-                    )
-                    
-                    # Converter para numérico
-                    df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['TEMPERADO'], errors='coerce').fillna(0)
-                else:
-                    df_base_calc['TEMPERADO'] = 0
-                    st.info("ℹ️ Coluna AP_TEMPERA não encontrada na aba TRS_CALCULADO")
-            else:
-                df_base_calc['TEMPERADO'] = 0
-        else:
-            df_base_calc['TEMPERADO'] = 0
-    except Exception as e:
-        df_base_calc['TEMPERADO'] = 0
-        st.warning(f"⚠️ Não foi possível carregar dados de TEMPERADO: {str(e)[:100]}")
-
-    # Calcular TRS
     if 'TRS 100%' in df_base_calc.columns:
         df_base_calc['TRS 1ª ESCOLHA (%)'] = df_base_calc.apply(
             lambda row: (row['APROVADO'] / row['TRS 100%'] * 100) if row['TRS 100%'] != 0 else 0, axis=1
@@ -2682,22 +2627,6 @@ elif aba_selecionada == 'PRENSADOS':
         df_base_calc['TRS 1ª ESCOLHA (%)'] = 0
         df_base_calc['TRS FINAL (%)'] = 0
 
-    # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE TÊMPERA =====
-    colunas_defeitos_tempera = [
-        'EMPENADA', 'OVALIZADA T', 'QUEBRA RESFRIAMENTO T', 'EMPENADA T',
-        'QUEBRA T', 'IMPACTO T', 'QUARENTENA T', 'TESTE FURAÇÃO T',
-        'PROCESSOS ANTERIORES T'
-    ]
-    
-    # Mapear colunas existentes no DataFrame
-    defeitos_tempera_existentes = []
-    for col_def in colunas_defeitos_tempera:
-        for col_df in df_base_calc.columns:
-            if col_df.upper().strip() == col_def.upper().strip():
-                defeitos_tempera_existentes.append(col_df)
-                break
-    
-    # Melhores TRS histórico (mantido)
     melhores_trs_historico = {}
     if 'REFERÊNCIA' in df_base_calc.columns:
         for ref in df_base_calc['REFERÊNCIA'].unique():
@@ -2707,7 +2636,7 @@ elif aba_selecionada == 'PRENSADOS':
                 if max_trs > 0:
                     melhores_trs_historico[ref] = max_trs
 
-    # ===== SIDEBAR FILTROS =====
+    # Sidebar filtros PRENSADOS
     with st.sidebar:
         st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin:20px 0 10px;border-top:1px solid {THEME['border_bright']};padding-top:16px'>▸ Filtros · Prensados</div>", unsafe_allow_html=True)
         filtro_melhores_trs = st.checkbox("Melhores TRS por Referência", value=False)
@@ -2716,23 +2645,11 @@ elif aba_selecionada == 'PRENSADOS':
         turno = st.selectbox("Turno", options=["(Todos)", "M", "T", "N"], key="prensados_turno")
         referencia = st.text_input("Referência (parte do código)", key="prensados_ref")
         prensa_tipo = st.selectbox("Tipo de prensa", ["(Todos)", "Semi-Automática", "Automática"], key="prensados_tipo")
-        
-        # NOVO: Filtro por faixa de TRS
-        st.markdown("---")
-        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_yellow']};'>▸ Filtro TRS</div>", unsafe_allow_html=True)
-        faixa_trs = st.selectbox(
-            "Faixa de TRS Final",
-            ["(Todas)", "Excelente (>85%)", "Bom (70-85%)", "Regular (50-70%)", "Crítico (<50%)"],
-            key="prensados_faixa_trs"
-        )
-        
-        st.markdown("---")
         mostrar_defeitos = st.checkbox("Somatório de Defeitos", value=True, key="prensados_defeitos")
         qtd = st.number_input("Linhas na tabela (0 = todas)", min_value=0, max_value=5000, value=0, step=10, key="prensados_qtd")
 
-    # ===== APLICAR FILTROS =====
-    df = df_base_calc.copy()
-    
+    # Aplicar filtros
+    df = df_base.copy()
     if data_ini:
         df = df[df['DATA'] >= pd.to_datetime(data_ini)]
     if data_fim:
@@ -2746,21 +2663,10 @@ elif aba_selecionada == 'PRENSADOS':
             df = df[df['BOQUETA'] == 1]
         elif "Auto" in prensa_tipo:
             df = df[df['BOQUETA'] == 2]
-    
-    # Filtro por faixa de TRS
-    if faixa_trs != "(Todas)" and 'TRS FINAL (%)' in df.columns:
-        if faixa_trs == "Excelente (>85%)":
-            df = df[df['TRS FINAL (%)'] > 85]
-        elif faixa_trs == "Bom (70-85%)":
-            df = df[(df['TRS FINAL (%)'] >= 70) & (df['TRS FINAL (%)'] <= 85)]
-        elif faixa_trs == "Regular (50-70%)":
-            df = df[(df['TRS FINAL (%)'] >= 50) & (df['TRS FINAL (%)'] < 70)]
-        elif faixa_trs == "Crítico (<50%)":
-            df = df[df['TRS FINAL (%)'] < 50]
 
-    # ===== KPIs =====
+    # KPIs
     if not df.empty:
-        for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO', 'TEMPERADO']:
+        for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
@@ -2768,31 +2674,29 @@ elif aba_selecionada == 'PRENSADOS':
         total_apro = int(df['APROVADO'].sum())
         total_embal = int(df['EMBALADO'].sum()) if 'EMBALADO' in df.columns else 0
         total_meta = int(df['TRS 100%'].sum()) if 'TRS 100%' in df.columns else 0
-        total_temperado = int(df['TEMPERADO'].sum()) if 'TEMPERADO' in df.columns else 0
         
         trs_primeira_escolha = (total_apro / total_meta * 100) if total_meta else 0
         trs_final_total = (total_embal / total_meta * 100) if total_meta else 0
     else:
-        total_prod = total_apro = total_embal = total_meta = total_temperado = trs_primeira_escolha = trs_final_total = 0
+        total_prod = total_apro = total_embal = total_meta = trs_primeira_escolha = trs_final_total = 0
 
-    # ===== PAGE HEADER =====
+    # Page header
     render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
 
-    # ===== KPIs (7 cards - incluindo TEMPERADO) =====
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    # KPIs (6 cards)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
     with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
     with c3: render_kpi_card("Meta Líquida", f"{total_meta:,}".replace(",","."), THEME['accent_purple'], "◈")
     with c4: render_kpi_card("Embalado", f"{total_embal:,}".replace(",","."), THEME['accent_yellow'], "◈")
-    with c5: render_kpi_card("Temperado", f"{total_temperado:,}".replace(",","."), THEME['accent_orange'], "🔥")
-    with c6:
+    with c5:
         trs_primeira_cor = THEME['accent_lime'] if trs_primeira_escolha >= 85 else THEME['accent_orange'] if trs_primeira_escolha >= 70 else THEME['accent_red']
         render_kpi_card("TRS 1ª Escolha", f"{trs_primeira_escolha:.1f}%", trs_primeira_cor, "◎")
-    with c7:
+    with c6:
         trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
         render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
 
-    # ===== TABELA DE PRODUÇÃO COM COLUNA TEMPERADO =====
+    # Tabela de produção
     render_section_header("Tabela de Produção", "▸")
 
     if not df.empty:
@@ -2817,7 +2721,7 @@ elif aba_selecionada == 'PRENSADOS':
         df_display = df_view.copy()
         df_display['DATA'] = pd.to_datetime(df_display['DATA']).dt.strftime('%d/%m/%Y')
 
-        for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'REFUGADO', 'TRS 100%', 'TEMPERADO']:
+        for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'REFUGADO', 'TRS 100%']:
             if col in df_display.columns:
                 df_display[col] = df_display[col].apply(lambda x: int(round(x)) if pd.notnull(x) else 0)
                 df_display[col] = df_display[col].apply(lambda x: f"{x:,}".replace(",", "."))
@@ -2827,8 +2731,7 @@ elif aba_selecionada == 'PRENSADOS':
         if 'TRS FINAL (%)' in df_display.columns:
             df_display['TRS FINAL (%)'] = df_display['TRS FINAL (%)'].apply(lambda x: f"{x:.2f}%")
 
-        # Colunas para exibição - incluindo TEMPERADO após APROVADO
-        colunas_exibir = ['DATA', 'REFERÊNCIA', 'TURNO', 'PRODUZIDO', 'APROVADO', 'TEMPERADO', 'TRS 100%', 'EMBALADO', 'REFUGADO', 'TRS 1ª ESCOLHA (%)', 'TRS FINAL (%)']
+        colunas_exibir = ['DATA', 'REFERÊNCIA', 'TURNO', 'PRODUZIDO', 'APROVADO', 'TRS 100%', 'EMBALADO', 'REFUGADO', 'TRS 1ª ESCOLHA (%)', 'TRS FINAL (%)']
         if 'ANALISE' in df_display.columns:
             colunas_exibir.append('ANALISE')
         colunas_exibir = [col for col in colunas_exibir if col in df_display.columns]
@@ -2838,7 +2741,7 @@ elif aba_selecionada == 'PRENSADOS':
         if not filtro_melhores_trs:
             st.caption("▸ Dourado: Melhor TRS Final Histórico por referência   ▸ Verde: Análise registrada")
 
-    # ===== GRÁFICO TRS DIÁRIO =====
+    # Gráfico TRS Diário
     render_section_header("Evolução Diária do TRS", "▸")
 
     if not df.empty and 'TRS 100%' in df.columns:
@@ -2846,10 +2749,6 @@ elif aba_selecionada == 'PRENSADOS':
         for col in ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%']:
             if col in df.columns:
                 colunas_agg[col] = 'sum'
-        
-        # Adicionar TEMPERADO se existir
-        if 'TEMPERADO' in df.columns:
-            colunas_agg['TEMPERADO'] = 'sum'
         
         if colunas_agg:
             resumo_dia = df.groupby(df['DATA'].dt.date).agg(colunas_agg).reset_index()
@@ -2891,7 +2790,7 @@ elif aba_selecionada == 'PRENSADOS':
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # ===== MANUAL VS AUTOMÁTICA =====
+    # Manual vs Automática
     render_section_header("Desempenho por Tipo de Prensa", "▸")
     col1, col2 = st.columns(2)
 
@@ -2904,14 +2803,13 @@ elif aba_selecionada == 'PRENSADOS':
                 t_ap_m = df_manual['APROVADO'].sum()
                 t_emb_m = df_manual['EMBALADO'].sum()
                 t_mt_m = df_manual['TRS 100%'].sum() if 'TRS 100%' in df_manual.columns else 1
-                t_temp_m = df_manual['TEMPERADO'].sum() if 'TEMPERADO' in df_manual.columns else 0
                 trs1_m = (t_ap_m / t_mt_m * 100) if t_mt_m > 0 else 0
                 trs_final_m = (t_emb_m / t_mt_m * 100) if t_mt_m > 0 else 0
                 prod_m = df_manual['PRODUZIDO'].sum()
                 
                 trs_color_m = THEME['accent_lime'] if trs1_m >= 85 else THEME['accent_orange'] if trs1_m >= 70 else THEME['accent_red']
                 render_kpi_card("TRS 1ª Escolha — Manual", f"{trs1_m:.1f}%", trs_color_m)
-                st.caption(f"TRS Final: {trs_final_m:.1f}% | Produção: {prod_m:,.0f} un | Temperado: {t_temp_m:,.0f}".replace(",","."))
+                st.caption(f"TRS Final: {trs_final_m:.1f}% | Produção: {prod_m:,.0f} un".replace(",","."))
             else:
                 st.info("Sem dados para Prensa Manual")
 
@@ -2924,23 +2822,24 @@ elif aba_selecionada == 'PRENSADOS':
                 t_ap_a = df_auto['APROVADO'].sum()
                 t_emb_a = df_auto['EMBALADO'].sum()
                 t_mt_a = df_auto['TRS 100%'].sum() if 'TRS 100%' in df_auto.columns else 1
-                t_temp_a = df_auto['TEMPERADO'].sum() if 'TEMPERADO' in df_auto.columns else 0
                 trs1_a = (t_ap_a / t_mt_a * 100) if t_mt_a > 0 else 0
                 trs_final_a = (t_emb_a / t_mt_a * 100) if t_mt_a > 0 else 0
                 prod_a = df_auto['PRODUZIDO'].sum()
                 
                 trs_color_a = THEME['accent_lime'] if trs1_a >= 85 else THEME['accent_orange'] if trs1_a >= 70 else THEME['accent_red']
                 render_kpi_card("TRS 1ª Escolha — Automática", f"{trs1_a:.1f}%", trs_color_a)
-                st.caption(f"TRS Final: {trs_final_a:.1f}% | Produção: {prod_a:,.0f} un | Temperado: {t_temp_a:,.0f}".replace(",","."))
+                st.caption(f"TRS Final: {trs_final_a:.1f}% | Produção: {prod_a:,.0f} un".replace(",","."))
             else:
                 st.info("Sem dados para Prensa Automática")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # ===== ANÁLISE DE PARADAS =====
+    # ==================================================================
+    # ANÁLISE DE PARADAS - COM HORAS TRABALHADAS PRODUTIVAS NO PIZZA
+    # ==================================================================
     render_section_header("Análise de Paradas", "▸")
 
-    # 1. HORAS TRABALHADAS PRODUTIVAS
+    # 1. HORAS TRABALHADAS PRODUTIVAS = soma direta da coluna HORAS TOTAIS
     horas_trabalhadas_produtivas = 0
     if 'HORAS_TOTAIS_MIN' in df.columns:
         horas_trabalhadas_produtivas = df['HORAS_TOTAIS_MIN'].sum()
@@ -2952,11 +2851,11 @@ elif aba_selecionada == 'PRENSADOS':
                 horas_trabalhadas_produtivas = df['HORAS_TOTAIS_MIN'].sum()
                 break
 
-    # 2. ERROS DE PROCESSO
+    # 2. ERROS DE PROCESSO = soma da coluna ACERTOS (ignorando 02:45:00)
     total_acertos = 0
     if 'ACERTOS_MIN' in df.columns:
         def filtrar_acertos(val):
-            if val == 165:
+            if val == 165:  # 02:45:00 = 165 minutos
                 return 0
             return val
         
@@ -2969,7 +2868,7 @@ elif aba_selecionada == 'PRENSADOS':
                 total_acertos = df['ACERTOS_MIN'].apply(filtrar_acertos).sum()
                 break
 
-    # 3. MANUTENÇÃO
+    # 3. MANUTENÇÃO = soma da coluna MANUT.
     total_manut = 0
     if 'MANUT_MIN' in df.columns:
         total_manut = df['MANUT_MIN'].sum()
@@ -2981,9 +2880,10 @@ elif aba_selecionada == 'PRENSADOS':
                 total_manut = df['MANUT_MIN'].sum()
                 break
 
+    # Calcular Horas Produtivas para o gráfico de pizza
     horas_produtivas = max(0, horas_trabalhadas_produtivas - (total_acertos + total_manut))
 
-    # Cards de paradas
+    # Exibir APENAS 3 cards (Horas Trabalhadas Produtivas, Erros, Manutenção)
     p1, p2, p3 = st.columns(3)
     with p1: 
         render_kpi_card(
@@ -3004,7 +2904,7 @@ elif aba_selecionada == 'PRENSADOS':
             THEME['accent_red']
         )
 
-    # Gráfico de barras empilhadas
+    # Gráfico de barras empilhadas: Manual vs Automática
     col1, col2 = st.columns(2)
 
     with col1:
@@ -3053,6 +2953,7 @@ elif aba_selecionada == 'PRENSADOS':
             plt.close(fig)
 
     with col2:
+        # GRÁFICO DE PIZZA - Usando a SOMA DOS 3 CARDS como 100%
         total_geral = horas_trabalhadas_produtivas + total_acertos + total_manut
         
         if total_geral > 0:
@@ -3102,22 +3003,29 @@ elif aba_selecionada == 'PRENSADOS':
         else:
             st.info("Sem dados de tempo para exibir")
 
-    # ===== GRÁFICOS MENSAIS MANUAL E AUTOMÁTICA =====
+    # ==================================================================
+    # NOVOS GRÁFICOS: MANUAL E AUTOMÁTICA - MÊS A MÊS
+    # ==================================================================
     st.markdown("<hr>", unsafe_allow_html=True)
     render_section_header("📊 Evolução Mensal de Erros e Manutenção por Tipo de Prensa", "▸")
 
+    # Função para filtrar acertos (ignorar 02:45:00)
     def filtrar_acertos_para_grafico(valor):
+        """Retorna 0 se o valor for 02:45:00 (165 minutos), senão retorna o valor original"""
         if valor == 165:
             return 0
         return valor
 
+    # Verificar se temos dados para ambos os tipos
     if 'BOQUETA' in df.columns and 'ACERTOS_MIN' in df.columns and 'MANUT_MIN' in df.columns:
+        # Criar coluna de mês/ano
         df['MES_ANO'] = df['DATA'].dt.to_period('M').astype(str)
         
+        # Separar dados por tipo de prensa
         df_manual = df[df['BOQUETA'] == 1].copy()
         df_auto = df[df['BOQUETA'] == 2].copy()
         
-        # MANUAL
+        # ==== GRÁFICO MANUAL ====
         st.markdown(f"""
         <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;
             color:{THEME['accent_cyan']};margin:10px 0 5px;font-weight:bold;">
@@ -3126,10 +3034,13 @@ elif aba_selecionada == 'PRENSADOS':
         """, unsafe_allow_html=True)
         
         if not df_manual.empty:
+            # Agrupar por mês
             agg_manual = df_manual.groupby('MES_ANO').agg({
                 'ACERTOS_MIN': lambda x: x.apply(filtrar_acertos_para_grafico).sum(),
                 'MANUT_MIN': 'sum'
             }).reset_index()
+            
+            # Ordenar por mês
             agg_manual = agg_manual.sort_values('MES_ANO')
             
             if not agg_manual.empty:
@@ -3146,6 +3057,7 @@ elif aba_selecionada == 'PRENSADOS':
                               label='Manutenção', color=THEME['accent_red'], 
                               alpha=0.85, edgecolor='white', linewidth=1.5)
                 
+                # Adicionar valores nas barras
                 for bars in [bars1, bars2]:
                     for bar in bars:
                         height = bar.get_height()
@@ -3158,6 +3070,7 @@ elif aba_selecionada == 'PRENSADOS':
                 ax.set_xticklabels(agg_manual['MES_ANO'], fontsize=10, fontweight='bold')
                 ax.legend(loc='upper left', fontsize=10)
                 
+                # Ajustar limites
                 max_valor = max(agg_manual['ACERTOS_MIN'].max(), agg_manual['MANUT_MIN'].max())
                 if max_valor > 0:
                     ax.set_ylim(0, max_valor * 1.2)
@@ -3166,6 +3079,7 @@ elif aba_selecionada == 'PRENSADOS':
                 st.pyplot(fig)
                 plt.close(fig)
                 
+                # Mostrar total do período
                 total_acertos_m = agg_manual['ACERTOS_MIN'].sum()
                 total_manut_m = agg_manual['MANUT_MIN'].sum()
                 st.caption(f"📊 Total Manual: Erros Processo: {minutos_para_horas_str(int(total_acertos_m))} | Manutenção: {minutos_para_horas_str(int(total_manut_m))}")
@@ -3176,7 +3090,7 @@ elif aba_selecionada == 'PRENSADOS':
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # AUTOMÁTICA
+        # ==== GRÁFICO AUTOMÁTICA ====
         st.markdown(f"""
         <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;
             color:{THEME['accent_purple']};margin:10px 0 5px;font-weight:bold;">
@@ -3185,10 +3099,13 @@ elif aba_selecionada == 'PRENSADOS':
         """, unsafe_allow_html=True)
         
         if not df_auto.empty:
+            # Agrupar por mês
             agg_auto = df_auto.groupby('MES_ANO').agg({
                 'ACERTOS_MIN': lambda x: x.apply(filtrar_acertos_para_grafico).sum(),
                 'MANUT_MIN': 'sum'
             }).reset_index()
+            
+            # Ordenar por mês
             agg_auto = agg_auto.sort_values('MES_ANO')
             
             if not agg_auto.empty:
@@ -3205,6 +3122,7 @@ elif aba_selecionada == 'PRENSADOS':
                               label='Manutenção', color=THEME['accent_red'], 
                               alpha=0.85, edgecolor='white', linewidth=1.5)
                 
+                # Adicionar valores nas barras
                 for bars in [bars1, bars2]:
                     for bar in bars:
                         height = bar.get_height()
@@ -3217,6 +3135,7 @@ elif aba_selecionada == 'PRENSADOS':
                 ax.set_xticklabels(agg_auto['MES_ANO'], fontsize=10, fontweight='bold')
                 ax.legend(loc='upper left', fontsize=10)
                 
+                # Ajustar limites
                 max_valor = max(agg_auto['ACERTOS_MIN'].max(), agg_auto['MANUT_MIN'].max())
                 if max_valor > 0:
                     ax.set_ylim(0, max_valor * 1.2)
@@ -3225,6 +3144,7 @@ elif aba_selecionada == 'PRENSADOS':
                 st.pyplot(fig)
                 plt.close(fig)
                 
+                # Mostrar total do período
                 total_acertos_a = agg_auto['ACERTOS_MIN'].sum()
                 total_manut_a = agg_auto['MANUT_MIN'].sum()
                 st.caption(f"📊 Total Automática: Erros Processo: {minutos_para_horas_str(int(total_acertos_a))} | Manutenção: {minutos_para_horas_str(int(total_manut_a))}")
@@ -3233,7 +3153,12 @@ elif aba_selecionada == 'PRENSADOS':
         else:
             st.info("📭 Nenhum dado disponível para Prensa Automática")
 
-    # ===== GRÁFICO POR TURNO =====
+    else:
+        st.warning("⚠️ Dados insuficientes para gerar os gráficos mensais. Verifique as colunas 'BOQUETA', 'ACERTOS_MIN' e 'MANUT_MIN'.")
+
+    # ==================================================================
+    # GRÁFICO DE COLUNAS POR TURNO (Horas Trabalhadas, Erros, Manutenção) + TRS (linha)
+    # ==================================================================
     if not df.empty and 'TURNO' in df.columns:
         render_section_header("Tempo de Parada x Produtividade (TRS)", "▸")
         
@@ -3404,7 +3329,7 @@ elif aba_selecionada == 'PRENSADOS':
             
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # ===== TRS POR TURNO =====
+    # TRS por Turno
     if not df.empty and 'TURNO' in df.columns and 'TRS 100%' in df.columns:
         render_section_header("TRS por Turno", "▸")
         turno_data = []
@@ -3448,7 +3373,7 @@ elif aba_selecionada == 'PRENSADOS':
             st.pyplot(fig)
             plt.close(fig)
 
-    # ===== DEFEITOS DE PRENSADOS =====
+    # Defeitos de Prensados
     if mostrar_defeitos:
         render_section_header("Estratificação de Defeitos - Prensados", "▸")
         colunas_defeitos_prensados = [
@@ -3484,7 +3409,7 @@ elif aba_selecionada == 'PRENSADOS':
                 altura_grafico = max(4, len(df_def_sum) * 0.35)
                 
                 fig, ax = plt.subplots(figsize=(12, altura_grafico), facecolor=THEME['bg_card'])
-                apply_chart_style(ax, fig, "Defeitos de Prensados — Somatório", ylabel="Quantidade")
+                apply_chart_style(ax, fig, "Defeitos — Somatório", ylabel="Quantidade")
                 
                 bars = ax.barh(range(len(df_def_sum)), df_def_sum.values,
                               color=THEME['accent_red'], alpha=0.8,
@@ -3508,9 +3433,9 @@ elif aba_selecionada == 'PRENSADOS':
                 plt.close(fig)
                 
                 total_def = df_def_sum.sum()
-                st.caption(f"**Total de defeitos de Prensados:** {int(total_def):,}".replace(",","."))
+                st.caption(f"**Total de defeitos:** {int(total_def):,}".replace(",","."))
                 
-                with st.expander("📊 Ver tabela detalhada de defeitos de Prensados"):
+                with st.expander("📊 Ver tabela detalhada de defeitos"):
                     tabela_defeitos = pd.DataFrame({
                         'Defeito': df_def_sum.index,
                         'Quantidade': df_def_sum.values.astype(int),
@@ -3520,7 +3445,7 @@ elif aba_selecionada == 'PRENSADOS':
                     st.dataframe(tabela_defeitos, use_container_width=True, hide_index=True)
                     
                     if len(df_def_sum) > 1:
-                        st.markdown("**📈 Top 5 Defeitos de Prensados**")
+                        st.markdown("**📈 Top 5 Defeitos**")
                         top5 = df_def_sum.head(5)
                         outros_total = df_def_sum.iloc[5:].sum() if len(df_def_sum) > 5 else 0
                         
@@ -3547,107 +3472,15 @@ elif aba_selecionada == 'PRENSADOS':
                             autotext.set_color('white')
                             autotext.set_fontweight('bold')
                             autotext.set_fontsize(10)
-                        ax2.set_title('Distribuição dos Defeitos de Prensados (Top 5)', fontweight='bold', fontsize=12)
+                        ax2.set_title('Distribuição dos Defeitos (Top 5)', fontweight='bold', fontsize=12)
                         fig2.tight_layout()
                         st.pyplot(fig2)
                         plt.close(fig2)
             else:
-                st.info("📭 Nenhum defeito de Prensados registrado no período selecionado")
+                st.info("📭 Nenhum defeito registrado no período selecionado")
         else:
-            st.warning("⚠️ Colunas de defeitos de Prensados não encontradas na planilha")
-
-    # ===== NOVA SEÇÃO: DEFEITOS SETOR DE TÊMPERA =====
-    if defeitos_tempera_existentes:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        render_section_header("Defeitos Setor de Têmpera", "🔥", THEME['accent_orange'])
-        
-        # Calcular somatório dos defeitos de têmpera
-        df_def_temp = df[defeitos_tempera_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
-        df_def_temp_sum = df_def_temp.sum().sort_values(ascending=False)
-        df_def_temp_sum = df_def_temp_sum[df_def_temp_sum > 0]
-        
-        if not df_def_temp_sum.empty:
-            # Gráfico de barras
-            altura_grafico_temp = max(4, len(df_def_temp_sum) * 0.35)
-            
-            fig, ax = plt.subplots(figsize=(12, altura_grafico_temp), facecolor=THEME['bg_card'])
-            apply_chart_style(ax, fig, "Defeitos Setor de Têmpera — Somatório", ylabel="Quantidade", accent=THEME['accent_orange'])
-            
-            # Definir cores personalizadas para defeitos de têmpera
-            cores_temp = ['#E86C2C' if 'RESFRIAMENTO' in idx or 'EMPENADA' in idx else 
-                         '#FF6B35' if 'IMPACTO' in idx else 
-                         '#FFB900' if 'QUARENTENA' in idx else 
-                         '#0078D4' for idx in df_def_temp_sum.index]
-            
-            bars = ax.barh(range(len(df_def_temp_sum)), df_def_temp_sum.values,
-                          color=cores_temp, alpha=0.8,
-                          edgecolor=THEME['bg_card'], linewidth=1.2)
-            
-            ax.set_yticks(range(len(df_def_temp_sum)))
-            ax.set_yticklabels(df_def_temp_sum.index, fontsize=9, color=THEME['text_muted'])
-            ax.invert_yaxis()
-            
-            max_valor_temp = df_def_temp_sum.max() if len(df_def_temp_sum) > 0 else 1
-            for bar, val in zip(bars, df_def_temp_sum.values):
-                if val > 0:
-                    ax.text(bar.get_width() + (max_valor_temp * 0.01), 
-                           bar.get_y() + bar.get_height()/2,
-                           f"{int(val):,}".replace(",","."), 
-                           va='center', fontsize=9, color=THEME['text_primary'])
-            
-            ax.set_xlabel("Quantidade", fontsize=10, color=THEME['text_muted'])
-            fig.tight_layout(pad=1.5)
-            st.pyplot(fig)
-            plt.close(fig)
-            
-            total_def_temp = df_def_temp_sum.sum()
-            st.caption(f"🔥 **Total de defeitos do Setor de Têmpera:** {int(total_def_temp):,}".replace(",","."))
-            
-            # Tabela detalhada
-            with st.expander("📊 Ver tabela detalhada de defeitos da Têmpera", expanded=False):
-                tabela_temp = pd.DataFrame({
-                    'Defeito': df_def_temp_sum.index,
-                    'Quantidade': df_def_temp_sum.values.astype(int),
-                    '% do Total': (df_def_temp_sum.values / total_def_temp * 100).round(1)
-                })
-                tabela_temp['% do Total'] = tabela_temp['% do Total'].astype(str) + '%'
-                st.dataframe(tabela_temp, use_container_width=True, hide_index=True)
-                
-                # Gráfico de pizza dos defeitos de têmpera
-                if len(df_def_temp_sum) > 1:
-                    st.markdown("**📈 Distribuição dos Defeitos da Têmpera**")
-                    top5_temp = df_def_temp_sum.head(5)
-                    outros_total_temp = df_def_temp_sum.iloc[5:].sum() if len(df_def_temp_sum) > 5 else 0
-                    
-                    dados_pizza_temp = []
-                    labels_pizza_temp = []
-                    for idx, (defeito, qtd) in enumerate(top5_temp.items()):
-                        dados_pizza_temp.append(qtd)
-                        labels_pizza_temp.append(f"{defeito}\n({qtd:.0f})")
-                    if outros_total_temp > 0:
-                        dados_pizza_temp.append(outros_total_temp)
-                        labels_pizza_temp.append(f"Outros\n({outros_total_temp:.0f})")
-                    
-                    fig2, ax2 = plt.subplots(figsize=(6, 6), facecolor=THEME['bg_card'])
-                    cores_pizza_temp = ['#E86C2C', '#FF6B35', '#FFB900', '#0078D4', '#6B46C1', '#107C10']
-                    wedges, texts, autotexts = ax2.pie(
-                        dados_pizza_temp, 
-                        labels=labels_pizza_temp,
-                        colors=cores_pizza_temp[:len(dados_pizza_temp)],
-                        autopct='%1.0f%%',
-                        startangle=90,
-                        textprops={'fontsize': 9}
-                    )
-                    for autotext in autotexts:
-                        autotext.set_color('white')
-                        autotext.set_fontweight('bold')
-                        autotext.set_fontsize(10)
-                    ax2.set_title('Distribuição dos Defeitos da Têmpera', fontweight='bold', fontsize=12)
-                    fig2.tight_layout()
-                    st.pyplot(fig2)
-                    plt.close(fig2)
-        else:
-            st.info("📭 Nenhum defeito do setor de Têmpera registrado no período selecionado")
+            st.warning("⚠️ Colunas de defeitos não encontradas na planilha de Prensados")
+            st.caption(f"Colunas disponíveis na planilha: {', '.join(list(df.columns)[:15])}...")
 
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
