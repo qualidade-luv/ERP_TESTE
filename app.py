@@ -2756,7 +2756,7 @@ if aba_selecionada == 'PRENSADOS':
         trs_primeira_cor = THEME['accent_lime'] if trs_primeira_escolha >= 85 else THEME['accent_orange'] if trs_primeira_escolha >= 70 else THEME['accent_red']
         render_kpi_card("TRS 1ª Escolha", f"{trs_primeira_escolha:.1f}%", trs_primeira_cor, "◎")
     with c7:
-        trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
+        trs_final_cor = THEME['accent_yellow'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
         render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
 
     # ===== TABELA DE PRODUÇÃO COM COLUNA TEMPERADO =====
