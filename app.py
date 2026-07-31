@@ -2624,9 +2624,9 @@ if aba_selecionada == 'PRENSADOS':
             
             # Tentar acessar a aba TRS_CALCULADO
             try:
-                sheet_calc = spreadsheet.worksheet('TRS_CALCULADO')
+                sheet_calc = spreadsheet.worksheet('TRS_INDUSTRIAL')
             except Exception as e:
-                st.warning(f"⚠️ Aba 'TRS_CALCULADO' não encontrada. Erro: {e}")
+                st.warning(f"⚠️ Aba 'TRS_INDUSTRIAL' não encontrada. Erro: {e}")
                 df_base_calc['TEMPERADO'] = 0
                 sheet_calc = None
             
