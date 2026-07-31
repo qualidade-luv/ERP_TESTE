@@ -2618,10 +2618,8 @@ if aba_selecionada == 'PRENSADOS':
     # A coluna AP_TEMPERA já está no DataFrame, basta usá-la
     if 'AP_TEMPERA' in df_base_calc.columns:
         df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['AP_TEMPERA'], errors='coerce').fillna(0)
-        st.info(f"✅ Coluna AP_TEMPERA encontrada! {len(df_base_calc[df_base_calc['TEMPERADO'] > 0])} registros com temperatura carregados.")
     else:
         df_base_calc['TEMPERADO'] = 0
-        st.warning("⚠️ Coluna AP_TEMPERA não encontrada na planilha. Verifique se o nome da coluna está correto.")
 
     # Calcular TRS
     if 'TRS 100%' in df_base_calc.columns:
@@ -2648,6 +2646,22 @@ if aba_selecionada == 'PRENSADOS':
         for col_df in df_base_calc.columns:
             if col_df.upper().strip() == col_def.upper().strip():
                 defeitos_tempera_existentes.append(col_df)
+                break
+
+    # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE EMBALAGEM =====
+    colunas_defeitos_embalagem = [
+        'BOLHA E', 'PEDRA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
+        'DOBRA E', 'FARINHA E', 'QUEBRA E', 'ARREADO E', 'VIDRO GRUDADO E',
+        'CONTRA-PEÇA E', 'FALHA E', 'CHUPADO E', 'ÓLEO TESOURA E',
+        'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
+    ]
+    
+    # Mapear colunas existentes no DataFrame
+    defeitos_embalagem_existentes = []
+    for col_def in colunas_defeitos_embalagem:
+        for col_df in df_base_calc.columns:
+            if col_df.upper().strip() == col_def.upper().strip():
+                defeitos_embalagem_existentes.append(col_df)
                 break
     
     # Melhores TRS histórico (mantido)
@@ -3564,6 +3578,101 @@ if aba_selecionada == 'PRENSADOS':
                 st.dataframe(tabela_temp, use_container_width=True, hide_index=True)
         else:
             st.info("📭 Nenhum defeito do setor de Têmpera registrado no período selecionado")
+
+    # ===== SEÇÃO DEFEITOS DA EMBALAGEM =====
+    if defeitos_embalagem_existentes:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        render_section_header("Defeitos da Embalagem", "📦", THEME['accent_lime'])
+        
+        # Calcular somatório dos defeitos de embalagem
+        df_def_emb = df[defeitos_embalagem_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
+        df_def_emb_sum = df_def_emb.sum().sort_values(ascending=False)
+        df_def_emb_sum = df_def_emb_sum[df_def_emb_sum > 0]
+        
+        if not df_def_emb_sum.empty:
+            # Gráfico de barras
+            altura_grafico_emb = max(4, len(df_def_emb_sum) * 0.35)
+            
+            fig, ax = plt.subplots(figsize=(12, altura_grafico_emb), facecolor=THEME['bg_card'])
+            apply_chart_style(ax, fig, "Defeitos da Embalagem — Somatório", ylabel="Quantidade", accent=THEME['accent_lime'])
+            
+            # Definir cores personalizadas para defeitos de embalagem
+            cores_emb = ['#107C10' if 'BOLHA' in idx or 'PEDRA' in idx else 
+                         '#0078D4' if 'TRINCA' in idx or 'RUGA' in idx else 
+                         '#E86C2C' if 'CORTE' in idx or 'DOBRA' in idx else 
+                         '#FFB900' if 'QUEBRA' in idx or 'FALHA' in idx else 
+                         '#6B46C1' if 'CHUPADO' in idx or 'CROMO' in idx else 
+                         '#E81123' for idx in df_def_emb_sum.index]
+            
+            bars = ax.barh(range(len(df_def_emb_sum)), df_def_emb_sum.values,
+                          color=cores_emb, alpha=0.8,
+                          edgecolor=THEME['bg_card'], linewidth=1.2)
+            
+            ax.set_yticks(range(len(df_def_emb_sum)))
+            ax.set_yticklabels(df_def_emb_sum.index, fontsize=9, color=THEME['text_muted'])
+            ax.invert_yaxis()
+            
+            max_valor_emb = df_def_emb_sum.max() if len(df_def_emb_sum) > 0 else 1
+            for bar, val in zip(bars, df_def_emb_sum.values):
+                if val > 0:
+                    ax.text(bar.get_width() + (max_valor_emb * 0.01), 
+                           bar.get_y() + bar.get_height()/2,
+                           f"{int(val):,}".replace(",","."), 
+                           va='center', fontsize=9, color=THEME['text_primary'])
+            
+            ax.set_xlabel("Quantidade", fontsize=10, color=THEME['text_muted'])
+            fig.tight_layout(pad=1.5)
+            st.pyplot(fig)
+            plt.close(fig)
+            
+            total_def_emb = df_def_emb_sum.sum()
+            st.caption(f"📦 **Total de defeitos da Embalagem:** {int(total_def_emb):,}".replace(",","."))
+            
+            # Tabela detalhada
+            with st.expander("📊 Ver tabela detalhada de defeitos da Embalagem", expanded=False):
+                tabela_emb = pd.DataFrame({
+                    'Defeito': df_def_emb_sum.index,
+                    'Quantidade': df_def_emb_sum.values.astype(int),
+                    '% do Total': (df_def_emb_sum.values / total_def_emb * 100).round(1)
+                })
+                tabela_emb['% do Total'] = tabela_emb['% do Total'].astype(str) + '%'
+                st.dataframe(tabela_emb, use_container_width=True, hide_index=True)
+                
+                # Gráfico de pizza dos defeitos de embalagem
+                if len(df_def_emb_sum) > 1:
+                    st.markdown("**📈 Distribuição dos Defeitos da Embalagem**")
+                    top5_emb = df_def_emb_sum.head(5)
+                    outros_total_emb = df_def_emb_sum.iloc[5:].sum() if len(df_def_emb_sum) > 5 else 0
+                    
+                    dados_pizza_emb = []
+                    labels_pizza_emb = []
+                    for idx, (defeito, qtd) in enumerate(top5_emb.items()):
+                        dados_pizza_emb.append(qtd)
+                        labels_pizza_emb.append(f"{defeito}\n({qtd:.0f})")
+                    if outros_total_emb > 0:
+                        dados_pizza_emb.append(outros_total_emb)
+                        labels_pizza_emb.append(f"Outros\n({outros_total_emb:.0f})")
+                    
+                    fig2, ax2 = plt.subplots(figsize=(6, 6), facecolor=THEME['bg_card'])
+                    cores_pizza_emb = ['#107C10', '#0078D4', '#E86C2C', '#FFB900', '#6B46C1', '#E81123']
+                    wedges, texts, autotexts = ax2.pie(
+                        dados_pizza_emb, 
+                        labels=labels_pizza_emb,
+                        colors=cores_pizza_emb[:len(dados_pizza_emb)],
+                        autopct='%1.0f%%',
+                        startangle=90,
+                        textprops={'fontsize': 9}
+                    )
+                    for autotext in autotexts:
+                        autotext.set_color('white')
+                        autotext.set_fontweight('bold')
+                        autotext.set_fontsize(10)
+                    ax2.set_title('Distribuição dos Defeitos da Embalagem', fontweight='bold', fontsize=12)
+                    fig2.tight_layout()
+                    st.pyplot(fig2)
+                    plt.close(fig2)
+        else:
+            st.info("📭 Nenhum defeito da Embalagem registrado no período selecionado")
 
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
