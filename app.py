@@ -2615,70 +2615,13 @@ if aba_selecionada == 'PRENSADOS':
             df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
 
     # ===== NOVA COLUNA: TEMPERADO =====
-    # Buscar dados da coluna AP_TEMPERA na mesma aba TRS_INDUSTRIAL
-    try:
-        client = get_gspread_client()
-        if client is not None:
-            # Tentar abrir a planilha
-            spreadsheet = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO)
-            
-            # Acessar a aba TRS_INDUSTRIAL (mesma dos dados principais)
-            try:
-                sheet_calc = spreadsheet.worksheet('TRS_INDUSTRIAL')
-            except Exception as e:
-                st.warning(f"⚠️ Aba 'TRS_INDUSTRIAL' não encontrada. Erro: {e}")
-                df_base_calc['TEMPERADO'] = 0
-                sheet_calc = None
-            
-            if sheet_calc is not None:
-                dados_calc = sheet_calc.get_all_values()
-                if len(dados_calc) > 1:
-                    cabecalho_calc = dados_calc[0]
-                    # Encontrar índice da coluna AP_TEMPERA
-                    idx_ap_tempera = None
-                    for i, col in enumerate(cabecalho_calc):
-                        if col.upper().strip() == 'AP_TEMPERA':
-                            idx_ap_tempera = i
-                            break
-                    
-                    if idx_ap_tempera is not None:
-                        # Criar dicionário com dados de AP_TEMPERA por referência/data
-                        dados_tempera = {}
-                        for row in dados_calc[1:]:
-                            if len(row) > idx_ap_tempera and row[0] and row[1]:
-                                # Usar DATA + REFERÊNCIA como chave composta
-                                chave = f"{row[1].strip()}_{row[0].strip()}"
-                                try:
-                                    valor = float(row[idx_ap_tempera].strip().replace(',', '.')) if row[idx_ap_tempera].strip() else 0
-                                    dados_tempera[chave] = valor
-                                except:
-                                    pass
-                        
-                        # Adicionar coluna TEMPERADO ao df_base_calc
-                        df_base_calc['TEMPERADO'] = df_base_calc.apply(
-                            lambda row: dados_tempera.get(
-                                f"{row['DATA'].strftime('%Y-%m-%d') if pd.notna(row['DATA']) else ''}_{row.get('REFERÊNCIA', '')}", 
-                                0
-                            ),
-                            axis=1
-                        )
-                        
-                        # Converter para numérico
-                        df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['TEMPERADO'], errors='coerce').fillna(0)
-                        st.info(f"✅ Coluna AP_TEMPERA encontrada! {len(dados_tempera)} registros de temperatura carregados.")
-                    else:
-                        df_base_calc['TEMPERADO'] = 0
-                        st.info("ℹ️ Coluna AP_TEMPERA não encontrada na aba TRS_INDUSTRIAL")
-                else:
-                    df_base_calc['TEMPERADO'] = 0
-                    st.info("ℹ️ Nenhum dado encontrado na aba TRS_INDUSTRIAL")
-            else:
-                df_base_calc['TEMPERADO'] = 0
-        else:
-            df_base_calc['TEMPERADO'] = 0
-    except Exception as e:
+    # A coluna AP_TEMPERA já está no DataFrame, basta usá-la
+    if 'AP_TEMPERA' in df_base_calc.columns:
+        df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['AP_TEMPERA'], errors='coerce').fillna(0)
+        st.info(f"✅ Coluna AP_TEMPERA encontrada! {len(df_base_calc[df_base_calc['TEMPERADO'] > 0])} registros com temperatura carregados.")
+    else:
         df_base_calc['TEMPERADO'] = 0
-        st.warning(f"⚠️ Não foi possível carregar dados de TEMPERADO: {str(e)[:100]}")
+        st.warning("⚠️ Coluna AP_TEMPERA não encontrada na planilha. Verifique se o nome da coluna está correto.")
 
     # Calcular TRS
     if 'TRS 100%' in df_base_calc.columns:
@@ -2788,7 +2731,7 @@ if aba_selecionada == 'PRENSADOS':
     # ===== PAGE HEADER =====
     render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
 
-    # ===== KPIs (6 cards - REMOVIDO o gráfico de pizza do Temperado) =====
+    # ===== KPIs (6 cards - incluindo TEMPERADO) =====
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
     with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
