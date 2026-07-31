@@ -2615,14 +2615,14 @@ if aba_selecionada == 'PRENSADOS':
             df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
 
     # ===== NOVA COLUNA: TEMPERADO =====
-    # Buscar dados da coluna AP_TEMPERA na aba TRS_CALCULADO
+    # Buscar dados da coluna AP_TEMPERA na mesma aba TRS_INDUSTRIAL
     try:
         client = get_gspread_client()
         if client is not None:
             # Tentar abrir a planilha
             spreadsheet = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO)
             
-            # Tentar acessar a aba TRS_CALCULADO
+            # Acessar a aba TRS_INDUSTRIAL (mesma dos dados principais)
             try:
                 sheet_calc = spreadsheet.worksheet('TRS_INDUSTRIAL')
             except Exception as e:
@@ -2646,7 +2646,7 @@ if aba_selecionada == 'PRENSADOS':
                         dados_tempera = {}
                         for row in dados_calc[1:]:
                             if len(row) > idx_ap_tempera and row[0] and row[1]:
-                                # Usar D_TEMPERA + FIFO como chave composta
+                                # Usar DATA + REFERÊNCIA como chave composta
                                 chave = f"{row[1].strip()}_{row[0].strip()}"
                                 try:
                                     valor = float(row[idx_ap_tempera].strip().replace(',', '.')) if row[idx_ap_tempera].strip() else 0
@@ -2665,12 +2665,13 @@ if aba_selecionada == 'PRENSADOS':
                         
                         # Converter para numérico
                         df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['TEMPERADO'], errors='coerce').fillna(0)
+                        st.info(f"✅ Coluna AP_TEMPERA encontrada! {len(dados_tempera)} registros de temperatura carregados.")
                     else:
                         df_base_calc['TEMPERADO'] = 0
-                        st.info("ℹ️ Coluna AP_TEMPERA não encontrada na aba TRS_CALCULADO")
+                        st.info("ℹ️ Coluna AP_TEMPERA não encontrada na aba TRS_INDUSTRIAL")
                 else:
                     df_base_calc['TEMPERADO'] = 0
-                    st.info("ℹ️ Nenhum dado encontrado na aba TRS_CALCULADO")
+                    st.info("ℹ️ Nenhum dado encontrado na aba TRS_INDUSTRIAL")
             else:
                 df_base_calc['TEMPERADO'] = 0
         else:
