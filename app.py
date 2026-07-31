@@ -2581,17 +2581,12 @@ with st.sidebar:
 
 # Verifica se o usuário está logado e se a sessão é válida
 if not verificar_acesso():
-    # Se não estiver logado, a tela de login já foi renderizada
-    # Para a execução aqui para não mostrar o resto do sistema
-    st.stop()
+    st.stop()  # Interrompe a execução se não estiver logado
 
 # Se chegou aqui, o usuário está logado e a sessão é válida
 # Remove mensagens de login antigas para não aparecerem na interface
 if 'mensagem_login' in st.session_state:
     del st.session_state.mensagem_login
-
-# Adiciona um botão de logout no sidebar (após a navegação)
-# Modifique a seção do sidebar para incluir o logout
 
 # ======================
 # RENDERIZAR POPUPS PENDENTES E VERIFICAR NOVOS REGISTROS
