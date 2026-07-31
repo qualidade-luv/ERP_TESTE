@@ -2597,10 +2597,8 @@ verificar_e_exibir_popups()
 # ==================================================================================================
 # PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
 # ==================================================================================================
-elif aba_selecionada == 'PRENSADOS':
+if aba_selecionada == 'PRENSADOS':
     with st.spinner("Carregando dados..."):
-        df_base = carregar_dados_prensados()
-
     if df_base.empty:
         st.warning("Não foi possível carregar os dados.")
         st.stop()
