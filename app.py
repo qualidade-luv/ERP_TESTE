@@ -2745,16 +2745,19 @@ if aba_selecionada == 'PRENSADOS':
     # ===== PAGE HEADER =====
     render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
 
-    # ===== KPIs (6 cards - incluindo TEMPERADO) =====
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
-    with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
-    with c3: render_kpi_card("Meta Líquida", f"{total_meta:,}".replace(",","."), THEME['accent_purple'], "◈")
-    with c4: render_kpi_card("Embalado", f"{total_embal:,}".replace(",","."), THEME['accent_yellow'], "◈")
-    with c5: render_kpi_card("Temperado", f"{total_temperado:,}".replace(",","."), THEME['accent_orange'], "🔥")
-    with c6:
-        trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
-        render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
+    # ===== KPIs (7 cards - incluindo TEMPERADO e TRS divididos) =====
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
+with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
+with c3: render_kpi_card("Meta Líquida", f"{total_meta:,}".replace(",","."), THEME['accent_purple'], "◈")
+with c4: render_kpi_card("Embalado", f"{total_embal:,}".replace(",","."), THEME['accent_yellow'], "◈")
+with c5: render_kpi_card("Temperado", f"{total_temperado:,}".replace(",","."), THEME['accent_orange'], "🔥")
+with c6:
+    trs_primeira_cor = THEME['accent_lime'] if trs_primeira_escolha >= 85 else THEME['accent_orange'] if trs_primeira_escolha >= 70 else THEME['accent_red']
+    render_kpi_card("TRS 1ª Escolha", f"{trs_primeira_escolha:.1f}%", trs_primeira_cor, "◎")
+with c7:
+    trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
+    render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
 
     # ===== TABELA DE PRODUÇÃO COM COLUNA TEMPERADO =====
     render_section_header("Tabela de Produção", "▸")
