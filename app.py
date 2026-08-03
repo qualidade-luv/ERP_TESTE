@@ -11823,8 +11823,8 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         data_limite: Optional[datetime] = None
         status: str = "SOLICITADO"
     
-        # ======================
-    # FUNÇÃO PARA UNIFICAR CÓDIGO BASE (COM DEBUG)
+    # ======================
+    # FUNÇÃO PARA UNIFICAR CÓDIGO BASE (NOVA ABORDAGEM)
     # ======================
     def unificar_codigo_base(df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -11842,14 +11842,8 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         if df.empty:
             return df
         
-        # DEBUG: Mostrar estrutura do DataFrame
-        st.write("🔍 DEBUG - Colunas do DataFrame:", list(df.columns))
-        st.write("🔍 DEBUG - Primeiras linhas:")
-        st.dataframe(df.head(5))
-        
         # Garantir que as colunas necessárias existam
         if 'CODIGO_BASE' not in df.columns:
-            st.warning("⚠️ Coluna 'CODIGO_BASE' não encontrada. Criando a partir do CODIGO...")
             df['CODIGO_BASE'] = df['CODIGO'] if 'CODIGO' in df.columns else ''
         
         if 'PEDIDO_EM_ABERTO' not in df.columns:
@@ -11862,20 +11856,13 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         df['CODIGO_BASE_NORM'] = df['CODIGO_BASE'].astype(str).str.strip()
         df['CODIGO_BASE_NORM'] = df['CODIGO_BASE_NORM'].replace(['', 'nan', 'None', '0'], '')
         
-        # DEBUG: Mostrar valores únicos do CODIGO_BASE
-        st.write("🔍 DEBUG - Valores únicos do CODIGO_BASE:", df['CODIGO_BASE_NORM'].unique().tolist())
-        
         # Identificar quais CODIGO_BASE aparecem mais de uma vez
         counts = df['CODIGO_BASE_NORM'].value_counts()
-        st.write("🔍 DEBUG - Contagem por CODIGO_BASE:", counts.to_dict())
-        
         codigos_para_unificar = counts[counts > 1].index.tolist()
         codigos_para_unificar = [c for c in codigos_para_unificar if c != '']
         
-        st.write("🔍 DEBUG - Códigos a unificar:", codigos_para_unificar)
-        
         if not codigos_para_unificar:
-            st.info("ℹ️ Nenhum código base com mais de uma ocorrência para unificar.")
+            # Se não há códigos para unificar, retorna o dataframe original
             return df
         
         # Separar registros que serão unificados
@@ -11890,18 +11877,12 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             for codigo_base in codigos_para_unificar:
                 subset = df_para_unificar[df_para_unificar['CODIGO_BASE_NORM'] == codigo_base].copy()
                 
-                st.write(f"🔍 DEBUG - Processando código base: {codigo_base}")
-                st.write(f"🔍 DEBUG - Registros encontrados: {len(subset)}")
-                
                 # Encontrar o registro principal (com CODIGO igual ao CODIGO_BASE)
                 reg_principal = subset[subset['CODIGO'].astype(str).str.strip() == codigo_base]
                 
                 if reg_principal.empty:
                     # Se não encontrar, pega o primeiro registro
                     reg_principal = subset.iloc[0:1]
-                    st.write(f"🔍 DEBUG - Usando primeiro registro como principal")
-                else:
-                    st.write(f"🔍 DEBUG - Encontrado registro principal")
                 
                 # Registros secundários (CODIGO diferente do CODIGO_BASE)
                 reg_secundarios = subset[subset['CODIGO'].astype(str).str.strip() != codigo_base]
@@ -11912,8 +11893,8 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                     'CODIGO_BASE': codigo_base,
                     'REFERENCIA': reg_principal.iloc[0].get('REFERENCIA', codigo_base) if not reg_principal.empty else codigo_base,
                     'DESCRICAO': reg_principal.iloc[0].get('DESCRICAO', '') if not reg_principal.empty else '',
-                    'ESTOQUE': reg_principal.iloc[0].get('ESTOQUE', 0) if not reg_principal.empty else 0,
-                    'PEDIDO_EM_ABERTO': int(subset['PEDIDO_EM_ABERTO'].sum()),
+                    'ESTOQUE': reg_principal.iloc[0].get('ESTOQUE', 0) if not reg_principal.empty else 0,  # APENAS o valor do principal
+                    'PEDIDO_EM_ABERTO': int(subset['PEDIDO_EM_ABERTO'].sum()),  # SOMA DE TODOS
                 }
                 
                 df_resultado.append(pd.DataFrame([nova_linha]))
@@ -11930,11 +11911,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                 df_final = df_final.drop(columns=['CODIGO_BASE_NORM'])
             
             # Ordenar
-            if 'CODIGO' in df_final.columns:
-                df_final = df_final.sort_values('CODIGO', ascending=True)
-            
-            st.success(f"✅ Unificação concluída! {len(codigos_para_unificar)} códigos unificados.")
-            st.write(f"🔍 DEBUG - Registros antes: {len(df)}, depois: {len(df_final)}")
+            df_final = df_final.sort_values('CODIGO', ascending=True)
             
             return df_final
         
