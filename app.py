@@ -11806,6 +11806,9 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     if 'termo_busca_referencia' not in st.session_state:
         st.session_state.termo_busca_referencia = ""
     
+    if 'unificar_codigo_base' not in st.session_state:
+        st.session_state.unificar_codigo_base = False
+    
     # ======================
     # DATACLASS PARA REPASSE
     # ======================
@@ -11821,7 +11824,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         status: str = "SOLICITADO"
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO - CARTEIRA
+    # FUNÇÕES DE CARREGAMENTO - CARTEIRA (COM CÓDIGO BASE)
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=600)
@@ -11860,6 +11863,8 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                 
                 if col_sem_acento in ['CODIGO', 'COD', 'ID', 'CODIGO_SISTEMA']:
                     mapa_colunas[col] = 'CODIGO'
+                elif col_sem_acento in ['CODIGO_BASE', 'COD_BASE', 'BASE', 'CODIGOBASE']:
+                    mapa_colunas[col] = 'CODIGO_BASE'
                 elif col_sem_acento in ['REFERENCIA', 'REFERÊNCIA', 'REF', 'PRODUTO', 'NOME']:
                     mapa_colunas[col] = 'REFERENCIA'
                 elif col_sem_acento in ['DESCRICAO', 'DESCRIÇÃO', 'DESC', 'DETALHE']:
@@ -11878,6 +11883,10 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             
             if 'PEDIDO_EM_ABERTO' not in df.columns:
                 df['PEDIDO_EM_ABERTO'] = 0
+            
+            # Garantir coluna CODIGO_BASE
+            if 'CODIGO_BASE' not in df.columns:
+                df['CODIGO_BASE'] = ''
             
             # Converter colunas numéricas
             colunas_numericas = ['ESTOQUE', 'PEDIDO_EM_ABERTO']
@@ -11904,6 +11913,68 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         except Exception as e:
             st.error(f"❌ Erro ao carregar dados da carteira: {str(e)}")
             return pd.DataFrame()
+    
+    # ======================
+    # FUNÇÃO PARA UNIFICAR CÓDIGO BASE
+    # ======================
+    def unificar_codigo_base(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Unifica os registros com base no CÓDIGO_BASE, somando estoque e pedidos.
+        Quando o CÓDIGO_BASE for vazio ou '0', mantém o CÓDIGO original com '-' no CÓDIGO_BASE.
+        """
+        if df.empty:
+            return df
+        
+        df_unificado = []
+        
+        # Separar registros com CÓDIGO_BASE válido (não vazio e não '0')
+        df_com_base = df[df['CODIGO_BASE'].astype(str).str.strip().notna()]
+        df_com_base = df_com_base[df_com_base['CODIGO_BASE'].astype(str).str.strip() != '']
+        df_com_base = df_com_base[df_com_base['CODIGO_BASE'].astype(str).str.strip() != '0']
+        
+        # Registros sem CÓDIGO_BASE (vazio ou '0')
+        df_sem_base = df[~df.index.isin(df_com_base.index)]
+        
+        # Unificar registros com base
+        if not df_com_base.empty:
+            # Agrupar por CÓDIGO_BASE
+            grouped = df_com_base.groupby('CODIGO_BASE').agg({
+                'ESTOQUE': 'sum',
+                'PEDIDO_EM_ABERTO': 'sum',
+                'REFERENCIA': lambda x: ' | '.join(x.unique()[:3]) + ('...' if len(x.unique()) > 3 else ''),
+                'DESCRICAO': lambda x: ' | '.join(x.unique()[:3]) + ('...' if len(x.unique()) > 3 else '')
+            }).reset_index()
+            
+            # Adicionar colunas
+            grouped['CODIGO'] = '-'  # Código sistema fica '-'
+            grouped['CODIGO_BASE_DISPLAY'] = grouped['CODIGO_BASE']
+            
+            df_unificado.append(grouped)
+        
+        # Manter registros sem base com CÓDIGO_BASE = '-'
+        if not df_sem_base.empty:
+            df_sem_base = df_sem_base.copy()
+            df_sem_base['CODIGO'] = df_sem_base['CODIGO']
+            df_sem_base['CODIGO_BASE_DISPLAY'] = '-'  # Mostrar '-' no lugar do código base
+            df_unificado.append(df_sem_base)
+        
+        if df_unificado:
+            df_result = pd.concat(df_unificado, ignore_index=True)
+            
+            # Renomear colunas para exibição
+            df_result = df_result.rename(columns={
+                'CODIGO_BASE': 'CODIGO_BASE_ORIGINAL',
+                'CODIGO_BASE_DISPLAY': 'CODIGO_BASE'
+            })
+            
+            # Ordenar por CÓDIGO_BASE (os com '-' ficam por último)
+            df_result['_sort'] = df_result['CODIGO_BASE'].apply(lambda x: 0 if x != '-' else 1)
+            df_result = df_result.sort_values(['_sort', 'CODIGO_BASE'])
+            df_result = df_result.drop(columns=['_sort'])
+            
+            return df_result
+        
+        return df
     
     # ======================
     # FUNÇÕES DE CARREGAMENTO - REPASSES
@@ -12193,17 +12264,24 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         
         if not top10.empty and len(top10) > 0:
             try:
-                top10['REFERENCIA'] = top10['REFERENCIA'].astype(str)
+                # Usar CODIGO_BASE se disponível, senão REFERENCIA
+                if 'CODIGO_BASE' in top10.columns and st.session_state.unificar_codigo_base:
+                    label_x = 'CODIGO_BASE'
+                    top10[label_x] = top10[label_x].astype(str).fillna('-')
+                else:
+                    label_x = 'REFERENCIA'
+                    top10[label_x] = top10[label_x].astype(str)
+                
                 top10[coluna_valor] = top10[coluna_valor].astype(float)
                 
                 fig = px.bar(
                     top10,
-                    x='REFERENCIA',
+                    x=label_x,
                     y=coluna_valor,
                     color=coluna_valor,
                     color_continuous_scale='Oranges' if visao == 'PEDIDOS_SISTEMA' else 'Blues',
-                    title=f'Top 10 Referências com Maior {titulo}',
-                    labels={'REFERENCIA': 'Referência', coluna_valor: label},
+                    title=f'Top 10 com Maior {titulo}',
+                    labels={label_x: 'Código Base' if label_x == 'CODIGO_BASE' else 'Referência', coluna_valor: label},
                     text=coluna_valor
                 )
                 
@@ -12300,7 +12378,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                 st.warning(f"⚠️ Não foi possível gerar o gráfico de pizza: {str(e)}")
     
     # ======================
-    # FUNÇÃO PARA RENDERIZAR CRUD DE REPASSES (CORRIGIDA)
+    # FUNÇÃO PARA RENDERIZAR CRUD DE REPASSES
     # ======================
     def renderizar_crud_repasse():
         """Renderiza o CRUD completo da aba REPASSE"""
@@ -12540,7 +12618,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         
         st.markdown("---")
         
-        # ===== TABELA DE REPASSES - CORRIGIDA =====
+        # ===== TABELA DE REPASSES =====
         if repasses_filtrados:
             dados_tabela = []
             for r in repasses_filtrados:
@@ -12564,9 +12642,8 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             
             df_repasses = pd.DataFrame(dados_tabela)
             
-            # Aplicar estilo SEM remover a coluna _status_raw
+            # Aplicar estilo
             def estilo_status(row):
-                # Acessar a coluna _status_raw que ainda está no DataFrame
                 status = row['_status_raw']
                 if status == "PRODUZIDO":
                     return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
@@ -12575,10 +12652,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                 else:
                     return ['background-color: #f8d7da; color: #721c24;'] * len(row)
             
-            # Aplicar estilo mantendo a coluna _status_raw
             styled_df = df_repasses.style.apply(estilo_status, axis=1)
-            
-            # Exibir a tabela com todas as colunas
             st.dataframe(styled_df, use_container_width=True, height=400, hide_index=True)
             
             # ===== AÇÕES =====
@@ -12676,7 +12750,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         # ===== PEDIDOS_SISTEMA e ESTOQUE_ATUAL =====
         st.markdown("### 🔍 Filtros")
         
-        col_f1, col_f2 = st.columns(2)
+        col_f1, col_f2, col_f3 = st.columns(3)
         
         with col_f1:
             if not df_carteira.empty and 'REFERENCIA' in df_carteira.columns:
@@ -12700,6 +12774,21 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             else:
                 filtro_codigo = "(Todos)"
         
+        with col_f3:
+            # Checkbox para unificar CÓDIGO BASE
+            if 'CODIGO_BASE' in df_carteira.columns and not df_carteira.empty:
+                unificar = st.checkbox(
+                    "🔗 Unificar por CÓDIGO BASE",
+                    value=st.session_state.unificar_codigo_base,
+                    key="chk_unificar_base",
+                    help="Quando ativo, soma todos os registros com o mesmo CÓDIGO_BASE. Registros sem base ficam com '-'."
+                )
+                if unificar != st.session_state.unificar_codigo_base:
+                    st.session_state.unificar_codigo_base = unificar
+                    st.rerun()
+            else:
+                st.caption("ℹ️ Coluna CÓDIGO_BASE não encontrada")
+        
         df_filtrado = df_carteira.copy()
         
         if not df_filtrado.empty:
@@ -12707,6 +12796,10 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                 df_filtrado = df_filtrado[df_filtrado['REFERENCIA'] == filtro_referencia]
             if filtro_codigo != "(Todos)":
                 df_filtrado = df_filtrado[df_filtrado['CODIGO'] == filtro_codigo]
+        
+        # Aplicar unificação se ativado
+        if st.session_state.unificar_codigo_base and 'CODIGO_BASE' in df_filtrado.columns and not df_filtrado.empty:
+            df_filtrado = unificar_codigo_base(df_filtrado)
         
         if st.session_state.visao_repasses == 'PEDIDOS_SISTEMA':
             coluna_valor = 'PEDIDO_EM_ABERTO'
@@ -12754,24 +12847,27 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         else:
             df_exibicao = df_filtrado.copy()
             
-            if 'REFERENCIA' not in df_exibicao.columns and 'DESCRICAO' in df_exibicao.columns:
-                df_exibicao['REFERENCIA'] = df_exibicao['DESCRICAO']
-            
+            # Mapeamento de colunas para exibição
             mapa_exibicao = {
                 'CODIGO': 'CÓDIGO SISTEMA',
+                'CODIGO_BASE': 'CÓDIGO BASE',
                 'REFERENCIA': 'REFERÊNCIA',
                 'DESCRICAO': 'DESCRIÇÃO',
                 'ESTOQUE': 'ESTOQUE ATUAL',
                 'PEDIDO_EM_ABERTO': 'PEDIDO SISTEMA'
             }
-            df_exibicao = df_exibicao.rename(columns=mapa_exibicao)
             
-            if st.session_state.visao_repasses == 'PEDIDOS_SISTEMA':
-                colunas_ordem = ['CÓDIGO SISTEMA', 'REFERÊNCIA', 'DESCRIÇÃO', 'ESTOQUE ATUAL', 'PEDIDO SISTEMA']
-            else:
-                colunas_ordem = ['CÓDIGO SISTEMA', 'REFERÊNCIA', 'DESCRIÇÃO', 'ESTOQUE ATUAL']
+            # Renomear apenas colunas que existem
+            for old, new in mapa_exibicao.items():
+                if old in df_exibicao.columns:
+                    df_exibicao = df_exibicao.rename(columns={old: new})
             
-            colunas_existentes = [col for col in colunas_ordem if col in df_exibicao.columns]
+            # Determinar colunas para exibição (incluindo CÓDIGO BASE após CÓDIGO SISTEMA)
+            colunas_base = ['CÓDIGO SISTEMA', 'CÓDIGO BASE', 'REFERÊNCIA', 'DESCRIÇÃO', 'ESTOQUE ATUAL']
+            if 'PEDIDO SISTEMA' in df_exibicao.columns and st.session_state.visao_repasses == 'PEDIDOS_SISTEMA':
+                colunas_base.append('PEDIDO SISTEMA')
+            
+            colunas_existentes = [col for col in colunas_base if col in df_exibicao.columns]
             df_exibicao = df_exibicao[colunas_existentes]
             
             def definir_status(row):
@@ -12799,6 +12895,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             
             df_exibicao['STATUS'] = df_exibicao.apply(definir_status, axis=1)
             
+            # Formatar colunas numéricas
             colunas_formatar = ['ESTOQUE ATUAL']
             if 'PEDIDO SISTEMA' in df_exibicao.columns:
                 colunas_formatar.append('PEDIDO SISTEMA')
@@ -12840,6 +12937,11 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         - **Repasses**: CRUD completo para gerenciar repasses de produção
         - **Estoque Atual**: Mostra o estoque disponível
         
+        **🔗 Unificação por CÓDIGO BASE:**
+        - Quando ativado, todos os registros com o mesmo CÓDIGO_BASE são somados
+        - O CÓDIGO SISTEMA fica '-' nos registros unificados
+        - Registros sem CÓDIGO_BASE (vazio ou '0') mantêm '-' no CÓDIGO BASE
+        
         **🎯 Classificação por Status:**
         - 🟢 **Suficiente**: Estoque >= Pedido
         - 🟡 **Parcial**: Estoque >= Pedido/2 e < Pedido
@@ -12854,7 +12956,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         color:{THEME['text_muted']};letter-spacing:.1em;">
         REPASSES DE PRODUÇÃO · {get_horario_brasilia()}
     </div>
-    """, unsafe_allow_html=True)  
+    """, unsafe_allow_html=True)   
     
 # ==================================================================================================
 # RENDERIZAR FAIXA DE ROLAGEM
