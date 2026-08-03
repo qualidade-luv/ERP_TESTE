@@ -11824,85 +11824,33 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         status: str = "SOLICITADO"
     
     # ======================
-    # FUNÇÃO PARA EXTRAIR CÓDIGO BASE DA REFERÊNCIA
-    # ======================
-    def extrair_codigo_base(referencia: str) -> str:
-        """
-        Extrai o código base da referência.
-        Exemplos:
-        - "1720 P TR" -> "1720 P"
-        - "1720 M TR" -> "1720 M"
-        - "10 TR" -> "10"
-        - "105 TR" -> "105"
-        - "1100 TR" -> "1100"
-        - "437/12 TR" -> "437/12"
-        """
-        if not referencia or not isinstance(referencia, str):
-            return ""
-        
-        referencia = referencia.strip()
-        import re
-        
-        # Padrão: número + espaço + letra (P ou M) + espaço + TR
-        match = re.match(r'^(\d+\s*[PM])\s+TR', referencia, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # Padrão: número + / + número + espaço + TR
-        match = re.match(r'^(\d+/\d+)\s+TR', referencia, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # Padrão: número + espaço + TR
-        match = re.match(r'^(\d+)\s+TR', referencia, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # Se não encontrar padrão, retorna a própria referência
-        return referencia
-    
-    # ======================
-    # FUNÇÃO PARA UNIFICAR CÓDIGO BASE
+    # FUNÇÃO PARA UNIFICAR CÓDIGO BASE (NOVA ABORDAGEM)
     # ======================
     def unificar_codigo_base(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Unifica os registros com base no CÓDIGO_BASE (extraído da REFERÊNCIA).
+        Unifica os registros com base no CÓDIGO_BASE.
         
         Regras:
         1. Para cada CÓDIGO_BASE que aparece mais de uma vez, cria uma linha agregada
-        2. CÓDIGO SISTEMA: mantém o valor original do código sistema
+        2. CÓDIGO SISTEMA: mantém o valor original do código sistema que tem correspondência
         3. CÓDIGO BASE: mantém o valor do código base
         4. REFERÊNCIA: herda do código sistema
         5. DESCRIÇÃO: herda do código sistema
         6. ESTOQUE ATUAL: APENAS o valor do código sistema (NÃO soma)
-        7. PEDIDO SISTEMA: SOMA de todos os registros
+        7. PEDIDO SISTEMA: SOMA de todos os registros (código sistema + código base)
         """
         if df.empty:
             return df
         
         # Garantir que as colunas necessárias existam
         if 'CODIGO_BASE' not in df.columns:
-            df['CODIGO_BASE'] = ''
+            df['CODIGO_BASE'] = df['CODIGO'] if 'CODIGO' in df.columns else ''
         
         if 'PEDIDO_EM_ABERTO' not in df.columns:
             df['PEDIDO_EM_ABERTO'] = 0
         
         if 'ESTOQUE' not in df.columns:
             df['ESTOQUE'] = 0
-        
-        # ===== CORREÇÃO: Extrair CODIGO_BASE da REFERÊNCIA quando for vazio ou "0" =====
-        df['CODIGO_BASE_ORIGINAL'] = df['CODIGO_BASE']
-        
-        # Se CODIGO_BASE for vazio, "0" ou igual ao CODIGO, extrair da REFERÊNCIA
-        mask_base_invalida = (
-            (df['CODIGO_BASE'].astype(str).str.strip() == '') |
-            (df['CODIGO_BASE'].astype(str).str.strip() == '0') |
-            (df['CODIGO_BASE'].astype(str).str.strip() == 'nan') |
-            (df['CODIGO_BASE'].astype(str).str.strip() == 'None')
-        )
-        
-        if mask_base_invalida.any() and 'REFERENCIA' in df.columns:
-            df.loc[mask_base_invalida, 'CODIGO_BASE'] = df.loc[mask_base_invalida, 'REFERENCIA'].apply(extrair_codigo_base)
         
         # Normalizar CÓDIGO_BASE
         df['CODIGO_BASE_NORM'] = df['CODIGO_BASE'].astype(str).str.strip()
@@ -11914,6 +11862,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         codigos_para_unificar = [c for c in codigos_para_unificar if c != '']
         
         if not codigos_para_unificar:
+            # Se não há códigos para unificar, retorna o dataframe original
             return df
         
         # Separar registros que serão unificados
@@ -11924,19 +11873,19 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
         
         # ===== PROCESSAR REGISTROS PARA UNIFICAR =====
         if not df_para_unificar.empty:
+            # Para cada código base que será unificado
             for codigo_base in codigos_para_unificar:
                 subset = df_para_unificar[df_para_unificar['CODIGO_BASE_NORM'] == codigo_base].copy()
                 
-                # Encontrar o registro principal (com CODIGO igual ou mais próximo do CODIGO_BASE)
+                # Encontrar o registro principal (com CODIGO igual ao CODIGO_BASE)
                 reg_principal = subset[subset['CODIGO'].astype(str).str.strip() == codigo_base]
-                
-                if reg_principal.empty:
-                    # Tentar encontrar pelo CODIGO_BASE_ORIGINAL
-                    reg_principal = subset[subset['CODIGO_BASE_ORIGINAL'].astype(str).str.strip() == codigo_base]
                 
                 if reg_principal.empty:
                     # Se não encontrar, pega o primeiro registro
                     reg_principal = subset.iloc[0:1]
+                
+                # Registros secundários (CODIGO diferente do CODIGO_BASE)
+                reg_secundarios = subset[subset['CODIGO'].astype(str).str.strip() != codigo_base]
                 
                 # Criar linha agregada
                 nova_linha = {
@@ -11944,27 +11893,25 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
                     'CODIGO_BASE': codigo_base,
                     'REFERENCIA': reg_principal.iloc[0].get('REFERENCIA', codigo_base) if not reg_principal.empty else codigo_base,
                     'DESCRICAO': reg_principal.iloc[0].get('DESCRICAO', '') if not reg_principal.empty else '',
-                    'ESTOQUE': reg_principal.iloc[0].get('ESTOQUE', 0) if not reg_principal.empty else 0,
-                    'PEDIDO_EM_ABERTO': int(subset['PEDIDO_EM_ABERTO'].sum()),
+                    'ESTOQUE': reg_principal.iloc[0].get('ESTOQUE', 0) if not reg_principal.empty else 0,  # APENAS o valor do principal
+                    'PEDIDO_EM_ABERTO': int(subset['PEDIDO_EM_ABERTO'].sum()),  # SOMA DE TODOS
                 }
                 
                 df_resultado.append(pd.DataFrame([nova_linha]))
         
         # ===== ADICIONAR REGISTROS QUE NÃO FORAM UNIFICADOS =====
         if not df_nao_unificar.empty:
-            # Remover colunas auxiliares
-            df_nao_unificar = df_nao_unificar.drop(columns=['CODIGO_BASE_ORIGINAL', 'CODIGO_BASE_NORM'], errors='ignore')
             df_resultado.append(df_nao_unificar)
         
         if df_resultado:
             df_final = pd.concat(df_resultado, ignore_index=True)
             
-            # Remover colunas auxiliares
-            df_final = df_final.drop(columns=['CODIGO_BASE_ORIGINAL', 'CODIGO_BASE_NORM'], errors='ignore')
+            # Remover coluna auxiliar
+            if 'CODIGO_BASE_NORM' in df_final.columns:
+                df_final = df_final.drop(columns=['CODIGO_BASE_NORM'])
             
             # Ordenar
-            if 'CODIGO' in df_final.columns:
-                df_final = df_final.sort_values('CODIGO', ascending=True)
+            df_final = df_final.sort_values('CODIGO', ascending=True)
             
             return df_final
         
@@ -12033,7 +11980,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
             
             # Garantir coluna CODIGO_BASE
             if 'CODIGO_BASE' not in df.columns:
-                df['CODIGO_BASE'] = ''
+                df['CODIGO_BASE'] = df['CODIGO'] if 'CODIGO' in df.columns else ''
             
             # Converter colunas numéricas
             colunas_numericas = ['ESTOQUE', 'PEDIDO_EM_ABERTO']
