@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA COM 5 BOQUETAS - CORRIGIDA)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO CORRIGIDA - BOQUETAS)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13872,49 +13872,74 @@ elif aba_selecionada == 'ENFORNADEIRA':
             for b in boquetas_existentes:
                 valores = df[b]
                 if not valores.empty:
-                    indicadores['temp_boquetas'][b] = {
-                        'atual': valores.iloc[-1] if not valores.empty else 0,
-                        'media': valores.mean(),
-                        'max': valores.max(),
-                        'min': valores.min(),
-                        'std': valores.std()
-                    }
+                    # CORREÇÃO: Verificar se há valores > 0 antes de pegar o último
+                    valores_validos = valores[valores > 0]
+                    if not valores_validos.empty:
+                        indicadores['temp_boquetas'][b] = {
+                            'atual': valores_validos.iloc[-1] if not valores_validos.empty else 0,
+                            'media': valores_validos.mean() if not valores_validos.empty else 0,
+                            'max': valores_validos.max() if not valores_validos.empty else 0,
+                            'min': valores_validos.min() if not valores_validos.empty else 0,
+                            'std': valores_validos.std() if not valores_validos.empty else 0,
+                            'tem_dados': True
+                        }
+                    else:
+                        indicadores['temp_boquetas'][b] = {
+                            'atual': 0,
+                            'media': 0,
+                            'max': 0,
+                            'min': 0,
+                            'std': 0,
+                            'tem_dados': False
+                        }
                 else:
                     indicadores['temp_boquetas'][b] = {
                         'atual': 0,
                         'media': 0,
                         'max': 0,
                         'min': 0,
-                        'std': 0
+                        'std': 0,
+                        'tem_dados': False
                     }
             
-            # Estatísticas gerais
+            # Estatísticas gerais - USANDO APENAS VALORES > 0
             temps = df[boquetas_existentes]
-            if not temps.empty:
-                # Calcular médias por linha
-                temp_medias = temps.mean(axis=1)
-                indicadores['temp_media_geral'] = temp_medias.mean()
-                indicadores['temp_max_geral'] = temps.max().max()
-                indicadores['temp_min_geral'] = temps.min().min()
+            # Substituir zeros por NaN para não afetar a média
+            temps_clean = temps.replace(0, np.nan)
+            
+            if not temps_clean.empty:
+                # Calcular médias por linha (ignorando NaN)
+                temp_medias = temps_clean.mean(axis=1, skipna=True)
+                # Filtrar apenas linhas com pelo menos um valor válido
+                temp_medias_validas = temp_medias.dropna()
                 
-                # Último registro
-                ultimo = temps.iloc[-1] if not temps.empty else pd.Series()
-                if not ultimo.empty:
-                    indicadores['temp_diferenca_atual'] = ultimo.max() - ultimo.min()
-                    # Identificar boqueta mais quente e mais fria
-                    idx_max = ultimo.idxmax() if not ultimo.empty else None
-                    idx_min = ultimo.idxmin() if not ultimo.empty else None
-                    indicadores['temp_boqueta_mais_quente'] = idx_max
-                    indicadores['temp_boqueta_mais_fria'] = idx_min
-                    # Temperatura atual média
-                    indicadores['temp_media_atual'] = ultimo.mean()
+                if not temp_medias_validas.empty:
+                    indicadores['temp_media_geral'] = temp_medias_validas.mean()
+                    indicadores['temp_max_geral'] = temps_clean.max().max()
+                    indicadores['temp_min_geral'] = temps_clean.min().min()
+                    
+                    # Último registro com valores válidos
+                    ultima_linha_valida = temps_clean.iloc[-1].dropna()
+                    if not ultima_linha_valida.empty:
+                        indicadores['temp_diferenca_atual'] = ultima_linha_valida.max() - ultima_linha_valida.min()
+                        indicadores['temp_boqueta_mais_quente'] = ultima_linha_valida.idxmax()
+                        indicadores['temp_boqueta_mais_fria'] = ultima_linha_valida.idxmin()
+                        indicadores['temp_media_atual'] = ultima_linha_valida.mean()
+                    else:
+                        indicadores['temp_diferenca_atual'] = 0
+                        indicadores['temp_media_atual'] = 0
+                    
+                    # Média da diferença ao longo do tempo
+                    diferencas = temps_clean.max(axis=1, skipna=True) - temps_clean.min(axis=1, skipna=True)
+                    diferencas_validas = diferencas.dropna()
+                    indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
                 else:
+                    indicadores['temp_media_geral'] = 0
+                    indicadores['temp_max_geral'] = 0
+                    indicadores['temp_min_geral'] = 0
                     indicadores['temp_diferenca_atual'] = 0
                     indicadores['temp_media_atual'] = 0
-                
-                # Média da diferença ao longo do tempo
-                diferencas = temps.max(axis=1) - temps.min(axis=1)
-                indicadores['temp_diferenca_media'] = diferencas.mean() if not diferencas.empty else 0
+                    indicadores['temp_diferenca_media'] = 0
             else:
                 indicadores['temp_media_geral'] = 0
                 indicadores['temp_max_geral'] = 0
@@ -13957,10 +13982,18 @@ elif aba_selecionada == 'ENFORNADEIRA':
             indicadores['energia_total'] = df['ENERGIA_TOTAL'].sum()
         
         if 'RELACAO_O2_GAS' in df.columns:
-            indicadores['relacao_o2_gas_media'] = df['RELACAO_O2_GAS'].mean()
-            indicadores['relacao_o2_gas_atual'] = df['RELACAO_O2_GAS'].iloc[-1] if not df.empty else 0
-            indicadores['relacao_o2_gas_max'] = df['RELACAO_O2_GAS'].max()
-            indicadores['relacao_o2_gas_min'] = df['RELACAO_O2_GAS'].min()
+            # Pegar apenas valores válidos (não infinitos)
+            relacao_validas = df['RELACAO_O2_GAS'].replace([np.inf, -np.inf], np.nan).dropna()
+            if not relacao_validas.empty:
+                indicadores['relacao_o2_gas_media'] = relacao_validas.mean()
+                indicadores['relacao_o2_gas_atual'] = relacao_validas.iloc[-1] if not relacao_validas.empty else 0
+                indicadores['relacao_o2_gas_max'] = relacao_validas.max()
+                indicadores['relacao_o2_gas_min'] = relacao_validas.min()
+            else:
+                indicadores['relacao_o2_gas_media'] = 0
+                indicadores['relacao_o2_gas_atual'] = 0
+                indicadores['relacao_o2_gas_max'] = 0
+                indicadores['relacao_o2_gas_min'] = 0
         
         # ===== CONSUMO POR TONELADA =====
         if 'OXI_POR_TON' in df.columns:
@@ -13997,30 +14030,31 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'cor': '#FFB900'
             })
         
-        # Temperaturas das boquetas
+        # Temperaturas das boquetas - USAR APENAS VALORES > 0
         boquetas_temp = indicadores.get('temp_boquetas', {})
         for boqueta, dados_temp in boquetas_temp.items():
-            atual = dados_temp.get('atual', 0)
-            if atual > 0:  # Só verificar se há valor válido
-                if atual < ALARMES_CONFIG['temperatura_min']:
-                    diff = ALARMES_CONFIG['temperatura_min'] - atual
-                    alarmes.append({
-                        'tipo': 'CRÍTICO' if diff > 20 else 'ALERTA',
-                        'mensagem': f"🔴 {boqueta} ABAIXO DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                        'cor': '#E81123' if diff > 20 else '#FFB900'
-                    })
-                elif atual > ALARMES_CONFIG['temperatura_max']:
-                    diff = atual - ALARMES_CONFIG['temperatura_max']
-                    alarmes.append({
-                        'tipo': 'ALERTA',
-                        'mensagem': f"🟡 {boqueta} ACIMA DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                        'cor': '#FFB900'
-                    })
+            if dados_temp.get('tem_dados', False):
+                atual = dados_temp.get('atual', 0)
+                if atual > 0:  # Só verificar se há valor válido
+                    if atual < ALARMES_CONFIG['temperatura_min']:
+                        diff = ALARMES_CONFIG['temperatura_min'] - atual
+                        alarmes.append({
+                            'tipo': 'CRÍTICO' if diff > 20 else 'ALERTA',
+                            'mensagem': f"🔴 {boqueta} ABAIXO DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                            'cor': '#E81123' if diff > 20 else '#FFB900'
+                        })
+                    elif atual > ALARMES_CONFIG['temperatura_max']:
+                        diff = atual - ALARMES_CONFIG['temperatura_max']
+                        alarmes.append({
+                            'tipo': 'ALERTA',
+                            'mensagem': f"🟡 {boqueta} ACIMA DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                            'cor': '#FFB900'
+                        })
         
         # Diferença entre boquetas
         if 'temp_diferenca_atual' in indicadores:
             diff = indicadores['temp_diferenca_atual']
-            if diff > ALARMES_CONFIG['diferenca_temp_max']:
+            if diff > 0 and diff > ALARMES_CONFIG['diferenca_temp_max']:
                 alarmes.append({
                     'tipo': 'ALERTA',
                     'mensagem': f"🟡 DIFERENÇA ENTRE BOQUETAS: {diff:.0f}°C (máximo: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
@@ -14139,7 +14173,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # Linha 2 - Temperaturas das Boquetas (Individual)
+    # Linha 2 - Temperaturas das Boquetas (Individual) - CORRIGIDO
     st.markdown("#### 🌡️ Temperaturas por Boqueta")
     
     boquetas_cols = st.columns(5)
@@ -14148,9 +14182,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
     for i, (col, boqueta) in enumerate(zip(boquetas_cols, NOMES_BOQUETAS)):
         with col:
             if boqueta in boquetas_temp:
-                atual = boquetas_temp[boqueta].get('atual', 0)
-                media = boquetas_temp[boqueta].get('media', 0)
-                if atual > 0:
+                dados_temp = boquetas_temp[boqueta]
+                tem_dados = dados_temp.get('tem_dados', False)
+                if tem_dados:
+                    atual = dados_temp.get('atual', 0)
+                    media = dados_temp.get('media', 0)
                     cor = "normal" if ALARMES_CONFIG['temperatura_min'] <= atual <= ALARMES_CONFIG['temperatura_max'] else "inverse"
                     st.metric(
                         f"🔥 {boqueta}", 
@@ -14159,9 +14195,9 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         delta_color=cor
                     )
                 else:
-                    st.metric(f"🔥 {boqueta}", "N/A")
+                    st.metric(f"🔥 {boqueta}", "📭 Sem dados")
             else:
-                st.metric(f"🔥 {boqueta}", "N/A")
+                st.metric(f"🔥 {boqueta}", "📭 N/A")
     
     # Linha 3 - Alimentação e Combustível
     col1, col2, col3, col4, col5 = st.columns(5)
