@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (COM LANÇAMENTO E ALERTAS ATUALIZADOS)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13016,7 +13016,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
     ABA_ENFORNADEIRA = 'ENFORNADEIRA'
     
     # ======================
-    # CONSTANTES - ALARMES E METAS (ATUALIZADAS)
+    # CONSTANTES - ALARMES E METAS
     # ======================
     ALARMES_CONFIG = {
         'nivel_min': 75,           # cm
@@ -13024,16 +13024,13 @@ elif aba_selecionada == 'ENFORNADEIRA':
         'temperatura_min': 1270,   # °C
         'temperatura_max': 1280,   # °C
         'tiragem_meta': 350,       # kg/h (máximo)
-        'relacao_o2_gas_ideal': 0.5,  # Relação ideal (O₂/Gás)
-        'relacao_o2_gas_tolerancia': 0.1,  # Tolerância ±0.1
-        'consumo_gas_alerta': 500,  # m³
-        'consumo_oxi_alerta': 400,  # m³
-        'osc_nivel_alerta': 10,    # cm
+        'relacao_o2_gas_ideal': 2.0,  # Relação ideal (O₂/Gás) = dobro de oxigênio
+        'relacao_o2_gas_min': 1.8,    # Mínimo ideal (10% abaixo)
+        'relacao_o2_gas_max': 2.2,    # Máximo ideal (10% acima)
+        'consumo_gas_alerta': 500,    # m³
+        'consumo_oxi_alerta': 400,    # m³
+        'osc_nivel_alerta': 10,       # cm
     }
-    
-    # Calcular limites da relação O₂/Gás com tolerância
-    ALARMES_CONFIG['relacao_o2_gas_min'] = ALARMES_CONFIG['relacao_o2_gas_ideal'] - ALARMES_CONFIG['relacao_o2_gas_tolerancia']
-    ALARMES_CONFIG['relacao_o2_gas_max'] = ALARMES_CONFIG['relacao_o2_gas_ideal'] + ALARMES_CONFIG['relacao_o2_gas_tolerancia']
     
     # ======================
     # INICIALIZAR SESSION STATE
@@ -13074,7 +13071,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             return None
     
     # ======================
-    # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES (ATUALIZADA)
+    # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES
     # ======================
     def gerar_alertas_sugestoes(dados: Dict) -> List[Dict]:
         """Gera alertas e sugestões baseados nos dados lançados"""
@@ -13107,7 +13104,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'tipo': 'CRÍTICO',
                 'cor': '#E81123',
                 'mensagem': f"🔴 TEMPERATURA ABAIXO DO IDEAL: {temperatura} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C abaixo do mínimo. AUMENTE a relação O₂/Gás (mais oxigênio) para elevar a temperatura. Verifique os maçaricos."
+                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C abaixo do mínimo. AUMENTE a relação O₂/Gás para {ALARMES_CONFIG['relacao_o2_gas_max']:.1f} (mais oxigênio) para elevar a temperatura. Verifique os maçaricos."
             })
         elif temperatura > ALARMES_CONFIG['temperatura_max']:
             diferenca = temperatura - ALARMES_CONFIG['temperatura_max']
@@ -13115,7 +13112,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'tipo': 'ALERTA',
                 'cor': '#FFB900',
                 'mensagem': f"🟡 TEMPERATURA ACIMA DO IDEAL: {temperatura} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C acima do máximo. REDUZA a relação O₂/Gás (menos oxigênio) para baixar a temperatura. Verifique se há superaquecimento."
+                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C acima do máximo. REDUZA a relação O₂/Gás para {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} (menos oxigênio) para baixar a temperatura. Verifique se há superaquecimento."
             })
         
         # ===== TIRAGEM =====
@@ -13137,7 +13134,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'sugestao': f"⚠️ Estamos trabalhando {excesso:.1f}% acima da capacidade máxima. Isso pode sobrecarregar o forno. Avalie se há necessidade de reduzir a alimentação."
             })
         
-        # ===== RELAÇÃO O₂/GÁS =====
+        # ===== RELAÇÃO O₂/GÁS (IDEAL = 2.0 - DOBRO DE OXIGÊNIO) =====
         oxi_total = dados.get('oxi_1', 0) + dados.get('oxi_2', 0)
         gas_total = dados.get('gas_1', 0) + dados.get('gas_2', 0)
         
@@ -13148,16 +13145,16 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 alertas.append({
                     'tipo': 'CRÍTICO',
                     'cor': '#E81123',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS ABAIXO DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f})",
-                    'sugestao': f"⚠️ A relação está {diferenca:.2f} abaixo do ideal (0.5 = dobro de oxigênio). AUMENTE a vazão de oxigênio ou DIMINUA a vazão de gás. A combustão está pobre, gerando fuligem."
+                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS ABAIXO DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'sugestao': f"⚠️ A relação está {diferenca:.2f} abaixo do ideal (2.0 = dobro de oxigênio em relação ao gás). AUMENTE a vazão de oxigênio ou DIMINUA a vazão de gás para atingir a faixa ideal de {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f}. A combustão está pobre, gerando fuligem."
                 })
             elif relacao > ALARMES_CONFIG['relacao_o2_gas_max']:
                 diferenca = relacao - ALARMES_CONFIG['relacao_o2_gas_ideal']
                 alertas.append({
                     'tipo': 'ALERTA',
                     'cor': '#FFB900',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ACIMA DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f})",
-                    'sugestao': f"⚠️ A relação está {diferenca:.2f} acima do ideal (0.5 = dobro de oxigênio). DIMINUA a vazão de oxigênio ou AUMENTE a vazão de gás. Há excesso de oxigênio, desperdiçando energia."
+                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ACIMA DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'sugestao': f"⚠️ A relação está {diferenca:.2f} acima do ideal (2.0 = dobro de oxigênio em relação ao gás). DIMINUA a vazão de oxigênio ou AUMENTE a vazão de gás para atingir a faixa ideal de {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f}. Há excesso de oxigênio, desperdiçando energia."
                 })
         
         # ===== CONSUMO DE GÁS =====
@@ -13825,7 +13822,6 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         # Nível baixo
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] < ALARMES_CONFIG['nivel_min']:
-            diff = ALARMES_CONFIG['nivel_min'] - indicadores['nivel_atual']
             alarmes.append({
                 'tipo': 'CRÍTICO',
                 'mensagem': f"🔴 NÍVEL ABAIXO DO IDEAL: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
@@ -13834,7 +13830,6 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         # Nível alto
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] > ALARMES_CONFIG['nivel_max']:
-            diff = indicadores['nivel_atual'] - ALARMES_CONFIG['nivel_max']
             alarmes.append({
                 'tipo': 'ALERTA',
                 'mensagem': f"🟡 NÍVEL ACIMA DO IDEAL: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
@@ -13843,7 +13838,6 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         # Temperatura baixa
         if 'temp_atual' in indicadores and indicadores['temp_atual'] < ALARMES_CONFIG['temperatura_min']:
-            diff = ALARMES_CONFIG['temperatura_min'] - indicadores['temp_atual']
             alarmes.append({
                 'tipo': 'CRÍTICO',
                 'mensagem': f"🔴 TEMPERATURA ABAIXO DO IDEAL: {indicadores['temp_atual']:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
@@ -13852,21 +13846,20 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         # Temperatura alta
         if 'temp_atual' in indicadores and indicadores['temp_atual'] > ALARMES_CONFIG['temperatura_max']:
-            diff = indicadores['temp_atual'] - ALARMES_CONFIG['temperatura_max']
             alarmes.append({
                 'tipo': 'ALERTA',
                 'mensagem': f"🟡 TEMPERATURA ACIMA DO IDEAL: {indicadores['temp_atual']:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
                 'cor': '#FFB900'
             })
         
-        # Tiragem abaixo da meta
+        # Tiragem
         if 'tiragem_media' in indicadores:
             tiragem = indicadores['tiragem_media']
             if tiragem < ALARMES_CONFIG['tiragem_meta']:
                 diff = ALARMES_CONFIG['tiragem_meta'] - tiragem
                 alarmes.append({
                     'tipo': 'ALERTA',
-                    'mensagem': f"🟡 TIRAGEM ABAIXO DA CAPACIDADE: {tiragem:.1f} kg/h (capacidade máxima: {ALARMES_CONFIG['tiragem_meta']} kg/h)",
+                    'mensagem': f"🟡 TIRAGEM ABAIXO DA CAPACIDADE: {tiragem:.1f} kg/h (capacidade máxima: {ALARMES_CONFIG['tiragem_meta']} kg/h) - {diff:.1f} kg/h abaixo",
                     'cor': '#FFB900'
                 })
             elif tiragem > ALARMES_CONFIG['tiragem_meta']:
@@ -13877,21 +13870,21 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
-        # Relação O2/Gás fora da faixa
+        # Relação O2/Gás (IDEAL = 2.0)
         if 'relacao_o2_gas_atual' in indicadores:
             rel = indicadores['relacao_o2_gas_atual']
             if rel < ALARMES_CONFIG['relacao_o2_gas_min']:
                 diff = ALARMES_CONFIG['relacao_o2_gas_ideal'] - rel
                 alarmes.append({
                     'tipo': 'CRÍTICO',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f})",
+                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
                     'cor': '#E81123'
                 })
             elif rel > ALARMES_CONFIG['relacao_o2_gas_max']:
                 diff = rel - ALARMES_CONFIG['relacao_o2_gas_ideal']
                 alarmes.append({
                     'tipo': 'ALERTA',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f})",
+                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
                     'cor': '#FFB900'
                 })
         
@@ -13992,7 +13985,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
     
     with col5:
         valor = indicadores.get('relacao_o2_gas_media', 0)
-        meta = f"ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f}"
+        meta = f"ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} (faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f}-{ALARMES_CONFIG['relacao_o2_gas_max']:.1f})"
         cor = "normal" if ALARMES_CONFIG['relacao_o2_gas_min'] <= valor <= ALARMES_CONFIG['relacao_o2_gas_max'] else "inverse"
         st.metric("⚖️ Relação O₂/Gás", f"{valor:.2f}", delta=meta, delta_color=cor)
     
@@ -14170,10 +14163,22 @@ elif aba_selecionada == 'ENFORNADEIRA':
     with col2:
         if 'RELACAO_O2_GAS' in df_filtrado.columns:
             fig = criar_grafico_linha(
-                df_filtrado, 'RELACAO_O2_GAS', 'Relação O₂/Gás', THEME['accent_yellow'],
+                df_filtrado, 'RELACAO_O2_GAS', 'Relação O₂/Gás (Ideal: 2.0 = Dobro de Oxigênio)', THEME['accent_yellow'],
                 meta_min=ALARMES_CONFIG['relacao_o2_gas_min'], meta_max=ALARMES_CONFIG['relacao_o2_gas_max']
             )
             if fig:
+                # Adicionar anotação explicativa
+                fig.add_annotation(
+                    x=0.5, y=1.05,
+                    xref="paper", yref="paper",
+                    text="⚖️ Ideal: O₂ = 2 × Gás (faixa: 1.8 a 2.2)",
+                    showarrow=False,
+                    font=dict(size=11, color="#333"),
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor="#ccc",
+                    borderwidth=1,
+                    borderpad=4
+                )
                 st.plotly_chart(fig, use_container_width=True, key="grafico_relacao")
             else:
                 st.info("📭 Dados de Relação insuficientes")
