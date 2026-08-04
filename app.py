@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO CORRIGIDA - BOQUETAS FUNCIONANDO)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA E ORGANIZADA)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13019,21 +13019,21 @@ elif aba_selecionada == 'ENFORNADEIRA':
     # CONSTANTES - ALARMES E METAS
     # ======================
     ALARMES_CONFIG = {
-        'nivel_min': 75,
-        'nivel_max': 85,
-        'temperatura_min': 1270,
-        'temperatura_max': 1280,
-        'diferenca_temp_max': 15,
-        'tiragem_meta': 350,
-        'relacao_o2_gas_ideal': 2.0,
+        'nivel_min': 75,              # cm
+        'nivel_max': 85,              # cm
+        'temperatura_min': 1270,      # °C
+        'temperatura_max': 1280,      # °C
+        'diferenca_temp_max': 15,     # °C
+        'tiragem_meta': 350,          # kg/h
+        'relacao_o2_gas_ideal': 2.0,  # O₂/Gás = dobro de oxigênio
         'relacao_o2_gas_min': 1.8,
         'relacao_o2_gas_max': 2.2,
-        'consumo_gas_alerta': 500,
-        'consumo_oxi_alerta': 400,
-        'osc_nivel_alerta': 10,
+        'consumo_gas_alerta': 500,    # m³
+        'consumo_oxi_alerta': 400,    # m³
+        'osc_nivel_alerta': 10,       # cm
     }
     
-    # Nomes das boquetas para exibição (USAR OS NOMES DO DATAFRAME)
+    # Nomes das boquetas
     NOMES_BOQUETAS_DISPLAY = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
     NOMES_BOQUETAS_DF = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
     CORES_BOQUETAS = ['#0078D4', '#E86C2C', '#FFB900', '#107C10', '#6B46C1']
@@ -13079,8 +13079,10 @@ elif aba_selecionada == 'ENFORNADEIRA':
     # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES
     # ======================
     def gerar_alertas_sugestoes(dados: Dict) -> List[Dict]:
+        """Gera alertas e sugestões baseados nos dados lançados"""
         alertas = []
         
+        # ===== NÍVEL =====
         nivel = dados.get('nivel', 0)
         if nivel < ALARMES_CONFIG['nivel_min']:
             diferenca = ALARMES_CONFIG['nivel_min'] - nivel
@@ -13088,7 +13090,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'tipo': 'CRÍTICO',
                 'cor': '#E81123',
                 'mensagem': f"🔴 NÍVEL DO VIDRO ABAIXO DO IDEAL: {nivel} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
-                'sugestao': f"⚠️ O nível está {diferenca:.1f} cm abaixo do mínimo. AUMENTE a alimentação."
+                'sugestao': f"⚠️ O nível está {diferenca:.1f} cm abaixo do mínimo. AUMENTE a alimentação (aumente voltas ou reduza ciclo) para elevar o nível."
             })
         elif nivel > ALARMES_CONFIG['nivel_max']:
             diferenca = nivel - ALARMES_CONFIG['nivel_max']
@@ -13096,9 +13098,10 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'tipo': 'ALERTA',
                 'cor': '#FFB900',
                 'mensagem': f"🟡 NÍVEL DO VIDRO ACIMA DO IDEAL: {nivel} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
-                'sugestao': f"⚠️ O nível está {diferenca:.1f} cm acima do máximo. REDUZA a alimentação."
+                'sugestao': f"⚠️ O nível está {diferenca:.1f} cm acima do máximo. REDUZA a alimentação (diminua voltas ou aumente ciclo) para baixar o nível."
             })
         
+        # ===== TEMPERATURAS DAS BOQUETAS =====
         temperaturas = []
         for i in range(1, 6):
             temp = dados.get(f'boqueta_{i}', 0)
@@ -13113,7 +13116,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         'tipo': 'CRÍTICO' if diferenca > 20 else 'ALERTA',
                         'cor': '#E81123' if diferenca > 20 else '#FFB900',
                         'mensagem': f"🔴 BOQUETA-{i} ABAIXO DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C abaixo do mínimo. Verifique o maçarico."
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C abaixo do mínimo. AUMENTE a vazão de gás ou oxigênio para esta boqueta."
                     })
                 elif temp > ALARMES_CONFIG['temperatura_max']:
                     diferenca = temp - ALARMES_CONFIG['temperatura_max']
@@ -13121,7 +13124,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         'tipo': 'ALERTA',
                         'cor': '#FFB900',
                         'mensagem': f"🟡 BOQUETA-{i} ACIMA DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo. Reduza a chama."
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo. REDUZA a vazão de gás ou oxigênio para esta boqueta."
                     })
             
             if len(temperaturas) > 1:
@@ -13130,42 +13133,74 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 diferenca = temp_max - temp_min
                 
                 if diferenca > ALARMES_CONFIG['diferenca_temp_max']:
+                    boqueta_max = temperaturas.index(temp_max) + 1
+                    boqueta_min = temperaturas.index(temp_min) + 1
                     alertas.append({
                         'tipo': 'ALERTA',
                         'cor': '#FFB900',
-                        'mensagem': f"🟡 DIFERENÇA ENTRE BOQUETAS: {diferenca:.0f}°C (máx: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
-                        'sugestao': f"⚠️ Diferença de {diferenca:.0f}°C entre boquetas. Verifique a distribuição de chama."
+                        'mensagem': f"🟡 DIFERENÇA DE TEMPERATURA ENTRE BOQUETAS: {diferenca:.0f}°C (máximo recomendado: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
+                        'sugestao': f"⚠️ A diferença entre a boqueta mais quente ({boqueta_max}: {temp_max:.0f}°C) e a mais fria ({boqueta_min}: {temp_min:.0f}°C) é de {diferenca:.0f}°C. Verifique a distribuição de chama."
                     })
         
+        # ===== TIRAGEM =====
         tiragem = dados.get('tiragem', 0)
         if tiragem < ALARMES_CONFIG['tiragem_meta']:
             diferenca = ALARMES_CONFIG['tiragem_meta'] - tiragem
             alertas.append({
                 'tipo': 'ALERTA',
                 'cor': '#FFB900',
-                'mensagem': f"🟡 TIRAGEM ABAIXO DA CAPACIDADE: {tiragem:.1f} kg/h (máx: {ALARMES_CONFIG['tiragem_meta']} kg/h)",
-                'sugestao': f"⚠️ {diferenca:.1f} kg/h abaixo da capacidade máxima. Verifique a produção."
+                'mensagem': f"🟡 TIRAGEM ABAIXO DA CAPACIDADE MÁXIMA: {tiragem:.1f} kg/h (capacidade máxima: {ALARMES_CONFIG['tiragem_meta']} kg/h)",
+                'sugestao': f"⚠️ Estamos trabalhando {diferenca:.1f} kg/h abaixo da capacidade máxima. Verifique a produção e aumente a alimentação se necessário."
+            })
+        elif tiragem > ALARMES_CONFIG['tiragem_meta']:
+            excesso = ((tiragem - ALARMES_CONFIG['tiragem_meta']) / ALARMES_CONFIG['tiragem_meta']) * 100
+            alertas.append({
+                'tipo': 'ALERTA',
+                'cor': '#FFB900',
+                'mensagem': f"🟡 TIRAGEM ACIMA DA CAPACIDADE MÁXIMA: {tiragem:.1f} kg/h (capacidade máxima: {ALARMES_CONFIG['tiragem_meta']} kg/h)",
+                'sugestao': f"⚠️ Estamos trabalhando {excesso:.1f}% acima da capacidade máxima. Isso pode sobrecarregar o forno."
             })
         
+        # ===== RELAÇÃO O₂/GÁS =====
         oxi_total = dados.get('oxi_1', 0) + dados.get('oxi_2', 0)
         gas_total = dados.get('gas_1', 0) + dados.get('gas_2', 0)
         
         if gas_total > 0:
             relacao = oxi_total / gas_total
             if relacao < ALARMES_CONFIG['relacao_o2_gas_min']:
+                diferenca = ALARMES_CONFIG['relacao_o2_gas_ideal'] - relacao
                 alertas.append({
                     'tipo': 'CRÍTICO',
                     'cor': '#E81123',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {relacao:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
-                    'sugestao': f"⚠️ AUMENTE oxigênio ou DIMINUA gás para atingir 2.0."
+                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'sugestao': f"⚠️ A relação está {diferenca:.2f} abaixo do ideal (2.0 = dobro de oxigênio). AUMENTE oxigênio ou DIMINUA gás."
                 })
             elif relacao > ALARMES_CONFIG['relacao_o2_gas_max']:
+                diferenca = relacao - ALARMES_CONFIG['relacao_o2_gas_ideal']
                 alertas.append({
                     'tipo': 'ALERTA',
                     'cor': '#FFB900',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {relacao:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
-                    'sugestao': f"⚠️ DIMINUA oxigênio ou AUMENTE gás para atingir 2.0."
+                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'sugestao': f"⚠️ A relação está {diferenca:.2f} acima do ideal (2.0 = dobro de oxigênio). DIMINUA oxigênio ou AUMENTE gás."
                 })
+        
+        # ===== CONSUMO DE GÁS =====
+        if gas_total > ALARMES_CONFIG['consumo_gas_alerta']:
+            alertas.append({
+                'tipo': 'ALERTA',
+                'cor': '#FFB900',
+                'mensagem': f"🟡 CONSUMO DE GÁS ELEVADO: {gas_total:.1f} m³ (alerta: {ALARMES_CONFIG['consumo_gas_alerta']} m³)",
+                'sugestao': "⚠️ Verifique se há vazamentos ou ajuste a relação O₂/Gás."
+            })
+        
+        # ===== CONSUMO DE OXIGÊNIO =====
+        if oxi_total > ALARMES_CONFIG['consumo_oxi_alerta']:
+            alertas.append({
+                'tipo': 'ALERTA',
+                'cor': '#FFB900',
+                'mensagem': f"🟡 CONSUMO DE OXIGÊNIO ELEVADO: {oxi_total:.1f} m³ (alerta: {ALARMES_CONFIG['consumo_oxi_alerta']} m³)",
+                'sugestao': "⚠️ Verifique a relação O₂/Gás e reduza o excesso de oxigênio."
+            })
         
         return alertas
     
@@ -13257,37 +13292,26 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 col_upper = col_str.upper()
                 col_sem_acento = unicodedata.normalize('NFKD', col_upper).encode('ASCII', 'ignore').decode('ASCII')
                 
-                # DATA
                 if col_sem_acento in ['DATA', 'DATE']:
                     mapa_colunas[col] = 'DATA'
-                # HORA
                 elif col_sem_acento in ['HORA', 'TIME', 'HORARIO']:
                     mapa_colunas[col] = 'HORA'
-                # NÍVEL
                 elif col_sem_acento in ['NIVEL', 'NÍVEL', 'LEVEL']:
                     mapa_colunas[col] = 'NIVEL'
-                # CICLO
                 elif 'CICLO' in col_sem_acento:
                     mapa_colunas[col] = 'CICLO'
-                # VOLTAS
                 elif col_sem_acento in ['VOLTAS', 'VOLTA']:
                     mapa_colunas[col] = 'VOLTAS'
-                # TIRAGEM
                 elif 'TIRAGEM' in col_sem_acento:
                     mapa_colunas[col] = 'TIRAGEM_KG'
-                # OXIGÊNIO 1
                 elif col_sem_acento in ['OXI M3 - 1', 'OXI_M3_-_1', 'OXI_1']:
                     mapa_colunas[col] = 'OXI_1'
-                # GÁS 1
                 elif col_sem_acento in ['GAS M3 - 1', 'GÁS M3 - 1', 'GAS_M3_-_1', 'GAS_1']:
                     mapa_colunas[col] = 'GAS_1'
-                # OXIGÊNIO 2
                 elif col_sem_acento in ['OXI M3 - 2', 'OXI_M3_-_2', 'OXI_2']:
                     mapa_colunas[col] = 'OXI_2'
-                # GÁS 2
                 elif col_sem_acento in ['GAS M3 - 2', 'GÁS M3 - 2', 'GAS_M3_-_2', 'GAS_2']:
                     mapa_colunas[col] = 'GAS_2'
-                # BOQUETAS
                 elif 'BOQUETA-1' in col_sem_acento or 'BOQUETA_1' in col_sem_acento:
                     mapa_colunas[col] = 'BOQUETA_1'
                 elif 'BOQUETA-2' in col_sem_acento or 'BOQUETA_2' in col_sem_acento:
@@ -13325,12 +13349,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     df[col] = df[col].astype(str).str.replace(r'[^\d\.]', '', regex=True)
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # Calcular temperatura média das boquetas (apenas valores > 0)
+            # Calcular temperatura média das boquetas
             boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
             boquetas_existentes = [b for b in boquetas if b in df.columns]
             
             if boquetas_existentes:
-                # Criar cópia com zeros substituídos por NaN
                 df_temp = df[boquetas_existentes].replace(0, np.nan)
                 df['TEMP_MEDIA'] = df_temp.mean(axis=1, skipna=True).fillna(0)
                 df['TEMP_MAX'] = df_temp.max(axis=1, skipna=True).fillna(0)
@@ -13456,112 +13479,309 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.markdown('</div>', unsafe_allow_html=True)
     
     # ======================
-    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO
+    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO DE LANÇAMENTO - LAYOUT ORGANIZADO
     # ======================
     def renderizar_formulario_lancamento():
+        """Renderiza o formulário para lançamento de apontamentos com layout organizado"""
+        
         st.markdown("---")
         st.markdown("### ✏️ Lançamento de Apontamentos")
         
+        # Data e hora atuais (não editáveis)
         agora = get_horario_brasilia_obj()
+        
         st.info(f"📅 Data e hora do lançamento: **{agora.strftime('%d/%m/%Y %H:%M:%S')}** (Horário de Brasília)")
-        st.caption("⏰ Data e hora são registradas automaticamente pelo sistema")
+        st.caption("⏰ Data e hora são registradas automaticamente pelo sistema no momento do salvamento")
         
         st.markdown("---")
         
         with st.form("form_lancamento_enfornadeira"):
+            # ============================================================
+            # LINHA 1: PARÂMETROS DO TANQUE + ALIMENTAÇÃO
+            # ============================================================
+            st.markdown("### 📊 Parâmetros de Processo")
+            
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.markdown("#### 📊 Parâmetros do Tanque")
-                nivel = st.number_input("Nível do Vidro (cm)*", min_value=0.0, max_value=120.0, value=80.0, step=0.5, key="enfornadeira_nivel")
-                
-                st.markdown("#### 🌡️ Temperaturas das Boquetas")
-                boqueta_1 = st.number_input("BOQUETA-1 (°C)*", min_value=1200.0, max_value=1600.0, value=1275.0, step=5.0, key="enfornadeira_boqueta_1")
-                boqueta_2 = st.number_input("BOQUETA-2 (°C)*", min_value=1200.0, max_value=1600.0, value=1275.0, step=5.0, key="enfornadeira_boqueta_2")
+                st.markdown("#### 📊 Tanque")
+                nivel = st.number_input(
+                    "Nível do Vidro (cm)*",
+                    min_value=0.0,
+                    max_value=120.0,
+                    value=80.0,
+                    step=0.5,
+                    key="enfornadeira_nivel",
+                    help="Nível atual do vidro no tanque (ideal: 75-85 cm)"
+                )
             
             with col2:
                 st.markdown("#### 🔧 Alimentação")
-                ciclo = st.number_input("Ciclo (segundos)*", min_value=0.5, max_value=60.0, value=2.5, step=0.1, key="enfornadeira_ciclo")
-                voltas = st.number_input("Voltas*", min_value=0.0, max_value=50.0, value=20.0, step=0.5, key="enfornadeira_voltas")
-                tiragem = st.number_input("Tiragem (kg/h)*", min_value=0.0, max_value=600.0, value=350.0, step=5.0, key="enfornadeira_tiragem")
-                
-                st.markdown("#### 🌡️ Temperaturas das Boquetas (continuação)")
-                boqueta_3 = st.number_input("BOQUETA-3 (°C)*", min_value=1200.0, max_value=1600.0, value=1275.0, step=5.0, key="enfornadeira_boqueta_3")
-                boqueta_4 = st.number_input("BOQUETA-4 (°C)*", min_value=1200.0, max_value=1600.0, value=1275.0, step=5.0, key="enfornadeira_boqueta_4")
+                ciclo = st.number_input(
+                    "Ciclo (segundos)*",
+                    min_value=0.5,
+                    max_value=60.0,
+                    value=2.5,
+                    step=0.1,
+                    key="enfornadeira_ciclo",
+                    help="Tempo de ciclo da enfornadeira (máximo: 60s)"
+                )
             
             with col3:
-                st.markdown("#### 🔥 Combustível")
-                st.markdown("**Maçarico 1**")
-                oxi_1 = st.number_input("O₂ M³ - 1*", min_value=0.0, max_value=600.0, value=190.0, step=1.0, key="enfornadeira_oxi_1")
-                gas_1 = st.number_input("Gás M³ - 1*", min_value=0.0, max_value=600.0, value=220.0, step=1.0, key="enfornadeira_gas_1")
-                
-                st.markdown("**Maçarico 2**")
-                oxi_2 = st.number_input("O₂ M³ - 2*", min_value=0.0, max_value=600.0, value=180.0, step=1.0, key="enfornadeira_oxi_2")
-                gas_2 = st.number_input("Gás M³ - 2*", min_value=0.0, max_value=600.0, value=200.0, step=1.0, key="enfornadeira_gas_2")
-                
-                st.markdown("#### 🌡️ Temperaturas das Boquetas (continuação)")
-                boqueta_5 = st.number_input("BOQUETA-5 (°C)*", min_value=1200.0, max_value=1600.0, value=1275.0, step=5.0, key="enfornadeira_boqueta_5")
+                st.markdown("#### 📦 Produção")
+                voltas = st.number_input(
+                    "Voltas*",
+                    min_value=0.0,
+                    max_value=50.0,
+                    value=20.0,
+                    step=0.5,
+                    key="enfornadeira_voltas",
+                    help="Número de voltas da enfornadeira"
+                )
+                tiragem = st.number_input(
+                    "Tiragem (kg/h)*",
+                    min_value=0.0,
+                    max_value=600.0,
+                    value=350.0,
+                    step=5.0,
+                    key="enfornadeira_tiragem",
+                    help="Quantidade de vidro extraída por hora (máx: 350 kg/h)"
+                )
+            
+            st.markdown("---")
+            
+            # ============================================================
+            # LINHA 2: TEMPERATURAS DAS BOQUETAS (5 em linha)
+            # ============================================================
+            st.markdown("### 🌡️ Temperaturas das Boquetas")
+            st.caption("Temperatura em cada boqueta do forno (ideal: 1270-1280 °C)")
+            
+            col_b1, col_b2, col_b3, col_b4, col_b5 = st.columns(5)
+            
+            with col_b1:
+                boqueta_1 = st.number_input(
+                    "BOQUETA-1 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_1"
+                )
+            
+            with col_b2:
+                boqueta_2 = st.number_input(
+                    "BOQUETA-2 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_2"
+                )
+            
+            with col_b3:
+                boqueta_3 = st.number_input(
+                    "BOQUETA-3 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_3"
+                )
+            
+            with col_b4:
+                boqueta_4 = st.number_input(
+                    "BOQUETA-4 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_4"
+                )
+            
+            with col_b5:
+                boqueta_5 = st.number_input(
+                    "BOQUETA-5 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_5"
+                )
+            
+            st.markdown("---")
+            
+            # ============================================================
+            # LINHA 3: COMBUSTÍVEL (Maçarico 1 e 2 lado a lado)
+            # ============================================================
+            st.markdown("### 🔥 Consumo de Combustível")
+            
+            col_f1, col_f2 = st.columns(2)
+            
+            with col_f1:
+                st.markdown("#### 🔥 Maçarico 1")
+                oxi_1 = st.number_input(
+                    "O₂ M³ - 1*",
+                    min_value=0.0,
+                    max_value=600.0,
+                    value=190.0,
+                    step=1.0,
+                    key="enfornadeira_oxi_1",
+                    help="Consumo de oxigênio do maçarico 1"
+                )
+                gas_1 = st.number_input(
+                    "Gás M³ - 1*",
+                    min_value=0.0,
+                    max_value=600.0,
+                    value=220.0,
+                    step=1.0,
+                    key="enfornadeira_gas_1",
+                    help="Consumo de gás do maçarico 1"
+                )
+            
+            with col_f2:
+                st.markdown("#### 🔥 Maçarico 2")
+                oxi_2 = st.number_input(
+                    "O₂ M³ - 2*",
+                    min_value=0.0,
+                    max_value=600.0,
+                    value=180.0,
+                    step=1.0,
+                    key="enfornadeira_oxi_2",
+                    help="Consumo de oxigênio do maçarico 2"
+                )
+                gas_2 = st.number_input(
+                    "Gás M³ - 2*",
+                    min_value=0.0,
+                    max_value=600.0,
+                    value=200.0,
+                    step=1.0,
+                    key="enfornadeira_gas_2",
+                    help="Consumo de gás do maçarico 2"
+                )
             
             st.markdown("---")
             st.caption("* Campos obrigatórios")
             
+            # ============================================================
+            # BOTÃO DE SUBMIT
+            # ============================================================
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
-                submitted = st.form_submit_button("💾 SALVAR REGISTRO", type="primary", use_container_width=True)
+                submitted = st.form_submit_button(
+                    "💾 SALVAR REGISTRO",
+                    type="primary",
+                    use_container_width=True
+                )
             
+            # ============================================================
+            # PROCESSAR SUBMISSÃO
+            # ============================================================
             if submitted:
+                # Validar campos obrigatórios
                 campos_obrigatorios = {
-                    'Nível': nivel, 'BOQUETA-1': boqueta_1, 'BOQUETA-2': boqueta_2,
-                    'BOQUETA-3': boqueta_3, 'BOQUETA-4': boqueta_4, 'BOQUETA-5': boqueta_5,
-                    'Ciclo': ciclo, 'Voltas': voltas, 'Tiragem': tiragem,
-                    'O₂ M³ - 1': oxi_1, 'Gás M³ - 1': gas_1,
-                    'O₂ M³ - 2': oxi_2, 'Gás M³ - 2': gas_2
+                    'Nível': nivel,
+                    'BOQUETA-1': boqueta_1,
+                    'BOQUETA-2': boqueta_2,
+                    'BOQUETA-3': boqueta_3,
+                    'BOQUETA-4': boqueta_4,
+                    'BOQUETA-5': boqueta_5,
+                    'Ciclo': ciclo,
+                    'Voltas': voltas,
+                    'Tiragem': tiragem,
+                    'O₂ M³ - 1': oxi_1,
+                    'Gás M³ - 1': gas_1,
+                    'O₂ M³ - 2': oxi_2,
+                    'Gás M³ - 2': gas_2
                 }
                 
                 campos_vazios = [nome for nome, valor in campos_obrigatorios.items() if valor <= 0]
                 
                 if campos_vazios:
-                    st.error(f"❌ Preencha todos os campos: {', '.join(campos_vazios)}")
+                    st.error(f"❌ Preencha todos os campos obrigatórios: {', '.join(campos_vazios)}")
                 else:
+                    # Salvar dados no session state para confirmação
                     st.session_state.enfornadeira_dados_lancamento = {
-                        'nivel': nivel, 'boqueta_1': boqueta_1, 'boqueta_2': boqueta_2,
-                        'boqueta_3': boqueta_3, 'boqueta_4': boqueta_4, 'boqueta_5': boqueta_5,
-                        'ciclo': ciclo, 'voltas': voltas, 'tiragem': tiragem,
-                        'oxi_1': oxi_1, 'gas_1': gas_1, 'oxi_2': oxi_2, 'gas_2': gas_2
+                        'nivel': nivel,
+                        'boqueta_1': boqueta_1,
+                        'boqueta_2': boqueta_2,
+                        'boqueta_3': boqueta_3,
+                        'boqueta_4': boqueta_4,
+                        'boqueta_5': boqueta_5,
+                        'ciclo': ciclo,
+                        'voltas': voltas,
+                        'tiragem': tiragem,
+                        'oxi_1': oxi_1,
+                        'gas_1': gas_1,
+                        'oxi_2': oxi_2,
+                        'gas_2': gas_2
                     }
                     st.session_state.enfornadeira_confirmar_salvar = True
                     st.rerun()
         
+        # ============================================================
+        # CONFIRMAÇÃO DE SALVAMENTO
+        # ============================================================
         if st.session_state.enfornadeira_confirmar_salvar:
             dados = st.session_state.enfornadeira_dados_lancamento
             
             st.markdown("---")
             st.markdown("### ⚠️ Confirmação")
-            st.warning("⚠️ Você está prestes a salvar um novo registro.")
+            st.warning("⚠️ Você está prestes a salvar um novo registro na planilha.")
             
-            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            # ============================================================
+            # RESUMO DOS DADOS EM CARDS
+            # ============================================================
+            st.markdown("**📋 Resumo dos dados:**")
+            
+            # Linha 1: Tanque + Alimentação
+            col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
-                st.write(f"📊 Nível: {dados['nivel']} cm")
-                st.write(f"🔄 Ciclo: {dados['ciclo']} s")
-                st.write(f"🔄 Voltas: {dados['voltas']}")
+                st.markdown("**📊 Tanque**")
+                st.write(f"Nível: **{dados['nivel']} cm**")
             with col_r2:
-                st.write(f"📦 Tiragem: {dados['tiragem']} kg/h")
-                st.write(f"💨 O₂ 1: {dados['oxi_1']} m³")
-                st.write(f"🔥 Gás 1: {dados['gas_1']} m³")
+                st.markdown("**🔧 Alimentação**")
+                st.write(f"Ciclo: **{dados['ciclo']} s**")
             with col_r3:
-                st.write(f"💨 O₂ 2: {dados['oxi_2']} m³")
-                st.write(f"🔥 Gás 2: {dados['gas_2']} m³")
-                st.write(f"🌡️ B1: {dados['boqueta_1']} °C")
-            with col_r4:
-                st.write(f"🌡️ B2: {dados['boqueta_2']} °C")
-                st.write(f"🌡️ B3: {dados['boqueta_3']} °C")
-                st.write(f"🌡️ B4: {dados['boqueta_4']} °C")
-                st.write(f"🌡️ B5: {dados['boqueta_5']} °C")
+                st.markdown("**📦 Produção**")
+                st.write(f"Voltas: **{dados['voltas']}**")
+                st.write(f"Tiragem: **{dados['tiragem']} kg/h**")
             
+            # Linha 2: Temperaturas das Boquetas (5 em linha)
+            st.markdown("**🌡️ Temperaturas das Boquetas**")
+            col_t1, col_t2, col_t3, col_t4, col_t5 = st.columns(5)
+            with col_t1:
+                st.write(f"B1: **{dados['boqueta_1']} °C**")
+            with col_t2:
+                st.write(f"B2: **{dados['boqueta_2']} °C**")
+            with col_t3:
+                st.write(f"B3: **{dados['boqueta_3']} °C**")
+            with col_t4:
+                st.write(f"B4: **{dados['boqueta_4']} °C**")
+            with col_t5:
+                st.write(f"B5: **{dados['boqueta_5']} °C**")
+            
+            # Linha 3: Combustível
+            st.markdown("**🔥 Combustível**")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                st.markdown("**Maçarico 1**")
+                st.write(f"O₂: **{dados['oxi_1']} m³**")
+                st.write(f"Gás: **{dados['gas_1']} m³**")
+            with col_c2:
+                st.markdown("**Maçarico 2**")
+                st.write(f"O₂: **{dados['oxi_2']} m³**")
+                st.write(f"Gás: **{dados['gas_2']} m³**")
+            
+            # ============================================================
+            # ALERTAS
+            # ============================================================
             alertas = gerar_alertas_sugestoes(dados)
             if alertas:
                 renderizar_alertas(alertas)
             
+            # ============================================================
+            # BOTÕES DE CONFIRMAÇÃO
+            # ============================================================
             col_conf1, col_conf2, col_conf3 = st.columns(3)
             with col_conf1:
                 if st.button("✅ SIM, SALVAR", type="primary", use_container_width=True):
@@ -13570,7 +13790,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         st.success(mensagem)
                         st.balloons()
                         if alertas:
-                            st.info("📢 Alertas identificados! Consulte as sugestões.")
+                            st.info("📢 **Alertas identificados!** Consulte as sugestões acima para regularizar o processo.")
                         st.session_state.enfornadeira_confirmar_salvar = False
                         st.session_state.enfornadeira_dados_lancamento = {}
                         time.sleep(1)
@@ -13592,11 +13812,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
     # ======================
     # CARREGAR DADOS
     # ======================
-    with st.spinner("🔄 Carregando dados..."):
+    with st.spinner("🔄 Carregando dados da Enfornadeira..."):
         df = carregar_dados_enfornadeira()
     
     if df.empty:
-        st.warning("⚠️ Não foi possível carregar os dados.")
+        st.warning("⚠️ Não foi possível carregar os dados da Enfornadeira.")
         renderizar_formulario_lancamento()
         st.stop()
     
@@ -13649,7 +13869,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         df_filtrado = df_filtrado[df_filtrado['TURNO'] == turno_filtro]
     
     if df_filtrado.empty:
-        st.warning("⚠️ Nenhum dado encontrado.")
+        st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
         renderizar_formulario_lancamento()
         st.stop()
     
@@ -13660,6 +13880,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         if df.empty:
             return indicadores
         
+        # PRODUÇÃO
         if 'TIRAGEM_KG' in df.columns:
             tiragem = df['TIRAGEM_KG']
             indicadores['tiragem_media'] = tiragem.mean()
@@ -13670,6 +13891,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             horas = len(df)
             indicadores['producao_diaria'] = tiragem.sum() / (horas / 24) if horas > 0 else 0
         
+        # NÍVEL
         if 'NIVEL' in df.columns:
             nivel = df['NIVEL']
             indicadores['nivel_atual'] = nivel.iloc[-1] if not nivel.empty else 0
@@ -13679,7 +13901,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             indicadores['nivel_osc'] = nivel.max() - nivel.min() if not nivel.empty else 0
             indicadores['nivel_std'] = nivel.std()
         
-        # ===== BOQUETAS - USAR OS NOMES CORRETOS =====
+        # BOQUETAS
         boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
         boquetas_existentes = [b for b in boquetas if b in df.columns]
         
@@ -13706,8 +13928,6 @@ elif aba_selecionada == 'ENFORNADEIRA':
             
             # Estatísticas gerais
             df_temp = df[boquetas_existentes].replace(0, np.nan)
-            
-            # Média geral (apenas valores > 0)
             temp_medias = df_temp.mean(axis=1, skipna=True)
             temp_medias_validas = temp_medias.dropna()
             indicadores['temp_media_geral'] = temp_medias_validas.mean() if not temp_medias_validas.empty else 0
@@ -13727,6 +13947,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             diferencas_validas = diferencas.dropna()
             indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
         
+        # ALIMENTAÇÃO
         if 'CICLO' in df.columns:
             indicadores['ciclo_media'] = df['CICLO'].mean()
             indicadores['ciclo_atual'] = df['CICLO'].iloc[-1] if not df.empty else 0
@@ -13738,6 +13959,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         if 'INDICE_ALIMENTACAO' in df.columns:
             indicadores['indice_alimentacao_media'] = df['INDICE_ALIMENTACAO'].mean()
         
+        # COMBUSTÍVEL
         if 'OXI_TOTAL' in df.columns:
             indicadores['oxi_media'] = df['OXI_TOTAL'].mean()
         
@@ -13753,6 +13975,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 indicadores['relacao_o2_gas_media'] = relacao_validas.mean()
                 indicadores['relacao_o2_gas_atual'] = relacao_validas.iloc[-1] if not relacao_validas.empty else 0
         
+        # EFICIÊNCIA
         if 'OXI_POR_TON' in df.columns:
             indicadores['oxi_por_ton_media'] = df['OXI_POR_TON'].replace([np.inf, -np.inf], 0).mean()
         
@@ -13770,17 +13993,18 @@ elif aba_selecionada == 'ENFORNADEIRA':
         if df.empty or not indicadores:
             return alarmes
         
+        # Nível
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] < ALARMES_CONFIG['nivel_min']:
             alarmes.append({
                 'tipo': 'CRÍTICO',
-                'mensagem': f"🔴 NÍVEL ABAIXO: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
+                'mensagem': f"🔴 NÍVEL ABAIXO DO IDEAL: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
                 'cor': '#E81123'
             })
         
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] > ALARMES_CONFIG['nivel_max']:
             alarmes.append({
                 'tipo': 'ALERTA',
-                'mensagem': f"🟡 NÍVEL ACIMA: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
+                'mensagem': f"🟡 NÍVEL ACIMA DO IDEAL: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
                 'cor': '#FFB900'
             })
         
@@ -13790,7 +14014,6 @@ elif aba_selecionada == 'ENFORNADEIRA':
             if dados_temp.get('tem_dados', False):
                 atual = dados_temp.get('atual', 0)
                 if atual > 0:
-                    # Converter nome da coluna para display
                     nome_display = boqueta.replace('_', '-')
                     if atual < ALARMES_CONFIG['temperatura_min']:
                         alarmes.append({
@@ -13805,6 +14028,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                             'cor': '#FFB900'
                         })
         
+        # Diferença entre boquetas
         if 'temp_diferenca_atual' in indicadores:
             diff = indicadores['temp_diferenca_atual']
             if diff > 0 and diff > ALARMES_CONFIG['diferenca_temp_max']:
@@ -13814,6 +14038,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
+        # Tiragem
         if 'tiragem_media' in indicadores:
             tiragem = indicadores['tiragem_media']
             if tiragem < ALARMES_CONFIG['tiragem_meta']:
@@ -13824,6 +14049,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
+        # Relação O2/Gás
         if 'relacao_o2_gas_atual' in indicadores:
             rel = indicadores['relacao_o2_gas_atual']
             if rel > 0:
@@ -13890,13 +14116,12 @@ elif aba_selecionada == 'ENFORNADEIRA':
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # ===== TEMPERATURAS DAS BOQUETAS - CORRIGIDO =====
+    # ===== TEMPERATURAS DAS BOQUETAS =====
     st.markdown("#### 🌡️ Temperaturas por Boqueta")
     
     boquetas_cols = st.columns(5)
     boquetas_temp = indicadores.get('temp_boquetas', {})
     
-    # Mapeamento dos nomes para exibição
     for i, (col, nome_df) in enumerate(zip(boquetas_cols, NOMES_BOQUETAS_DF)):
         with col:
             nome_display = NOMES_BOQUETAS_DISPLAY[i]
@@ -14029,7 +14254,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         return fig
     
-    # Nível
+    # Nível e Tiragem
     col1, col2 = st.columns(2)
     
     with col1:
@@ -14074,7 +14299,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
     else:
         st.info("📭 Nenhuma boqueta com dados disponíveis para o gráfico")
     
-    # Relação O2/Gás
+    # Temperatura Média e Relação O2/Gás
     col1, col2 = st.columns(2)
     
     with col1:
@@ -14114,6 +14339,33 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 st.info("📭 Dados de Relação insuficientes")
         else:
             st.info("📭 Dados de Relação O₂/Gás não disponíveis")
+    
+    # Consumo de Combustível
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'OXI_TOTAL' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'OXI_TOTAL', 'Consumo de Oxigênio (m³)', THEME['accent_purple']
+            )
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key="grafico_oxi")
+            else:
+                st.info("📭 Dados de Oxigênio insuficientes")
+        else:
+            st.info("📭 Dados de Oxigênio não disponíveis")
+    
+    with col2:
+        if 'GAS_TOTAL' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'GAS_TOTAL', 'Consumo de Gás (m³)', THEME['accent_red']
+            )
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key="grafico_gas")
+            else:
+                st.info("📭 Dados de Gás insuficientes")
+        else:
+            st.info("📭 Dados de Gás não disponíveis")
     
     # ===== FORMULÁRIO DE LANÇAMENTO =====
     renderizar_formulario_lancamento()
