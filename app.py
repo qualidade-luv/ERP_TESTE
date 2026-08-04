@@ -13034,7 +13034,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     # ===== CONFIGURAÇÃO INDIVIDUAL DE CADA BOQUETA =====
     BOQUETAS_CONFIG = {
         'BOQUETA_1': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-1', 'cor': '#0078D4'},
-        'BOQUETA_2': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-2', 'cor': '#E86C2C'},
+        'BOQUETA_2': {'min': 1270, 'max': 1280, 'display': 'BOQUETA-2', 'cor': '#E86C2C'},
         'BOQUETA_3': {'min': 1240, 'max': 1260, 'display': 'BOQUETA-3', 'cor': '#FFB900'},
         'BOQUETA_4': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-4', 'cor': '#107C10'},
         'BOQUETA_5': {'min': 1250, 'max': 1270, 'display': 'BOQUETA-5', 'cor': '#6B46C1'},
@@ -13579,7 +13579,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             with col_info1:
                 st.caption("B1: 1220-1240°C")
             with col_info2:
-                st.caption("B2: 1220-1240°C")
+                st.caption("B2: 1270-1280°C")
             with col_info3:
                 st.caption("B3: 1240-1260°C")
             with col_info4:
@@ -13608,7 +13608,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     value=0.0,
                     step=5.0,
                     key="enfornadeira_boqueta_2",
-                    help="Faixa ideal: 1220-1240°C"
+                    help="Faixa ideal: 1270-1280°C"
                 )
             
             with col_b3:
