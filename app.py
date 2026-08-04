@@ -13465,7 +13465,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 ciclo = st.number_input(
                     "Ciclo (segundos)*",
                     min_value=0.5,
-                    max_value=10.0,
+                    max_value=60.0,
                     value=2.5,
                     step=0.1,
                     key="enfornadeira_ciclo",
