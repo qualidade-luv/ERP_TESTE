@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA COM 5 BOQUETAS)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA COM 5 BOQUETAS - CORRIGIDA)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13852,11 +13852,14 @@ elif aba_selecionada == 'ENFORNADEIRA':
         # ===== NÍVEL =====
         if 'NIVEL' in df.columns:
             nivel = df['NIVEL']
-            indicadores['nivel_atual'] = nivel.iloc[-1] if not nivel.empty else 0
+            if not nivel.empty:
+                indicadores['nivel_atual'] = nivel.iloc[-1] if not nivel.empty else 0
+            else:
+                indicadores['nivel_atual'] = 0
             indicadores['nivel_media'] = nivel.mean()
             indicadores['nivel_max'] = nivel.max()
             indicadores['nivel_min'] = nivel.min()
-            indicadores['nivel_osc'] = nivel.max() - nivel.min()
+            indicadores['nivel_osc'] = nivel.max() - nivel.min() if not nivel.empty else 0
             indicadores['nivel_std'] = nivel.std()
         
         # ===== TEMPERATURAS DAS BOQUETAS =====
@@ -13876,23 +13879,49 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         'min': valores.min(),
                         'std': valores.std()
                     }
+                else:
+                    indicadores['temp_boquetas'][b] = {
+                        'atual': 0,
+                        'media': 0,
+                        'max': 0,
+                        'min': 0,
+                        'std': 0
+                    }
             
             # Estatísticas gerais
             temps = df[boquetas_existentes]
-            indicadores['temp_media_geral'] = temps.mean().mean()
-            indicadores['temp_max_geral'] = temps.max().max()
-            indicadores['temp_min_geral'] = temps.min().min()
-            
-            # Diferença entre boquetas (último registro)
-            ultimo = df[boquetas_existentes].iloc[-1] if not df.empty else pd.Series()
-            if not ultimo.empty:
-                indicadores['temp_diferenca_atual'] = ultimo.max() - ultimo.min()
-                indicadores['temp_boqueta_mais_quente'] = ultimo.idxmax() if not ultimo.empty else None
-                indicadores['temp_boqueta_mais_fria'] = ultimo.idxmin() if not ultimo.empty else None
-            
-            # Média da diferença ao longo do tempo
-            diferencas = df[boquetas_existentes].max(axis=1) - df[boquetas_existentes].min(axis=1)
-            indicadores['temp_diferenca_media'] = diferencas.mean()
+            if not temps.empty:
+                # Calcular médias por linha
+                temp_medias = temps.mean(axis=1)
+                indicadores['temp_media_geral'] = temp_medias.mean()
+                indicadores['temp_max_geral'] = temps.max().max()
+                indicadores['temp_min_geral'] = temps.min().min()
+                
+                # Último registro
+                ultimo = temps.iloc[-1] if not temps.empty else pd.Series()
+                if not ultimo.empty:
+                    indicadores['temp_diferenca_atual'] = ultimo.max() - ultimo.min()
+                    # Identificar boqueta mais quente e mais fria
+                    idx_max = ultimo.idxmax() if not ultimo.empty else None
+                    idx_min = ultimo.idxmin() if not ultimo.empty else None
+                    indicadores['temp_boqueta_mais_quente'] = idx_max
+                    indicadores['temp_boqueta_mais_fria'] = idx_min
+                    # Temperatura atual média
+                    indicadores['temp_media_atual'] = ultimo.mean()
+                else:
+                    indicadores['temp_diferenca_atual'] = 0
+                    indicadores['temp_media_atual'] = 0
+                
+                # Média da diferença ao longo do tempo
+                diferencas = temps.max(axis=1) - temps.min(axis=1)
+                indicadores['temp_diferenca_media'] = diferencas.mean() if not diferencas.empty else 0
+            else:
+                indicadores['temp_media_geral'] = 0
+                indicadores['temp_max_geral'] = 0
+                indicadores['temp_min_geral'] = 0
+                indicadores['temp_diferenca_atual'] = 0
+                indicadores['temp_media_atual'] = 0
+                indicadores['temp_diferenca_media'] = 0
         
         # ===== ALIMENTAÇÃO =====
         if 'CICLO' in df.columns:
@@ -13972,20 +14001,21 @@ elif aba_selecionada == 'ENFORNADEIRA':
         boquetas_temp = indicadores.get('temp_boquetas', {})
         for boqueta, dados_temp in boquetas_temp.items():
             atual = dados_temp.get('atual', 0)
-            if atual < ALARMES_CONFIG['temperatura_min']:
-                diff = ALARMES_CONFIG['temperatura_min'] - atual
-                alarmes.append({
-                    'tipo': 'CRÍTICO' if diff > 20 else 'ALERTA',
-                    'mensagem': f"🔴 {boqueta} ABAIXO DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                    'cor': '#E81123' if diff > 20 else '#FFB900'
-                })
-            elif atual > ALARMES_CONFIG['temperatura_max']:
-                diff = atual - ALARMES_CONFIG['temperatura_max']
-                alarmes.append({
-                    'tipo': 'ALERTA',
-                    'mensagem': f"🟡 {boqueta} ACIMA DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                    'cor': '#FFB900'
-                })
+            if atual > 0:  # Só verificar se há valor válido
+                if atual < ALARMES_CONFIG['temperatura_min']:
+                    diff = ALARMES_CONFIG['temperatura_min'] - atual
+                    alarmes.append({
+                        'tipo': 'CRÍTICO' if diff > 20 else 'ALERTA',
+                        'mensagem': f"🔴 {boqueta} ABAIXO DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'cor': '#E81123' if diff > 20 else '#FFB900'
+                    })
+                elif atual > ALARMES_CONFIG['temperatura_max']:
+                    diff = atual - ALARMES_CONFIG['temperatura_max']
+                    alarmes.append({
+                        'tipo': 'ALERTA',
+                        'mensagem': f"🟡 {boqueta} ACIMA DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'cor': '#FFB900'
+                    })
         
         # Diferença entre boquetas
         if 'temp_diferenca_atual' in indicadores:
@@ -14015,23 +14045,24 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
-        # Relação O2/Gás
+        # Relação O2/Gás - USANDO O VALOR MAIS RECENTE
         if 'relacao_o2_gas_atual' in indicadores:
             rel = indicadores['relacao_o2_gas_atual']
-            if rel < ALARMES_CONFIG['relacao_o2_gas_min']:
-                diff = ALARMES_CONFIG['relacao_o2_gas_ideal'] - rel
-                alarmes.append({
-                    'tipo': 'CRÍTICO',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
-                    'cor': '#E81123'
-                })
-            elif rel > ALARMES_CONFIG['relacao_o2_gas_max']:
-                diff = rel - ALARMES_CONFIG['relacao_o2_gas_ideal']
-                alarmes.append({
-                    'tipo': 'ALERTA',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
-                    'cor': '#FFB900'
-                })
+            if rel > 0:  # Só verificar se há valor válido
+                if rel < ALARMES_CONFIG['relacao_o2_gas_min']:
+                    diff = ALARMES_CONFIG['relacao_o2_gas_ideal'] - rel
+                    alarmes.append({
+                        'tipo': 'CRÍTICO',
+                        'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                        'cor': '#E81123'
+                    })
+                elif rel > ALARMES_CONFIG['relacao_o2_gas_max']:
+                    diff = rel - ALARMES_CONFIG['relacao_o2_gas_ideal']
+                    alarmes.append({
+                        'tipo': 'ALERTA',
+                        'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {rel:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                        'cor': '#FFB900'
+                    })
         
         # Consumo de gás
         if 'gas_media' in indicadores and indicadores['gas_media'] > ALARMES_CONFIG['consumo_gas_alerta']:
@@ -14119,13 +14150,16 @@ elif aba_selecionada == 'ENFORNADEIRA':
             if boqueta in boquetas_temp:
                 atual = boquetas_temp[boqueta].get('atual', 0)
                 media = boquetas_temp[boqueta].get('media', 0)
-                cor = "normal" if ALARMES_CONFIG['temperatura_min'] <= atual <= ALARMES_CONFIG['temperatura_max'] else "inverse"
-                st.metric(
-                    f"🔥 {boqueta}", 
-                    f"{atual:.0f} °C", 
-                    delta=f"média: {media:.0f}°C", 
-                    delta_color=cor
-                )
+                if atual > 0:
+                    cor = "normal" if ALARMES_CONFIG['temperatura_min'] <= atual <= ALARMES_CONFIG['temperatura_max'] else "inverse"
+                    st.metric(
+                        f"🔥 {boqueta}", 
+                        f"{atual:.0f} °C", 
+                        delta=f"média: {media:.0f}°C", 
+                        delta_color=cor
+                    )
+                else:
+                    st.metric(f"🔥 {boqueta}", "N/A")
             else:
                 st.metric(f"🔥 {boqueta}", "N/A")
     
@@ -14150,6 +14184,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.metric("🔥 Gás Médio", f"{valor:.1f} m³")
     
     with col5:
+        # USAR O VALOR MAIS RECENTE DA RELAÇÃO
         relacao_atual = df_filtrado['RELACAO_O2_GAS'].iloc[-1] if 'RELACAO_O2_GAS' in df_filtrado.columns and not df_filtrado.empty else 0
         valor = relacao_atual
         meta = f"ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} (faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f}-{ALARMES_CONFIG['relacao_o2_gas_max']:.1f})"
@@ -14257,17 +14292,22 @@ elif aba_selecionada == 'ENFORNADEIRA':
         if df.empty or not colunas:
             return None
         
-        df_plot = df.dropna(subset=colunas, how='all')
+        # Filtrar apenas colunas que existem
+        colunas_existentes = [c for c in colunas if c in df.columns]
+        if not colunas_existentes:
+            return None
+        
+        df_plot = df.dropna(subset=colunas_existentes, how='all')
         if df_plot.empty:
             return None
         
         fig = px.line(
             df_plot,
             x='DATETIME' if 'DATETIME' in df_plot.columns else df_plot.index,
-            y=colunas,
+            y=colunas_existentes,
             title=titulo,
             labels={'x': 'Data/Hora', 'value': 'Temperatura (°C)'},
-            color_discrete_sequence=cores
+            color_discrete_sequence=cores[:len(colunas_existentes)]
         )
         
         # Adicionar faixa ideal
@@ -14310,13 +14350,18 @@ elif aba_selecionada == 'ENFORNADEIRA':
             df_plot['PERIODO'] = df_plot['DATETIME'].dt.strftime('%H:00') if 'DATETIME' in df_plot.columns else df_plot.index
             df_agg = df_plot.groupby('PERIODO')[colunas].mean().reset_index()
         
+        # Verificar se colunas existem
+        colunas_existentes = [c for c in colunas if c in df_agg.columns]
+        if not colunas_existentes:
+            return None
+        
         fig = px.bar(
             df_agg,
             x=df_agg.columns[0],
-            y=colunas,
+            y=colunas_existentes,
             title=titulo,
             barmode='group',
-            color_discrete_sequence=cores,
+            color_discrete_sequence=cores[:len(colunas_existentes)],
             labels={df_agg.columns[0]: ''}
         )
         
