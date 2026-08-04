@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA COM 5 BOQUETAS)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13021,8 +13021,9 @@ elif aba_selecionada == 'ENFORNADEIRA':
     ALARMES_CONFIG = {
         'nivel_min': 75,           # cm
         'nivel_max': 85,           # cm
-        'temperatura_min': 1270,   # °C
-        'temperatura_max': 1280,   # °C
+        'temperatura_min': 1270,   # °C (mínimo para todas as boquetas)
+        'temperatura_max': 1280,   # °C (máximo para todas as boquetas)
+        'diferenca_temp_max': 15,  # °C (diferença máxima entre boquetas)
         'tiragem_meta': 350,       # kg/h (máximo)
         'relacao_o2_gas_ideal': 2.0,  # Relação ideal (O₂/Gás) = dobro de oxigênio
         'relacao_o2_gas_min': 1.8,    # Mínimo ideal (10% abaixo)
@@ -13031,6 +13032,10 @@ elif aba_selecionada == 'ENFORNADEIRA':
         'consumo_oxi_alerta': 400,    # m³
         'osc_nivel_alerta': 10,       # cm
     }
+    
+    # Nomes das boquetas para exibição
+    NOMES_BOQUETAS = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
+    CORES_BOQUETAS = ['#0078D4', '#E86C2C', '#FFB900', '#107C10', '#6B46C1']
     
     # ======================
     # INICIALIZAR SESSION STATE
@@ -13071,7 +13076,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             return None
     
     # ======================
-    # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES
+    # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES (COM 5 BOQUETAS)
     # ======================
     def gerar_alertas_sugestoes(dados: Dict) -> List[Dict]:
         """Gera alertas e sugestões baseados nos dados lançados"""
@@ -13096,24 +13101,51 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'sugestao': f"⚠️ O nível está {diferenca:.1f} cm acima do máximo. REDUZA a alimentação (diminua voltas ou aumente ciclo) para baixar o nível. Acompanhe a tiragem."
             })
         
-        # ===== TEMPERATURA =====
-        temperatura = dados.get('temperatura', 0)
-        if temperatura < ALARMES_CONFIG['temperatura_min']:
-            diferenca = ALARMES_CONFIG['temperatura_min'] - temperatura
-            alertas.append({
-                'tipo': 'CRÍTICO',
-                'cor': '#E81123',
-                'mensagem': f"🔴 TEMPERATURA ABAIXO DO IDEAL: {temperatura} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C abaixo do mínimo. AUMENTE a relação O₂/Gás para {ALARMES_CONFIG['relacao_o2_gas_max']:.1f} (mais oxigênio) para elevar a temperatura. Verifique os maçaricos."
-            })
-        elif temperatura > ALARMES_CONFIG['temperatura_max']:
-            diferenca = temperatura - ALARMES_CONFIG['temperatura_max']
-            alertas.append({
-                'tipo': 'ALERTA',
-                'cor': '#FFB900',
-                'mensagem': f"🟡 TEMPERATURA ACIMA DO IDEAL: {temperatura} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'sugestao': f"⚠️ A temperatura está {diferenca:.0f}°C acima do máximo. REDUZA a relação O₂/Gás para {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} (menos oxigênio) para baixar a temperatura. Verifique se há superaquecimento."
-            })
+        # ===== TEMPERATURAS DAS BOQUETAS =====
+        temperaturas = []
+        for i in range(1, 6):
+            temp = dados.get(f'boqueta_{i}', 0)
+            if temp > 0:
+                temperaturas.append(temp)
+        
+        if temperaturas:
+            # Temperatura média
+            temp_media = sum(temperaturas) / len(temperaturas)
+            
+            # Verificar cada boqueta individualmente
+            for i, temp in enumerate(temperaturas, 1):
+                if temp < ALARMES_CONFIG['temperatura_min']:
+                    diferenca = ALARMES_CONFIG['temperatura_min'] - temp
+                    alertas.append({
+                        'tipo': 'CRÍTICO' if diferenca > 20 else 'ALERTA',
+                        'cor': '#E81123' if diferenca > 20 else '#FFB900',
+                        'mensagem': f"🔴 BOQUETA-{i} ABAIXO DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C abaixo do mínimo. Verifique o maçarico correspondente. AUMENTE a vazão de gás ou oxigênio para esta boqueta."
+                    })
+                elif temp > ALARMES_CONFIG['temperatura_max']:
+                    diferenca = temp - ALARMES_CONFIG['temperatura_max']
+                    alertas.append({
+                        'tipo': 'ALERTA',
+                        'cor': '#FFB900',
+                        'mensagem': f"🟡 BOQUETA-{i} ACIMA DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo. REDUZA a vazão de gás ou oxigênio para esta boqueta."
+                    })
+            
+            # Verificar diferença entre boquetas
+            if len(temperaturas) > 1:
+                temp_max = max(temperaturas)
+                temp_min = min(temperaturas)
+                diferenca = temp_max - temp_min
+                
+                if diferenca > ALARMES_CONFIG['diferenca_temp_max']:
+                    boqueta_max = temperaturas.index(temp_max) + 1
+                    boqueta_min = temperaturas.index(temp_min) + 1
+                    alertas.append({
+                        'tipo': 'ALERTA',
+                        'cor': '#FFB900',
+                        'mensagem': f"🟡 DIFERENÇA DE TEMPERATURA ENTRE BOQUETAS: {diferenca:.0f}°C (máximo recomendado: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
+                        'sugestao': f"⚠️ A diferença entre a boqueta mais quente ({boqueta_max}: {temp_max:.0f}°C) e a mais fria ({boqueta_min}: {temp_min:.0f}°C) é de {diferenca:.0f}°C. Verifique a distribuição de chama e o ajuste dos maçaricos."
+                    })
         
         # ===== TIRAGEM =====
         tiragem = dados.get('tiragem', 0)
@@ -13140,12 +13172,14 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         if gas_total > 0:
             relacao = oxi_total / gas_total
+            dados['relacao_calculada'] = relacao
+            
             if relacao < ALARMES_CONFIG['relacao_o2_gas_min']:
                 diferenca = ALARMES_CONFIG['relacao_o2_gas_ideal'] - relacao
                 alertas.append({
                     'tipo': 'CRÍTICO',
                     'cor': '#E81123',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS ABAIXO DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
                     'sugestao': f"⚠️ A relação está {diferenca:.2f} abaixo do ideal (2.0 = dobro de oxigênio em relação ao gás). AUMENTE a vazão de oxigênio ou DIMINUA a vazão de gás para atingir a faixa ideal de {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f}. A combustão está pobre, gerando fuligem."
                 })
             elif relacao > ALARMES_CONFIG['relacao_o2_gas_max']:
@@ -13153,7 +13187,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 alertas.append({
                     'tipo': 'ALERTA',
                     'cor': '#FFB900',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ACIMA DO IDEAL: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
+                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {relacao:.2f} (ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} - faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f})",
                     'sugestao': f"⚠️ A relação está {diferenca:.2f} acima do ideal (2.0 = dobro de oxigênio em relação ao gás). DIMINUA a vazão de oxigênio ou AUMENTE a vazão de gás para atingir a faixa ideal de {ALARMES_CONFIG['relacao_o2_gas_min']:.1f} a {ALARMES_CONFIG['relacao_o2_gas_max']:.1f}. Há excesso de oxigênio, desperdiçando energia."
                 })
         
@@ -13194,7 +13228,8 @@ elif aba_selecionada == 'ENFORNADEIRA':
             except:
                 # Criar aba se não existir
                 cabecalho = ["DATA", "HORA", "NÍVEL", "CICLO(SEG)", "VOLTAS", "TIRAGEM KG", 
-                            "OXI M³ - 1", "GÁS M³ - 1", "OXI M³ - 2", "GÁS M³ - 2", "TEMPERATURA"]
+                            "OXI M³ - 1", "GÁS M³ - 1", "OXI M³ - 2", "GÁS M³ - 2", 
+                            "BOQUETA-1", "BOQUETA-2", "BOQUETA-3", "BOQUETA-4", "BOQUETA-5"]
                 sheet = spreadsheet.add_worksheet(title=ABA_ENFORNADEIRA, rows=1000, cols=20)
                 sheet.append_row(cabecalho)
             
@@ -13215,7 +13250,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 str(dados.get('gas_1', '')),
                 str(dados.get('oxi_2', '')),
                 str(dados.get('gas_2', '')),
-                str(dados.get('temperatura', ''))
+                str(dados.get('boqueta_1', '')),
+                str(dados.get('boqueta_2', '')),
+                str(dados.get('boqueta_3', '')),
+                str(dados.get('boqueta_4', '')),
+                str(dados.get('boqueta_5', ''))
             ]
             
             sheet.append_row(linha)
@@ -13226,12 +13265,12 @@ elif aba_selecionada == 'ENFORNADEIRA':
             return False, f"❌ Erro ao salvar: {str(e)}"
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO
+    # FUNÇÕES DE CARREGAMENTO (ATUALIZADO COM 5 BOQUETAS)
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=300)
     def carregar_dados_enfornadeira() -> pd.DataFrame:
-        """Carrega os dados da planilha ENFORNADEIRA"""
+        """Carrega os dados da planilha ENFORNADEIRA com 5 boquetas"""
         try:
             client = get_gspread_client()
             if client is None:
@@ -13279,7 +13318,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'GAS_M3_-_1': 'GAS_1',
                 'OXI_M3_-_2': 'OXI_2',
                 'GAS_M3_-_2': 'GAS_2',
-                'TEMPERATURA': 'TEMPERATURA'
+                'BOQUETA-1': 'BOQUETA_1',
+                'BOQUETA-2': 'BOQUETA_2',
+                'BOQUETA-3': 'BOQUETA_3',
+                'BOQUETA-4': 'BOQUETA_4',
+                'BOQUETA-5': 'BOQUETA_5'
             }
             
             # Renomear colunas que existem
@@ -13300,13 +13343,23 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 df['HORA_OBJ'] = df['HORA'].apply(converter_hora_str)
                 df['HORA_DEC'] = df['HORA_OBJ'].apply(lambda x: x.hour + x.minute/60 if x else 0)
             
-            # Converter colunas numéricas
-            colunas_numericas = ['NIVEL', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 'OXI_1', 'GAS_1', 'OXI_2', 'GAS_2', 'TEMPERATURA']
+            # Converter colunas numéricas (incluindo as 5 boquetas)
+            colunas_numericas = ['NIVEL', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 'OXI_1', 'GAS_1', 'OXI_2', 'GAS_2',
+                                'BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
             for col in colunas_numericas:
                 if col in df.columns:
                     df[col] = df[col].astype(str).str.replace(',', '.')
                     df[col] = df[col].astype(str).str.replace(r'[^\d\.]', '', regex=True)
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            # Calcular temperatura média das boquetas
+            boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
+            boquetas_existentes = [b for b in boquetas if b in df.columns]
+            if boquetas_existentes:
+                df['TEMP_MEDIA'] = df[boquetas_existentes].mean(axis=1)
+                df['TEMP_MAX'] = df[boquetas_existentes].max(axis=1)
+                df['TEMP_MIN'] = df[boquetas_existentes].min(axis=1)
+                df['TEMP_DIFERENCA'] = df['TEMP_MAX'] - df['TEMP_MIN']
             
             # Calcular colunas derivadas
             if 'OXI_1' in df.columns and 'OXI_2' in df.columns:
@@ -13434,10 +13487,10 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.markdown('</div>', unsafe_allow_html=True)
     
     # ======================
-    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO DE LANÇAMENTO
+    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO DE LANÇAMENTO (COM 5 BOQUETAS)
     # ======================
     def renderizar_formulario_lancamento():
-        """Renderiza o formulário para lançamento de apontamentos"""
+        """Renderiza o formulário para lançamento de apontamentos com 5 boquetas"""
         
         st.markdown("---")
         st.markdown("### ✏️ Lançamento de Apontamentos")
@@ -13466,14 +13519,24 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     help="Nível atual do vidro no tanque (ideal: 75-85 cm)"
                 )
                 
-                temperatura = st.number_input(
-                    "Temperatura (°C)*",
+                st.markdown("#### 🌡️ Temperaturas das Boquetas")
+                st.caption("Temperatura em cada boqueta do forno (ideal: 1270-1280 °C)")
+                
+                boqueta_1 = st.number_input(
+                    "BOQUETA-1 (°C)*",
                     min_value=1200.0,
                     max_value=1600.0,
                     value=1275.0,
                     step=5.0,
-                    key="enfornadeira_temperatura",
-                    help="Temperatura atual do vidro (ideal: 1270-1280 °C)"
+                    key="enfornadeira_boqueta_1"
+                )
+                boqueta_2 = st.number_input(
+                    "BOQUETA-2 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_2"
                 )
             
             with col2:
@@ -13506,6 +13569,24 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     step=5.0,
                     key="enfornadeira_tiragem",
                     help="Quantidade de vidro extraída por hora (máx: 350 kg/h)"
+                )
+                
+                st.markdown("#### 🌡️ Temperaturas das Boquetas (continuação)")
+                boqueta_3 = st.number_input(
+                    "BOQUETA-3 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_3"
+                )
+                boqueta_4 = st.number_input(
+                    "BOQUETA-4 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_4"
                 )
             
             with col3:
@@ -13545,6 +13626,16 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     step=1.0,
                     key="enfornadeira_gas_2"
                 )
+                
+                st.markdown("#### 🌡️ Temperaturas das Boquetas (continuação)")
+                boqueta_5 = st.number_input(
+                    "BOQUETA-5 (°C)*",
+                    min_value=1200.0,
+                    max_value=1600.0,
+                    value=1275.0,
+                    step=5.0,
+                    key="enfornadeira_boqueta_5"
+                )
             
             st.markdown("---")
             st.caption("* Campos obrigatórios")
@@ -13562,7 +13653,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 # Validar campos obrigatórios
                 campos_obrigatorios = {
                     'Nível': nivel,
-                    'Temperatura': temperatura,
+                    'BOQUETA-1': boqueta_1,
+                    'BOQUETA-2': boqueta_2,
+                    'BOQUETA-3': boqueta_3,
+                    'BOQUETA-4': boqueta_4,
+                    'BOQUETA-5': boqueta_5,
                     'Ciclo': ciclo,
                     'Voltas': voltas,
                     'Tiragem': tiragem,
@@ -13580,7 +13675,11 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     # Salvar dados no session state para confirmação
                     st.session_state.enfornadeira_dados_lancamento = {
                         'nivel': nivel,
-                        'temperatura': temperatura,
+                        'boqueta_1': boqueta_1,
+                        'boqueta_2': boqueta_2,
+                        'boqueta_3': boqueta_3,
+                        'boqueta_4': boqueta_4,
+                        'boqueta_5': boqueta_5,
                         'ciclo': ciclo,
                         'voltas': voltas,
                         'tiragem': tiragem,
@@ -13603,19 +13702,26 @@ elif aba_selecionada == 'ENFORNADEIRA':
             
             # Mostrar resumo dos dados
             st.markdown("**📋 Resumo dos dados:**")
-            col_r1, col_r2, col_r3 = st.columns(3)
+            
+            # Organizar em 4 colunas para melhor visualização
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
             with col_r1:
                 st.write(f"📊 Nível: {dados['nivel']} cm")
-                st.write(f"🌡️ Temperatura: {dados['temperatura']} °C")
                 st.write(f"🔄 Ciclo: {dados['ciclo']} s")
-            with col_r2:
                 st.write(f"🔄 Voltas: {dados['voltas']}")
+            with col_r2:
                 st.write(f"📦 Tiragem: {dados['tiragem']} kg/h")
                 st.write(f"💨 O₂ 1: {dados['oxi_1']} m³")
-            with col_r3:
                 st.write(f"🔥 Gás 1: {dados['gas_1']} m³")
+            with col_r3:
                 st.write(f"💨 O₂ 2: {dados['oxi_2']} m³")
                 st.write(f"🔥 Gás 2: {dados['gas_2']} m³")
+                st.write(f"🌡️ BOQUETA-1: {dados['boqueta_1']} °C")
+            with col_r4:
+                st.write(f"🌡️ BOQUETA-2: {dados['boqueta_2']} °C")
+                st.write(f"🌡️ BOQUETA-3: {dados['boqueta_3']} °C")
+                st.write(f"🌡️ BOQUETA-4: {dados['boqueta_4']} °C")
+                st.write(f"🌡️ BOQUETA-5: {dados['boqueta_5']} °C")
             
             # Gerar alertas ANTES de salvar
             alertas = gerar_alertas_sugestoes(dados)
@@ -13723,9 +13829,9 @@ elif aba_selecionada == 'ENFORNADEIRA':
         renderizar_formulario_lancamento()
         st.stop()
     
-    # ===== CALCULAR INDICADORES =====
+    # ===== CALCULAR INDICADORES (ATUALIZADO COM BOQUETAS) =====
     def calcular_indicadores(df: pd.DataFrame) -> Dict:
-        """Calcula todos os indicadores do forno"""
+        """Calcula todos os indicadores do forno incluindo as 5 boquetas"""
         indicadores = {}
         
         if df.empty:
@@ -13753,14 +13859,40 @@ elif aba_selecionada == 'ENFORNADEIRA':
             indicadores['nivel_osc'] = nivel.max() - nivel.min()
             indicadores['nivel_std'] = nivel.std()
         
-        # ===== TEMPERATURA =====
-        if 'TEMPERATURA' in df.columns:
-            temp = df['TEMPERATURA']
-            indicadores['temp_atual'] = temp.iloc[-1] if not temp.empty else 0
-            indicadores['temp_media'] = temp.mean()
-            indicadores['temp_max'] = temp.max()
-            indicadores['temp_min'] = temp.min()
-            indicadores['temp_std'] = temp.std()
+        # ===== TEMPERATURAS DAS BOQUETAS =====
+        boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
+        boquetas_existentes = [b for b in boquetas if b in df.columns]
+        
+        if boquetas_existentes:
+            # Últimos valores
+            indicadores['temp_boquetas'] = {}
+            for b in boquetas_existentes:
+                valores = df[b]
+                if not valores.empty:
+                    indicadores['temp_boquetas'][b] = {
+                        'atual': valores.iloc[-1] if not valores.empty else 0,
+                        'media': valores.mean(),
+                        'max': valores.max(),
+                        'min': valores.min(),
+                        'std': valores.std()
+                    }
+            
+            # Estatísticas gerais
+            temps = df[boquetas_existentes]
+            indicadores['temp_media_geral'] = temps.mean().mean()
+            indicadores['temp_max_geral'] = temps.max().max()
+            indicadores['temp_min_geral'] = temps.min().min()
+            
+            # Diferença entre boquetas (último registro)
+            ultimo = df[boquetas_existentes].iloc[-1] if not df.empty else pd.Series()
+            if not ultimo.empty:
+                indicadores['temp_diferenca_atual'] = ultimo.max() - ultimo.min()
+                indicadores['temp_boqueta_mais_quente'] = ultimo.idxmax() if not ultimo.empty else None
+                indicadores['temp_boqueta_mais_fria'] = ultimo.idxmin() if not ultimo.empty else None
+            
+            # Média da diferença ao longo do tempo
+            diferencas = df[boquetas_existentes].max(axis=1) - df[boquetas_existentes].min(axis=1)
+            indicadores['temp_diferenca_media'] = diferencas.mean()
         
         # ===== ALIMENTAÇÃO =====
         if 'CICLO' in df.columns:
@@ -13814,7 +13946,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
         return indicadores
     
     def identificar_alarmes(df: pd.DataFrame, indicadores: Dict) -> List[Dict]:
-        """Identifica alarmes baseados nos dados históricos"""
+        """Identifica alarmes baseados nos dados históricos com 5 boquetas"""
         alarmes = []
         
         if df.empty or not indicadores:
@@ -13836,21 +13968,34 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'cor': '#FFB900'
             })
         
-        # Temperatura baixa
-        if 'temp_atual' in indicadores and indicadores['temp_atual'] < ALARMES_CONFIG['temperatura_min']:
-            alarmes.append({
-                'tipo': 'CRÍTICO',
-                'mensagem': f"🔴 TEMPERATURA ABAIXO DO IDEAL: {indicadores['temp_atual']:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'cor': '#E81123'
-            })
+        # Temperaturas das boquetas
+        boquetas_temp = indicadores.get('temp_boquetas', {})
+        for boqueta, dados_temp in boquetas_temp.items():
+            atual = dados_temp.get('atual', 0)
+            if atual < ALARMES_CONFIG['temperatura_min']:
+                diff = ALARMES_CONFIG['temperatura_min'] - atual
+                alarmes.append({
+                    'tipo': 'CRÍTICO' if diff > 20 else 'ALERTA',
+                    'mensagem': f"🔴 {boqueta} ABAIXO DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                    'cor': '#E81123' if diff > 20 else '#FFB900'
+                })
+            elif atual > ALARMES_CONFIG['temperatura_max']:
+                diff = atual - ALARMES_CONFIG['temperatura_max']
+                alarmes.append({
+                    'tipo': 'ALERTA',
+                    'mensagem': f"🟡 {boqueta} ACIMA DO IDEAL: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                    'cor': '#FFB900'
+                })
         
-        # Temperatura alta
-        if 'temp_atual' in indicadores and indicadores['temp_atual'] > ALARMES_CONFIG['temperatura_max']:
-            alarmes.append({
-                'tipo': 'ALERTA',
-                'mensagem': f"🟡 TEMPERATURA ACIMA DO IDEAL: {indicadores['temp_atual']:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
-                'cor': '#FFB900'
-            })
+        # Diferença entre boquetas
+        if 'temp_diferenca_atual' in indicadores:
+            diff = indicadores['temp_diferenca_atual']
+            if diff > ALARMES_CONFIG['diferenca_temp_max']:
+                alarmes.append({
+                    'tipo': 'ALERTA',
+                    'mensagem': f"🟡 DIFERENÇA ENTRE BOQUETAS: {diff:.0f}°C (máximo: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
+                    'cor': '#FFB900'
+                })
         
         # Tiragem
         if 'tiragem_media' in indicadores:
@@ -13870,7 +14015,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
-        # Relação O2/Gás (IDEAL = 2.0)
+        # Relação O2/Gás
         if 'relacao_o2_gas_atual' in indicadores:
             rel = indicadores['relacao_o2_gas_atual']
             if rel < ALARMES_CONFIG['relacao_o2_gas_min']:
@@ -13888,7 +14033,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     'cor': '#FFB900'
                 })
         
-        # Consumo de gás acima do alerta
+        # Consumo de gás
         if 'gas_media' in indicadores and indicadores['gas_media'] > ALARMES_CONFIG['consumo_gas_alerta']:
             alarmes.append({
                 'tipo': 'ALERTA',
@@ -13896,7 +14041,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 'cor': '#FFB900'
             })
         
-        # Consumo de oxigênio acima do alerta
+        # Consumo de oxigênio
         if 'oxi_media' in indicadores and indicadores['oxi_media'] > ALARMES_CONFIG['consumo_oxi_alerta']:
             alarmes.append({
                 'tipo': 'ALERTA',
@@ -13928,7 +14073,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             ENFORNADEIRA - Controle do Forno de Fusão
         </span>
         <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {THEME['text_muted']}; margin-left: 15px;">
-            {len(df_filtrado)} registros carregados
+            {len(df_filtrado)} registros carregados · 5 Boquetas
         </span>
     </div>
     """, unsafe_allow_html=True)
@@ -13936,7 +14081,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
     # ===== KPIs =====
     st.markdown("### 📊 Indicadores do Forno")
     
-    # Linha 1 - Produção
+    # Linha 1 - Produção e Nível
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -13954,16 +14099,37 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.metric("📈 Nível Atual", f"{valor:.1f} cm", delta=meta, delta_color=cor)
     
     with col4:
-        valor = indicadores.get('temp_atual', 0)
+        valor = indicadores.get('temp_media_geral', 0)
         meta = f"ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C"
         cor = "normal" if ALARMES_CONFIG['temperatura_min'] <= valor <= ALARMES_CONFIG['temperatura_max'] else "inverse"
-        st.metric("🌡️ Temperatura Atual", f"{valor:.0f} °C", delta=meta, delta_color=cor)
+        st.metric("🌡️ Temp. Média Boquetas", f"{valor:.0f} °C", delta=meta, delta_color=cor)
     
     with col5:
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # Linha 2 - Alimentação e Combustível
+    # Linha 2 - Temperaturas das Boquetas (Individual)
+    st.markdown("#### 🌡️ Temperaturas por Boqueta")
+    
+    boquetas_cols = st.columns(5)
+    boquetas_temp = indicadores.get('temp_boquetas', {})
+    
+    for i, (col, boqueta) in enumerate(zip(boquetas_cols, NOMES_BOQUETAS)):
+        with col:
+            if boqueta in boquetas_temp:
+                atual = boquetas_temp[boqueta].get('atual', 0)
+                media = boquetas_temp[boqueta].get('media', 0)
+                cor = "normal" if ALARMES_CONFIG['temperatura_min'] <= atual <= ALARMES_CONFIG['temperatura_max'] else "inverse"
+                st.metric(
+                    f"🔥 {boqueta}", 
+                    f"{atual:.0f} °C", 
+                    delta=f"média: {media:.0f}°C", 
+                    delta_color=cor
+                )
+            else:
+                st.metric(f"🔥 {boqueta}", "N/A")
+    
+    # Linha 3 - Alimentação e Combustível
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -13984,12 +14150,13 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.metric("🔥 Gás Médio", f"{valor:.1f} m³")
     
     with col5:
-        valor = indicadores.get('relacao_o2_gas_media', 0)
+        relacao_atual = df_filtrado['RELACAO_O2_GAS'].iloc[-1] if 'RELACAO_O2_GAS' in df_filtrado.columns and not df_filtrado.empty else 0
+        valor = relacao_atual
         meta = f"ideal: {ALARMES_CONFIG['relacao_o2_gas_ideal']:.1f} (faixa: {ALARMES_CONFIG['relacao_o2_gas_min']:.1f}-{ALARMES_CONFIG['relacao_o2_gas_max']:.1f})"
         cor = "normal" if ALARMES_CONFIG['relacao_o2_gas_min'] <= valor <= ALARMES_CONFIG['relacao_o2_gas_max'] else "inverse"
         st.metric("⚖️ Relação O₂/Gás", f"{valor:.2f}", delta=meta, delta_color=cor)
     
-    # Linha 3 - Eficiência
+    # Linha 4 - Eficiência e Diferença entre Boquetas
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -14005,13 +14172,10 @@ elif aba_selecionada == 'ENFORNADEIRA':
         st.metric("📉 Energia/ton", f"{valor:.1f} m³/ton")
     
     with col4:
-        valor = indicadores.get('tiragem_media', 0)
-        if valor < ALARMES_CONFIG['tiragem_meta']:
-            diff = ALARMES_CONFIG['tiragem_meta'] - valor
-            st.metric("⚡ Capacidade Disponível", f"{diff:.1f} kg/h", delta="disponível")
-        else:
-            diff = valor - ALARMES_CONFIG['tiragem_meta']
-            st.metric("⚡ Excedente", f"{diff:.1f} kg/h", delta="acima")
+        valor = indicadores.get('temp_diferenca_atual', 0)
+        meta = f"máx: {ALARMES_CONFIG['diferenca_temp_max']}°C"
+        cor = "normal" if valor <= ALARMES_CONFIG['diferenca_temp_max'] else "inverse"
+        st.metric("📊 Diferença Boquetas", f"{valor:.1f} °C", delta=meta, delta_color=cor)
     
     with col5:
         valor = indicadores.get('tiragem_media', 0)
@@ -14087,6 +14251,52 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         return fig
     
+    def criar_grafico_linha_multiplas(df: pd.DataFrame, colunas: List[str], titulo: str, cores: List[str],
+                                       meta_min: float = None, meta_max: float = None):
+        """Cria gráfico de linha com múltiplas séries"""
+        if df.empty or not colunas:
+            return None
+        
+        df_plot = df.dropna(subset=colunas, how='all')
+        if df_plot.empty:
+            return None
+        
+        fig = px.line(
+            df_plot,
+            x='DATETIME' if 'DATETIME' in df_plot.columns else df_plot.index,
+            y=colunas,
+            title=titulo,
+            labels={'x': 'Data/Hora', 'value': 'Temperatura (°C)'},
+            color_discrete_sequence=cores
+        )
+        
+        # Adicionar faixa ideal
+        if meta_min is not None and meta_max is not None:
+            fig.add_hrect(
+                y0=meta_min, y1=meta_max,
+                line_width=0,
+                fillcolor="green",
+                opacity=0.1,
+                annotation_text="Faixa Ideal",
+                annotation_position="top right"
+            )
+            fig.add_hline(y=meta_min, line_dash="dash", line_color="green", annotation_text=f"Mín: {meta_min}")
+            fig.add_hline(y=meta_max, line_dash="dash", line_color="green", annotation_text=f"Máx: {meta_max}")
+        
+        fig.update_layout(
+            height=350,
+            margin=dict(l=20, r=20, t=40, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=11),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
+        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
+        
+        return fig
+    
     def criar_grafico_barras(df: pd.DataFrame, colunas: List[str], titulo: str, cores: List[str]):
         """Cria gráfico de barras agrupadas"""
         if df.empty:
@@ -14147,18 +14357,41 @@ elif aba_selecionada == 'ENFORNADEIRA':
         else:
             st.info("📭 Dados de Tiragem insuficientes")
     
-    # Temperatura e Relação O2/Gás
+    # Temperaturas das Boquetas (Gráfico com todas as 5)
+    st.markdown("#### 🌡️ Evolução das Temperaturas por Boqueta")
+    
+    boquetas_existentes_graf = [b for b in NOMES_BOQUETAS if b in df_filtrado.columns]
+    if boquetas_existentes_graf:
+        fig = criar_grafico_linha_multiplas(
+            df_filtrado, 
+            boquetas_existentes_graf, 
+            'Temperaturas das Boquetas', 
+            CORES_BOQUETAS[:len(boquetas_existentes_graf)],
+            meta_min=ALARMES_CONFIG['temperatura_min'], 
+            meta_max=ALARMES_CONFIG['temperatura_max']
+        )
+        if fig:
+            st.plotly_chart(fig, use_container_width=True, key="grafico_boquetas")
+        else:
+            st.info("📭 Dados das Boquetas insuficientes")
+    else:
+        st.info("📭 Dados das Boquetas não disponíveis")
+    
+    # Temperatura Média e Relação O2/Gás
     col1, col2 = st.columns(2)
     
     with col1:
-        fig = criar_grafico_linha(
-            df_filtrado, 'TEMPERATURA', 'Temperatura (°C)', THEME['accent_red'],
-            meta_min=ALARMES_CONFIG['temperatura_min'], meta_max=ALARMES_CONFIG['temperatura_max']
-        )
-        if fig:
-            st.plotly_chart(fig, use_container_width=True, key="grafico_temperatura")
+        if 'TEMP_MEDIA' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'TEMP_MEDIA', 'Temperatura Média das Boquetas (°C)', THEME['accent_red'],
+                meta_min=ALARMES_CONFIG['temperatura_min'], meta_max=ALARMES_CONFIG['temperatura_max']
+            )
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key="grafico_temp_media")
+            else:
+                st.info("📭 Dados de Temperatura Média insuficientes")
         else:
-            st.info("📭 Dados de Temperatura insuficientes")
+            st.info("📭 Dados de Temperatura Média não disponíveis")
     
     with col2:
         if 'RELACAO_O2_GAS' in df_filtrado.columns:
@@ -14167,17 +14400,24 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 meta_min=ALARMES_CONFIG['relacao_o2_gas_min'], meta_max=ALARMES_CONFIG['relacao_o2_gas_max']
             )
             if fig:
-                # Adicionar anotação explicativa
+                valor_atual = df_filtrado['RELACAO_O2_GAS'].iloc[-1] if not df_filtrado.empty else 0
                 fig.add_annotation(
-                    x=0.5, y=1.05,
+                    x=0.5, y=1.08,
                     xref="paper", yref="paper",
-                    text="⚖️ Ideal: O₂ = 2 × Gás (faixa: 1.8 a 2.2)",
+                    text=f"⚖️ Ideal: O₂ = 2 × Gás (faixa: 1.8 a 2.2) | Atual: {valor_atual:.2f}",
                     showarrow=False,
                     font=dict(size=11, color="#333"),
                     bgcolor="rgba(255,255,255,0.8)",
                     bordercolor="#ccc",
                     borderwidth=1,
                     borderpad=4
+                )
+                fig.add_hline(
+                    y=valor_atual, 
+                    line_dash="dot", 
+                    line_color="red", 
+                    annotation_text=f"Atual: {valor_atual:.2f}",
+                    annotation_position="top right"
                 )
                 st.plotly_chart(fig, use_container_width=True, key="grafico_relacao")
             else:
@@ -14212,13 +14452,26 @@ elif aba_selecionada == 'ENFORNADEIRA':
         else:
             st.info("📭 Dados de Gás não disponíveis")
     
-    # Energia por tonelada
+    # Diferença entre boquetas
     col1, col2 = st.columns(2)
     
     with col1:
+        if 'TEMP_DIFERENCA' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'TEMP_DIFERENCA', 'Diferença entre Boquetas (°C)', THEME['accent_orange'],
+                meta_min=0, meta_max=ALARMES_CONFIG['diferenca_temp_max']
+            )
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key="grafico_diferenca")
+            else:
+                st.info("📭 Dados de Diferença insuficientes")
+        else:
+            st.info("📭 Dados de Diferença entre Boquetas não disponíveis")
+    
+    with col2:
         if 'ENERGIA_POR_TON' in df_filtrado.columns:
             fig = criar_grafico_linha(
-                df_filtrado, 'ENERGIA_POR_TON', 'Energia por Tonelada (m³/ton)', THEME['accent_orange']
+                df_filtrado, 'ENERGIA_POR_TON', 'Energia por Tonelada (m³/ton)', THEME['accent_purple']
             )
             if fig:
                 st.plotly_chart(fig, use_container_width=True, key="grafico_energia_ton")
@@ -14227,31 +14480,19 @@ elif aba_selecionada == 'ENFORNADEIRA':
         else:
             st.info("📭 Dados de Energia por tonelada não disponíveis")
     
-    with col2:
-        if 'BALANCO' in df_filtrado.columns:
-            fig = criar_grafico_linha(
-                df_filtrado, 'BALANCO', 'Balanço do Tanque (kg)', THEME['accent_purple']
-            )
-            if fig:
-                st.plotly_chart(fig, use_container_width=True, key="grafico_balanco")
-            else:
-                st.info("📭 Dados de Balanço insuficientes")
-        else:
-            st.info("📭 Dados de Balanço não disponíveis")
-    
     # ===== GRÁFICO POR TURNO =====
     st.markdown("---")
     st.markdown("### 📊 Desempenho por Turno")
     
     if 'TURNO' in df_filtrado.columns:
-        colunas_turno = ['TIRAGEM_KG', 'NIVEL', 'TEMPERATURA', 'OXI_TOTAL', 'GAS_TOTAL']
-        colunas_existentes = [c for c in colunas_turno if c in df_filtrado.columns]
+        colunas_turno = ['TIRAGEM_KG', 'NIVEL', 'TEMP_MEDIA', 'OXI_TOTAL', 'GAS_TOTAL']
+        colunas_existentes_turno = [c for c in colunas_turno if c in df_filtrado.columns]
         
-        if colunas_existentes:
+        if colunas_existentes_turno:
             cores = ['#0078D4', '#107C10', '#E81123', '#E86C2C', '#6B46C1']
             
             fig = criar_grafico_barras(
-                df_filtrado, colunas_existentes, 'Médias por Turno', cores[:len(colunas_existentes)]
+                df_filtrado, colunas_existentes_turno, 'Médias por Turno', cores[:len(colunas_existentes_turno)]
             )
             if fig:
                 st.plotly_chart(fig, use_container_width=True, key="grafico_turno")
@@ -14265,7 +14506,8 @@ elif aba_selecionada == 'ENFORNADEIRA':
     with st.expander("📋 Ver dados detalhados", expanded=False):
         df_exibicao = df_filtrado.copy()
         
-        colunas_exibir = ['DATA', 'HORA', 'TURNO', 'NIVEL', 'TEMPERATURA', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 
+        colunas_exibir = ['DATA', 'HORA', 'TURNO', 'NIVEL', 'BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5',
+                         'TEMP_MEDIA', 'TEMP_DIFERENCA', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 
                          'OXI_1', 'GAS_1', 'OXI_2', 'GAS_2', 'OXI_TOTAL', 'GAS_TOTAL', 
                          'ENERGIA_TOTAL', 'RELACAO_O2_GAS', 'GAS_POR_TON', 'OXI_POR_TON']
         
@@ -14282,7 +14524,13 @@ elif aba_selecionada == 'ENFORNADEIRA':
             'HORA': 'Hora',
             'TURNO': 'Turno',
             'NIVEL': 'Nível (cm)',
-            'TEMPERATURA': 'Temperatura (°C)',
+            'BOQUETA_1': 'BOQUETA-1 (°C)',
+            'BOQUETA_2': 'BOQUETA-2 (°C)',
+            'BOQUETA_3': 'BOQUETA-3 (°C)',
+            'BOQUETA_4': 'BOQUETA-4 (°C)',
+            'BOQUETA_5': 'BOQUETA-5 (°C)',
+            'TEMP_MEDIA': 'Temp. Média (°C)',
+            'TEMP_DIFERENCA': 'Diferença (°C)',
             'CICLO': 'Ciclo (s)',
             'VOLTAS': 'Voltas',
             'TIRAGEM_KG': 'Tiragem (kg/h)',
