@@ -13002,7 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO COM DEBUG COMPLETO)
+# ENFORNADEIRA - CONTROLE DO FORNO DE FUSÃO (VERSÃO CORRIGIDA - BOQUETAS FUNCIONANDO)
 # ==================================================================================================
 elif aba_selecionada == 'ENFORNADEIRA':
     render_page_header("ENFORNADEIRA", 
@@ -13033,7 +13033,9 @@ elif aba_selecionada == 'ENFORNADEIRA':
         'osc_nivel_alerta': 10,
     }
     
-    NOMES_BOQUETAS = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
+    # Nomes das boquetas para exibição (USAR OS NOMES DO DATAFRAME)
+    NOMES_BOQUETAS_DISPLAY = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
+    NOMES_BOQUETAS_DF = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
     CORES_BOQUETAS = ['#0078D4', '#E86C2C', '#FFB900', '#107C10', '#6B46C1']
     
     # ======================
@@ -13110,16 +13112,16 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     alertas.append({
                         'tipo': 'CRÍTICO' if diferenca > 20 else 'ALERTA',
                         'cor': '#E81123' if diferenca > 20 else '#FFB900',
-                        'mensagem': f"🔴 BOQUETA-{i} ABAIXO DO IDEAL: {temp} °C",
-                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C abaixo do mínimo."
+                        'mensagem': f"🔴 BOQUETA-{i} ABAIXO DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C abaixo do mínimo. Verifique o maçarico."
                     })
                 elif temp > ALARMES_CONFIG['temperatura_max']:
                     diferenca = temp - ALARMES_CONFIG['temperatura_max']
                     alertas.append({
                         'tipo': 'ALERTA',
                         'cor': '#FFB900',
-                        'mensagem': f"🟡 BOQUETA-{i} ACIMA DO IDEAL: {temp} °C",
-                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo."
+                        'mensagem': f"🟡 BOQUETA-{i} ACIMA DO IDEAL: {temp} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
+                        'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo. Reduza a chama."
                     })
             
             if len(temperaturas) > 1:
@@ -13131,8 +13133,8 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     alertas.append({
                         'tipo': 'ALERTA',
                         'cor': '#FFB900',
-                        'mensagem': f"🟡 DIFERENÇA ENTRE BOQUETAS: {diferenca:.0f}°C",
-                        'sugestao': f"⚠️ Diferença de {diferenca:.0f}°C entre boquetas. Verifique os maçaricos."
+                        'mensagem': f"🟡 DIFERENÇA ENTRE BOQUETAS: {diferenca:.0f}°C (máx: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
+                        'sugestao': f"⚠️ Diferença de {diferenca:.0f}°C entre boquetas. Verifique a distribuição de chama."
                     })
         
         tiragem = dados.get('tiragem', 0)
@@ -13141,8 +13143,8 @@ elif aba_selecionada == 'ENFORNADEIRA':
             alertas.append({
                 'tipo': 'ALERTA',
                 'cor': '#FFB900',
-                'mensagem': f"🟡 TIRAGEM ABAIXO: {tiragem:.1f} kg/h",
-                'sugestao': f"⚠️ {diferenca:.1f} kg/h abaixo da capacidade máxima."
+                'mensagem': f"🟡 TIRAGEM ABAIXO DA CAPACIDADE: {tiragem:.1f} kg/h (máx: {ALARMES_CONFIG['tiragem_meta']} kg/h)",
+                'sugestao': f"⚠️ {diferenca:.1f} kg/h abaixo da capacidade máxima. Verifique a produção."
             })
         
         oxi_total = dados.get('oxi_1', 0) + dados.get('oxi_2', 0)
@@ -13154,14 +13156,14 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 alertas.append({
                     'tipo': 'CRÍTICO',
                     'cor': '#E81123',
-                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {relacao:.2f}",
+                    'mensagem': f"🔴 RELAÇÃO O₂/GÁS BAIXA: {relacao:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
                     'sugestao': f"⚠️ AUMENTE oxigênio ou DIMINUA gás para atingir 2.0."
                 })
             elif relacao > ALARMES_CONFIG['relacao_o2_gas_max']:
                 alertas.append({
                     'tipo': 'ALERTA',
                     'cor': '#FFB900',
-                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {relacao:.2f}",
+                    'mensagem': f"🟡 RELAÇÃO O₂/GÁS ALTA: {relacao:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
                     'sugestao': f"⚠️ DIMINUA oxigênio ou AUMENTE gás para atingir 2.0."
                 })
         
@@ -13216,7 +13218,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             return False, f"❌ Erro ao salvar: {str(e)}"
     
     # ======================
-    # FUNÇÃO DE CARREGAMENTO - VERSÃO CORRIGIDA COM DEBUG
+    # FUNÇÃO DE CARREGAMENTO
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=300)
@@ -13244,75 +13246,62 @@ elif aba_selecionada == 'ENFORNADEIRA':
             cabecalho = todos_dados[0]
             valores = todos_dados[1:]
             
-            # ===== DEBUG: Mostrar cabeçalho original =====
-            st.markdown("### 🔍 DEBUG - Colunas da Planilha")
-            st.code(f"Cabeçalho original: {cabecalho}")
-            
             # Criar DataFrame com cabeçalho original
             df = pd.DataFrame(valores, columns=cabecalho)
             
-            # ===== MAPEAMENTO ROBUSTO =====
-            # Dicionário para mapear nomes de colunas
+            # ===== MAPEAMENTO DE COLUNAS =====
             mapa_colunas = {}
             
-            # Lista de colunas esperadas e seus padrões
-            padroes = {
-                'DATA': ['DATA', 'DATE', 'DIA'],
-                'HORA': ['HORA', 'TIME', 'HORARIO'],
-                'NIVEL': ['NIVEL', 'NÍVEL', 'LEVEL'],
-                'CICLO': ['CICLO', 'CICLO(SEG)', 'CICLO_SEG'],
-                'VOLTAS': ['VOLTAS', 'VOLTA'],
-                'TIRAGEM_KG': ['TIRAGEM_KG', 'TIRAGEM KG', 'TIRAGEM'],
-                'OXI_1': ['OXI_M3_-_1', 'OXI M3 - 1', 'OXI_1'],
-                'GAS_1': ['GAS_M3_-_1', 'GÁS_M3_-_1', 'GAS M3 - 1', 'GAS_1'],
-                'OXI_2': ['OXI_M3_-_2', 'OXI M3 - 2', 'OXI_2'],
-                'GAS_2': ['GAS_M3_-_2', 'GÁS_M3_-_2', 'GAS M3 - 2', 'GAS_2'],
-                'BOQUETA_1': ['BOQUETA-1', 'BOQUETA_1', 'BOQUETA1'],
-                'BOQUETA_2': ['BOQUETA-2', 'BOQUETA_2', 'BOQUETA2'],
-                'BOQUETA_3': ['BOQUETA-3', 'BOQUETA_3', 'BOQUETA3'],
-                'BOQUETA_4': ['BOQUETA-4', 'BOQUETA_4', 'BOQUETA4'],
-                'BOQUETA_5': ['BOQUETA-5', 'BOQUETA_5', 'BOQUETA5'],
-            }
-            
-            # Para cada coluna no DataFrame, verificar se corresponde a algum padrão
             for col in df.columns:
-                col_str = str(col).strip().upper()
-                col_sem_acento = unicodedata.normalize('NFKD', col_str).encode('ASCII', 'ignore').decode('ASCII')
+                col_str = str(col).strip()
+                col_upper = col_str.upper()
+                col_sem_acento = unicodedata.normalize('NFKD', col_upper).encode('ASCII', 'ignore').decode('ASCII')
                 
-                encontrado = False
-                for nome_esperado, padroes_lista in padroes.items():
-                    for padrao in padroes_lista:
-                        padrao_clean = padrao.upper().strip()
-                        if col_sem_acento == padrao_clean or col_str == padrao_clean:
-                            mapa_colunas[col] = nome_esperado
-                            encontrado = True
-                            break
-                    if encontrado:
-                        break
-                
-                # Se não encontrou, tentar busca parcial
-                if not encontrado:
-                    for nome_esperado, padroes_lista in padroes.items():
-                        for padrao in padroes_lista:
-                            padrao_clean = padrao.upper().strip()
-                            if padrao_clean in col_sem_acento or padrao_clean in col_str:
-                                mapa_colunas[col] = nome_esperado
-                                encontrado = True
-                                break
-                        if encontrado:
-                            break
-            
-            # ===== DEBUG: Mostrar mapeamento =====
-            st.markdown("### 🔍 Mapeamento de Colunas")
-            st.code(f"Mapa: {mapa_colunas}")
+                # DATA
+                if col_sem_acento in ['DATA', 'DATE']:
+                    mapa_colunas[col] = 'DATA'
+                # HORA
+                elif col_sem_acento in ['HORA', 'TIME', 'HORARIO']:
+                    mapa_colunas[col] = 'HORA'
+                # NÍVEL
+                elif col_sem_acento in ['NIVEL', 'NÍVEL', 'LEVEL']:
+                    mapa_colunas[col] = 'NIVEL'
+                # CICLO
+                elif 'CICLO' in col_sem_acento:
+                    mapa_colunas[col] = 'CICLO'
+                # VOLTAS
+                elif col_sem_acento in ['VOLTAS', 'VOLTA']:
+                    mapa_colunas[col] = 'VOLTAS'
+                # TIRAGEM
+                elif 'TIRAGEM' in col_sem_acento:
+                    mapa_colunas[col] = 'TIRAGEM_KG'
+                # OXIGÊNIO 1
+                elif col_sem_acento in ['OXI M3 - 1', 'OXI_M3_-_1', 'OXI_1']:
+                    mapa_colunas[col] = 'OXI_1'
+                # GÁS 1
+                elif col_sem_acento in ['GAS M3 - 1', 'GÁS M3 - 1', 'GAS_M3_-_1', 'GAS_1']:
+                    mapa_colunas[col] = 'GAS_1'
+                # OXIGÊNIO 2
+                elif col_sem_acento in ['OXI M3 - 2', 'OXI_M3_-_2', 'OXI_2']:
+                    mapa_colunas[col] = 'OXI_2'
+                # GÁS 2
+                elif col_sem_acento in ['GAS M3 - 2', 'GÁS M3 - 2', 'GAS_M3_-_2', 'GAS_2']:
+                    mapa_colunas[col] = 'GAS_2'
+                # BOQUETAS
+                elif 'BOQUETA-1' in col_sem_acento or 'BOQUETA_1' in col_sem_acento:
+                    mapa_colunas[col] = 'BOQUETA_1'
+                elif 'BOQUETA-2' in col_sem_acento or 'BOQUETA_2' in col_sem_acento:
+                    mapa_colunas[col] = 'BOQUETA_2'
+                elif 'BOQUETA-3' in col_sem_acento or 'BOQUETA_3' in col_sem_acento:
+                    mapa_colunas[col] = 'BOQUETA_3'
+                elif 'BOQUETA-4' in col_sem_acento or 'BOQUETA_4' in col_sem_acento:
+                    mapa_colunas[col] = 'BOQUETA_4'
+                elif 'BOQUETA-5' in col_sem_acento or 'BOQUETA_5' in col_sem_acento:
+                    mapa_colunas[col] = 'BOQUETA_5'
             
             # Aplicar renomeação
             if mapa_colunas:
                 df = df.rename(columns=mapa_colunas)
-            
-            # ===== DEBUG: Mostrar colunas após renomeação =====
-            st.markdown("### 🔍 Colunas após renomeação")
-            st.code(f"Colunas: {df.columns.tolist()}")
             
             # ===== CONVERTER DADOS =====
             # Converter DATA
@@ -13336,36 +13325,17 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     df[col] = df[col].astype(str).str.replace(r'[^\d\.]', '', regex=True)
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # ===== DEBUG: Mostrar dados das boquetas =====
-            st.markdown("### 🔍 Dados das Boquetas")
-            for i in range(1, 6):
-                col_name = f'BOQUETA_{i}'
-                if col_name in df.columns:
-                    valores_boqueta = df[col_name].head(10).tolist()
-                    st.code(f"{col_name}: {valores_boqueta}")
-                else:
-                    st.code(f"{col_name}: COLUNA NÃO ENCONTRADA!")
-            
-            # Calcular temperatura média das boquetas
-            boquetas = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
+            # Calcular temperatura média das boquetas (apenas valores > 0)
+            boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
             boquetas_existentes = [b for b in boquetas if b in df.columns]
             
             if boquetas_existentes:
-                # Substituir zeros por NaN
-                for b in boquetas_existentes:
-                    df[b] = df[b].replace(0, np.nan)
-                
-                df['TEMP_MEDIA'] = df[boquetas_existentes].mean(axis=1, skipna=True)
-                df['TEMP_MAX'] = df[boquetas_existentes].max(axis=1, skipna=True)
-                df['TEMP_MIN'] = df[boquetas_existentes].min(axis=1, skipna=True)
-                df['TEMP_DIFERENCA'] = df['TEMP_MAX'] - df['TEMP_MIN']
-                
-                # Preencher NaN com 0
-                df[boquetas_existentes] = df[boquetas_existentes].fillna(0)
-                df['TEMP_MEDIA'] = df['TEMP_MEDIA'].fillna(0)
-                df['TEMP_MAX'] = df['TEMP_MAX'].fillna(0)
-                df['TEMP_MIN'] = df['TEMP_MIN'].fillna(0)
-                df['TEMP_DIFERENCA'] = df['TEMP_DIFERENCA'].fillna(0)
+                # Criar cópia com zeros substituídos por NaN
+                df_temp = df[boquetas_existentes].replace(0, np.nan)
+                df['TEMP_MEDIA'] = df_temp.mean(axis=1, skipna=True).fillna(0)
+                df['TEMP_MAX'] = df_temp.max(axis=1, skipna=True).fillna(0)
+                df['TEMP_MIN'] = df_temp.min(axis=1, skipna=True).fillna(0)
+                df['TEMP_DIFERENCA'] = (df['TEMP_MAX'] - df['TEMP_MIN']).fillna(0)
             
             # Calcular colunas derivadas
             if 'OXI_1' in df.columns and 'OXI_2' in df.columns:
@@ -13709,6 +13679,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             indicadores['nivel_osc'] = nivel.max() - nivel.min() if not nivel.empty else 0
             indicadores['nivel_std'] = nivel.std()
         
+        # ===== BOQUETAS - USAR OS NOMES CORRETOS =====
         boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
         boquetas_existentes = [b for b in boquetas if b in df.columns]
         
@@ -13724,49 +13695,37 @@ elif aba_selecionada == 'ENFORNADEIRA':
                         'max': valores_validos.max() if not valores_validos.empty else 0,
                         'min': valores_validos.min() if not valores_validos.empty else 0,
                         'std': valores_validos.std() if not valores_validos.empty else 0,
-                        'tem_dados': True
+                        'tem_dados': True,
+                        'count': len(valores_validos)
                     }
                 else:
                     indicadores['temp_boquetas'][b] = {
-                        'atual': 0, 'media': 0, 'max': 0, 'min': 0, 'std': 0, 'tem_dados': False
+                        'atual': 0, 'media': 0, 'max': 0, 'min': 0, 'std': 0, 
+                        'tem_dados': False, 'count': 0
                     }
             
-            temps = df[boquetas_existentes]
-            temps_clean = temps.replace(0, np.nan)
+            # Estatísticas gerais
+            df_temp = df[boquetas_existentes].replace(0, np.nan)
             
-            if not temps_clean.empty:
-                temp_medias = temps_clean.mean(axis=1, skipna=True)
-                temp_medias_validas = temp_medias.dropna()
-                
-                if not temp_medias_validas.empty:
-                    indicadores['temp_media_geral'] = temp_medias_validas.mean()
-                    indicadores['temp_max_geral'] = temps_clean.max().max()
-                    indicadores['temp_min_geral'] = temps_clean.min().min()
-                    
-                    ultima_linha = temps_clean.iloc[-1] if not temps_clean.empty else pd.Series()
-                    ultima_linha_valida = ultima_linha.dropna()
-                    if not ultima_linha_valida.empty:
-                        indicadores['temp_diferenca_atual'] = ultima_linha_valida.max() - ultima_linha_valida.min()
-                        indicadores['temp_boqueta_mais_quente'] = ultima_linha_valida.idxmax()
-                        indicadores['temp_boqueta_mais_fria'] = ultima_linha_valida.idxmin()
-                        indicadores['temp_media_atual'] = ultima_linha_valida.mean()
-                    else:
-                        indicadores['temp_diferenca_atual'] = 0
-                        indicadores['temp_media_atual'] = 0
-                    
-                    diferencas = temps_clean.max(axis=1, skipna=True) - temps_clean.min(axis=1, skipna=True)
-                    diferencas_validas = diferencas.dropna()
-                    indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
-                else:
-                    indicadores['temp_media_geral'] = 0
-                    indicadores['temp_diferenca_atual'] = 0
-                    indicadores['temp_media_atual'] = 0
-                    indicadores['temp_diferenca_media'] = 0
+            # Média geral (apenas valores > 0)
+            temp_medias = df_temp.mean(axis=1, skipna=True)
+            temp_medias_validas = temp_medias.dropna()
+            indicadores['temp_media_geral'] = temp_medias_validas.mean() if not temp_medias_validas.empty else 0
+            
+            # Últimos valores válidos
+            ultima_linha = df_temp.iloc[-1] if not df_temp.empty else pd.Series()
+            ultima_linha_valida = ultima_linha.dropna()
+            if not ultima_linha_valida.empty:
+                indicadores['temp_diferenca_atual'] = ultima_linha_valida.max() - ultima_linha_valida.min()
+                indicadores['temp_media_atual'] = ultima_linha_valida.mean()
             else:
-                indicadores['temp_media_geral'] = 0
                 indicadores['temp_diferenca_atual'] = 0
                 indicadores['temp_media_atual'] = 0
-                indicadores['temp_diferenca_media'] = 0
+            
+            # Diferença média
+            diferencas = df_temp.max(axis=1, skipna=True) - df_temp.min(axis=1, skipna=True)
+            diferencas_validas = diferencas.dropna()
+            indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
         
         if 'CICLO' in df.columns:
             indicadores['ciclo_media'] = df['CICLO'].mean()
@@ -13778,39 +13737,21 @@ elif aba_selecionada == 'ENFORNADEIRA':
         
         if 'INDICE_ALIMENTACAO' in df.columns:
             indicadores['indice_alimentacao_media'] = df['INDICE_ALIMENTACAO'].mean()
-            indicadores['indice_alimentacao_atual'] = df['INDICE_ALIMENTACAO'].iloc[-1] if not df.empty else 0
-        
-        if 'EFICIENCIA_ALIMENTACAO' in df.columns:
-            indicadores['eficiencia_alimentacao_media'] = df['EFICIENCIA_ALIMENTACAO'].mean()
         
         if 'OXI_TOTAL' in df.columns:
             indicadores['oxi_media'] = df['OXI_TOTAL'].mean()
-            indicadores['oxi_max'] = df['OXI_TOTAL'].max()
-            indicadores['oxi_min'] = df['OXI_TOTAL'].min()
-            indicadores['oxi_total'] = df['OXI_TOTAL'].sum()
         
         if 'GAS_TOTAL' in df.columns:
             indicadores['gas_media'] = df['GAS_TOTAL'].mean()
-            indicadores['gas_max'] = df['GAS_TOTAL'].max()
-            indicadores['gas_min'] = df['GAS_TOTAL'].min()
-            indicadores['gas_total'] = df['GAS_TOTAL'].sum()
         
         if 'ENERGIA_TOTAL' in df.columns:
             indicadores['energia_media'] = df['ENERGIA_TOTAL'].mean()
-            indicadores['energia_total'] = df['ENERGIA_TOTAL'].sum()
         
         if 'RELACAO_O2_GAS' in df.columns:
             relacao_validas = df['RELACAO_O2_GAS'].replace([np.inf, -np.inf], np.nan).dropna()
             if not relacao_validas.empty:
                 indicadores['relacao_o2_gas_media'] = relacao_validas.mean()
                 indicadores['relacao_o2_gas_atual'] = relacao_validas.iloc[-1] if not relacao_validas.empty else 0
-                indicadores['relacao_o2_gas_max'] = relacao_validas.max()
-                indicadores['relacao_o2_gas_min'] = relacao_validas.min()
-            else:
-                indicadores['relacao_o2_gas_media'] = 0
-                indicadores['relacao_o2_gas_atual'] = 0
-                indicadores['relacao_o2_gas_max'] = 0
-                indicadores['relacao_o2_gas_min'] = 0
         
         if 'OXI_POR_TON' in df.columns:
             indicadores['oxi_por_ton_media'] = df['OXI_POR_TON'].replace([np.inf, -np.inf], 0).mean()
@@ -13832,32 +13773,35 @@ elif aba_selecionada == 'ENFORNADEIRA':
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] < ALARMES_CONFIG['nivel_min']:
             alarmes.append({
                 'tipo': 'CRÍTICO',
-                'mensagem': f"🔴 NÍVEL ABAIXO: {indicadores['nivel_atual']:.1f} cm",
+                'mensagem': f"🔴 NÍVEL ABAIXO: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
                 'cor': '#E81123'
             })
         
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] > ALARMES_CONFIG['nivel_max']:
             alarmes.append({
                 'tipo': 'ALERTA',
-                'mensagem': f"🟡 NÍVEL ACIMA: {indicadores['nivel_atual']:.1f} cm",
+                'mensagem': f"🟡 NÍVEL ACIMA: {indicadores['nivel_atual']:.1f} cm (ideal: {ALARMES_CONFIG['nivel_min']}-{ALARMES_CONFIG['nivel_max']} cm)",
                 'cor': '#FFB900'
             })
         
+        # BOQUETAS
         boquetas_temp = indicadores.get('temp_boquetas', {})
         for boqueta, dados_temp in boquetas_temp.items():
             if dados_temp.get('tem_dados', False):
                 atual = dados_temp.get('atual', 0)
                 if atual > 0:
+                    # Converter nome da coluna para display
+                    nome_display = boqueta.replace('_', '-')
                     if atual < ALARMES_CONFIG['temperatura_min']:
                         alarmes.append({
                             'tipo': 'CRÍTICO',
-                            'mensagem': f"🔴 {boqueta} ABAIXO: {atual:.0f} °C",
+                            'mensagem': f"🔴 {nome_display} ABAIXO: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
                             'cor': '#E81123'
                         })
                     elif atual > ALARMES_CONFIG['temperatura_max']:
                         alarmes.append({
                             'tipo': 'ALERTA',
-                            'mensagem': f"🟡 {boqueta} ACIMA: {atual:.0f} °C",
+                            'mensagem': f"🟡 {nome_display} ACIMA: {atual:.0f} °C (ideal: {ALARMES_CONFIG['temperatura_min']}-{ALARMES_CONFIG['temperatura_max']} °C)",
                             'cor': '#FFB900'
                         })
         
@@ -13866,7 +13810,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
             if diff > 0 and diff > ALARMES_CONFIG['diferenca_temp_max']:
                 alarmes.append({
                     'tipo': 'ALERTA',
-                    'mensagem': f"🟡 DIFERENÇA BOQUETAS: {diff:.0f}°C",
+                    'mensagem': f"🟡 DIFERENÇA BOQUETAS: {diff:.0f}°C (máx: {ALARMES_CONFIG['diferenca_temp_max']}°C)",
                     'cor': '#FFB900'
                 })
         
@@ -13876,7 +13820,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 diff = ALARMES_CONFIG['tiragem_meta'] - tiragem
                 alarmes.append({
                     'tipo': 'ALERTA',
-                    'mensagem': f"🟡 TIRAGEM ABAIXO: {tiragem:.1f} kg/h",
+                    'mensagem': f"🟡 TIRAGEM ABAIXO: {tiragem:.1f} kg/h (máx: {ALARMES_CONFIG['tiragem_meta']} kg/h) - {diff:.1f} kg/h abaixo",
                     'cor': '#FFB900'
                 })
         
@@ -13886,36 +13830,15 @@ elif aba_selecionada == 'ENFORNADEIRA':
                 if rel < ALARMES_CONFIG['relacao_o2_gas_min']:
                     alarmes.append({
                         'tipo': 'CRÍTICO',
-                        'mensagem': f"🔴 O₂/GÁS BAIXA: {rel:.2f}",
+                        'mensagem': f"🔴 O₂/GÁS BAIXA: {rel:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
                         'cor': '#E81123'
                     })
                 elif rel > ALARMES_CONFIG['relacao_o2_gas_max']:
                     alarmes.append({
                         'tipo': 'ALERTA',
-                        'mensagem': f"🟡 O₂/GÁS ALTA: {rel:.2f}",
+                        'mensagem': f"🟡 O₂/GÁS ALTA: {rel:.2f} (ideal: 2.0 - faixa: 1.8-2.2)",
                         'cor': '#FFB900'
                     })
-        
-        if 'gas_media' in indicadores and indicadores['gas_media'] > ALARMES_CONFIG['consumo_gas_alerta']:
-            alarmes.append({
-                'tipo': 'ALERTA',
-                'mensagem': f"🟡 GÁS ELEVADO: {indicadores['gas_media']:.1f} m³",
-                'cor': '#FFB900'
-            })
-        
-        if 'oxi_media' in indicadores and indicadores['oxi_media'] > ALARMES_CONFIG['consumo_oxi_alerta']:
-            alarmes.append({
-                'tipo': 'ALERTA',
-                'mensagem': f"🟡 O₂ ELEVADO: {indicadores['oxi_media']:.1f} m³",
-                'cor': '#FFB900'
-            })
-        
-        if 'nivel_osc' in indicadores and indicadores['nivel_osc'] > ALARMES_CONFIG['osc_nivel_alerta']:
-            alarmes.append({
-                'tipo': 'ALERTA',
-                'mensagem': f"🟡 OSCILAÇÃO NÍVEL: {indicadores['nivel_osc']:.1f} cm",
-                'cor': '#FFB900'
-            })
         
         return alarmes
     
@@ -13967,43 +13890,35 @@ elif aba_selecionada == 'ENFORNADEIRA':
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # ===== TEMPERATURAS DAS BOQUETAS =====
+    # ===== TEMPERATURAS DAS BOQUETAS - CORRIGIDO =====
     st.markdown("#### 🌡️ Temperaturas por Boqueta")
     
     boquetas_cols = st.columns(5)
     boquetas_temp = indicadores.get('temp_boquetas', {})
     
-    # Verificar se há dados nas boquetas
-    tem_boqueta_com_dado = any(dados.get('tem_dados', False) for dados in boquetas_temp.values())
-    
-    if not tem_boqueta_com_dado:
-        st.warning("📭 **Nenhum dado de temperatura encontrado nas boquetas!**")
-        st.info("💡 Verifique se a planilha tem as colunas BOQUETA-1, BOQUETA-2, BOQUETA-3, BOQUETA-4, BOQUETA-5 com dados preenchidos.")
-        
-        # Mostrar quais colunas existem no DataFrame
-        st.markdown("**Colunas disponíveis no DataFrame:**")
-        st.code(f"{df_filtrado.columns.tolist()}")
-    
-    for i, (col, boqueta) in enumerate(zip(boquetas_cols, NOMES_BOQUETAS)):
+    # Mapeamento dos nomes para exibição
+    for i, (col, nome_df) in enumerate(zip(boquetas_cols, NOMES_BOQUETAS_DF)):
         with col:
-            if boqueta in boquetas_temp:
-                dados_temp = boquetas_temp[boqueta]
+            nome_display = NOMES_BOQUETAS_DISPLAY[i]
+            if nome_df in boquetas_temp:
+                dados_temp = boquetas_temp[nome_df]
                 tem_dados = dados_temp.get('tem_dados', False)
                 if tem_dados:
                     atual = dados_temp.get('atual', 0)
                     media = dados_temp.get('media', 0)
+                    count = dados_temp.get('count', 0)
+                    
                     if atual >= ALARMES_CONFIG['temperatura_min'] and atual <= ALARMES_CONFIG['temperatura_max']:
-                        st.metric(f"✅ {boqueta}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C")
+                        st.metric(f"✅ {nome_display}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C ({count} registros)")
                     elif atual < ALARMES_CONFIG['temperatura_min']:
-                        st.metric(f"🔴 {boqueta}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C ↓", delta_color="inverse")
+                        st.metric(f"🔴 {nome_display}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C ↓ ({count})", delta_color="inverse")
                     else:
-                        st.metric(f"🟡 {boqueta}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C ↑", delta_color="inverse")
+                        st.metric(f"🟡 {nome_display}", f"{atual:.0f} °C", delta=f"média: {media:.0f}°C ↑ ({count})", delta_color="inverse")
                 else:
-                    st.metric(f"📭 {boqueta}", "Sem dados")
+                    st.metric(f"📭 {nome_display}", "Sem dados")
             else:
-                st.metric(f"❌ {boqueta}", "Coluna não encontrada")
+                st.metric(f"❌ {nome_display}", "Coluna não encontrada")
     
-    # ===== ALARMENTE =====
     st.markdown("---")
     
     # ===== ALARMES =====
@@ -14020,6 +13935,186 @@ elif aba_selecionada == 'ENFORNADEIRA':
             """, unsafe_allow_html=True)
         st.markdown("---")
     
+    # ===== GRÁFICOS =====
+    st.markdown("### 📈 Gráficos Analíticos")
+    
+    def criar_grafico_linha(df: pd.DataFrame, coluna: str, titulo: str, cor: str, 
+                            meta_min: float = None, meta_max: float = None):
+        if df.empty or coluna not in df.columns:
+            return None
+        
+        df_plot = df.dropna(subset=[coluna])
+        if df_plot.empty:
+            return None
+        
+        fig = px.line(
+            df_plot,
+            x='DATETIME' if 'DATETIME' in df_plot.columns else df_plot.index,
+            y=coluna,
+            title=titulo,
+            labels={'x': 'Data/Hora', coluna: titulo},
+            color_discrete_sequence=[cor]
+        )
+        
+        if meta_min is not None and meta_max is not None:
+            fig.add_hrect(
+                y0=meta_min, y1=meta_max,
+                line_width=0,
+                fillcolor="green",
+                opacity=0.1,
+                annotation_text="Faixa Ideal",
+                annotation_position="top right"
+            )
+            fig.add_hline(y=meta_min, line_dash="dash", line_color="green", annotation_text=f"Mín: {meta_min}")
+            fig.add_hline(y=meta_max, line_dash="dash", line_color="green", annotation_text=f"Máx: {meta_max}")
+        
+        fig.update_layout(
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=11)
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
+        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
+        
+        return fig
+    
+    def criar_grafico_linha_multiplas(df: pd.DataFrame, colunas: List[str], titulo: str, cores: List[str],
+                                       meta_min: float = None, meta_max: float = None):
+        if df.empty or not colunas:
+            return None
+        
+        colunas_existentes = [c for c in colunas if c in df.columns]
+        if not colunas_existentes:
+            return None
+        
+        df_plot = df.dropna(subset=colunas_existentes, how='all')
+        if df_plot.empty:
+            return None
+        
+        fig = px.line(
+            df_plot,
+            x='DATETIME' if 'DATETIME' in df_plot.columns else df_plot.index,
+            y=colunas_existentes,
+            title=titulo,
+            labels={'x': 'Data/Hora', 'value': 'Temperatura (°C)'},
+            color_discrete_sequence=cores[:len(colunas_existentes)]
+        )
+        
+        if meta_min is not None and meta_max is not None:
+            fig.add_hrect(
+                y0=meta_min, y1=meta_max,
+                line_width=0,
+                fillcolor="green",
+                opacity=0.1,
+                annotation_text="Faixa Ideal",
+                annotation_position="top right"
+            )
+            fig.add_hline(y=meta_min, line_dash="dash", line_color="green", annotation_text=f"Mín: {meta_min}")
+            fig.add_hline(y=meta_max, line_dash="dash", line_color="green", annotation_text=f"Máx: {meta_max}")
+        
+        fig.update_layout(
+            height=350,
+            margin=dict(l=20, r=20, t=40, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=11),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
+        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
+        
+        return fig
+    
+    # Nível
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = criar_grafico_linha(
+            df_filtrado, 'NIVEL', 'Nível do Tanque (cm)', THEME['accent_cyan'],
+            meta_min=ALARMES_CONFIG['nivel_min'], meta_max=ALARMES_CONFIG['nivel_max']
+        )
+        if fig:
+            st.plotly_chart(fig, use_container_width=True, key="grafico_nivel")
+        else:
+            st.info("📭 Dados de Nível insuficientes")
+    
+    with col2:
+        fig = criar_grafico_linha(
+            df_filtrado, 'TIRAGEM_KG', 'Tiragem (kg/h)', THEME['accent_lime'],
+            meta_min=0, meta_max=ALARMES_CONFIG['tiragem_meta']
+        )
+        if fig:
+            st.plotly_chart(fig, use_container_width=True, key="grafico_tiragem")
+        else:
+            st.info("📭 Dados de Tiragem insuficientes")
+    
+    # Temperaturas das Boquetas
+    st.markdown("#### 🌡️ Evolução das Temperaturas por Boqueta")
+    
+    boquetas_graf = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
+    boquetas_graf_existentes = [b for b in boquetas_graf if b in df_filtrado.columns and df_filtrado[b].sum() > 0]
+    
+    if boquetas_graf_existentes:
+        fig = criar_grafico_linha_multiplas(
+            df_filtrado, 
+            boquetas_graf_existentes, 
+            'Temperaturas das Boquetas', 
+            CORES_BOQUETAS[:len(boquetas_graf_existentes)],
+            meta_min=ALARMES_CONFIG['temperatura_min'], 
+            meta_max=ALARMES_CONFIG['temperatura_max']
+        )
+        if fig:
+            st.plotly_chart(fig, use_container_width=True, key="grafico_boquetas")
+        else:
+            st.info("📭 Dados das Boquetas insuficientes")
+    else:
+        st.info("📭 Nenhuma boqueta com dados disponíveis para o gráfico")
+    
+    # Relação O2/Gás
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'TEMP_MEDIA' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'TEMP_MEDIA', 'Temperatura Média (°C)', THEME['accent_red'],
+                meta_min=ALARMES_CONFIG['temperatura_min'], meta_max=ALARMES_CONFIG['temperatura_max']
+            )
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key="grafico_temp_media")
+            else:
+                st.info("📭 Dados de Temperatura Média insuficientes")
+        else:
+            st.info("📭 Dados de Temperatura Média não disponíveis")
+    
+    with col2:
+        if 'RELACAO_O2_GAS' in df_filtrado.columns:
+            fig = criar_grafico_linha(
+                df_filtrado, 'RELACAO_O2_GAS', 'Relação O₂/Gás (Ideal: 2.0)', THEME['accent_yellow'],
+                meta_min=ALARMES_CONFIG['relacao_o2_gas_min'], meta_max=ALARMES_CONFIG['relacao_o2_gas_max']
+            )
+            if fig:
+                valor_atual = df_filtrado['RELACAO_O2_GAS'].iloc[-1] if not df_filtrado.empty else 0
+                fig.add_annotation(
+                    x=0.5, y=1.08,
+                    xref="paper", yref="paper",
+                    text=f"⚖️ Ideal: O₂ = 2 × Gás (faixa: 1.8 a 2.2) | Atual: {valor_atual:.2f}",
+                    showarrow=False,
+                    font=dict(size=11, color="#333"),
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor="#ccc",
+                    borderwidth=1,
+                    borderpad=4
+                )
+                st.plotly_chart(fig, use_container_width=True, key="grafico_relacao")
+            else:
+                st.info("📭 Dados de Relação insuficientes")
+        else:
+            st.info("📭 Dados de Relação O₂/Gás não disponíveis")
+    
     # ===== FORMULÁRIO DE LANÇAMENTO =====
     renderizar_formulario_lancamento()
     
@@ -14027,7 +14122,8 @@ elif aba_selecionada == 'ENFORNADEIRA':
     with st.expander("📋 Ver dados detalhados", expanded=False):
         df_exibicao = df_filtrado.copy()
         
-        colunas_exibir = ['DATA', 'HORA', 'TURNO', 'NIVEL', 'BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5',
+        colunas_exibir = ['DATA', 'HORA', 'TURNO', 'NIVEL', 
+                         'BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5',
                          'TEMP_MEDIA', 'TEMP_DIFERENCA', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 
                          'OXI_1', 'GAS_1', 'OXI_2', 'GAS_2', 'OXI_TOTAL', 'GAS_TOTAL', 
                          'ENERGIA_TOTAL', 'RELACAO_O2_GAS']
