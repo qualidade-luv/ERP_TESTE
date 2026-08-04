@@ -13347,7 +13347,7 @@ elif aba_selecionada == 'ENFORNADEIRA':
                     st.code(f"{col_name}: COLUNA NÃO ENCONTRADA!")
             
             # Calcular temperatura média das boquetas
-            boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
+            boquetas = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
             boquetas_existentes = [b for b in boquetas if b in df.columns]
             
             if boquetas_existentes:
