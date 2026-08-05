@@ -130,11 +130,14 @@ def hash_senha(senha: str) -> str:
     """Cria um hash SHA-256 da senha"""
     return hashlib.sha256(senha.encode()).hexdigest()
 
+# ==================================================================================================
+# SUBSTITUA A FUNÇÃO EXISTENTE POR ESTA VERSÃO HÍBRIDA
+# ==================================================================================================
+
 def verificar_login(user: str, senha: str) -> tuple:
     """
     Verifica as credenciais na planilha LOGIN.
-    AGORA com comparação de HASH.
-    Retorna: (sucesso, nivel, setor, status, mensagem)
+    Compatível com senhas em texto puro OU com hash.
     """
     try:
         client = get_gspread_client()
@@ -153,7 +156,7 @@ def verificar_login(user: str, senha: str) -> tuple:
                 continue
                 
             usuario = row[1].strip()
-            senha_armazenada_hash = row[2].strip()
+            senha_armazenada = row[2].strip()
             nivel = row[3].strip()
             setor = row[4].strip()
             status = row[5].strip().upper()
@@ -162,11 +165,17 @@ def verificar_login(user: str, senha: str) -> tuple:
                 if status != "ATIVO":
                     return False, None, None, None, f"❌ Usuário bloqueado. Status: {status}"
                 
-                # COMPARAÇÃO COM HASH
-                if hash_senha(senha) == senha_armazenada_hash:
+                # ===== VERIFICAÇÃO HÍBRIDA =====
+                # 1. Tentar como texto puro (senhas antigas)
+                if senha == senha_armazenada:
                     return True, nivel, setor, status, "✅ Login realizado com sucesso!"
-                else:
-                    return False, None, None, None, "❌ Senha incorreta!"
+                
+                # 2. Tentar como hash (senhas migradas)
+                if len(senha_armazenada) == 64 and all(c in '0123456789abcdef' for c in senha_armazenada):
+                    if hash_senha(senha) == senha_armazenada:
+                        return True, nivel, setor, status, "✅ Login realizado com sucesso!"
+                
+                return False, None, None, None, "❌ Senha incorreta!"
         
         return False, None, None, None, "❌ Usuário não encontrado!"
         
