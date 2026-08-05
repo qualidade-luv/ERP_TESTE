@@ -14282,7 +14282,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             for i, coluna in enumerate(colunas_existentes):
                 if coluna in faixas:
                     min_val, max_val = faixas[coluna]
-                    # Adicionar faixa para esta boqueta específica
                     fig.add_hrect(
                         y0=min_val, y1=max_val,
                         line_width=1,
@@ -14293,6 +14292,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         annotation_position="top left",
                         annotation_font_size=8
                     )
+        
+        # ===== AJUSTE DA ESCALA DO EIXO Y PARA TEMPERATURAS (1150-1350) =====
+        fig.update_yaxes(range=[1150, 1350])
         
         fig.update_layout(
             height=350,
@@ -14307,6 +14309,113 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
         
         return fig
+    
+    def criar_grafico_barras(df: pd.DataFrame, colunas: List[str], titulo: str, cores: List[str]):
+        """Cria gráfico de barras agrupadas"""
+        if df.empty:
+            return None
+        
+        df_plot = df.copy()
+        
+        if 'TURNO' in df_plot.columns:
+            df_agg = df_plot.groupby('TURNO')[colunas].mean().reset_index()
+        else:
+            df_plot['PERIODO'] = df_plot['DATETIME'].dt.strftime('%H:00') if 'DATETIME' in df_plot.columns else df_plot.index
+            df_agg = df_plot.groupby('PERIODO')[colunas].mean().reset_index()
+        
+        # Verificar se colunas existem
+        colunas_existentes = [c for c in colunas if c in df_agg.columns]
+        if not colunas_existentes:
+            return None
+        
+        fig = px.bar(
+            df_agg,
+            x=df_agg.columns[0],
+            y=colunas_existentes,
+            title=titulo,
+            barmode='group',
+            color_discrete_sequence=cores[:len(colunas_existentes)],
+            labels={df_agg.columns[0]: ''}
+        )
+        
+        fig.update_layout(
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=11),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
+        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
+        
+        return fig
+    
+    # ===== GRÁFICO DE CONSUMO POR TURNO (EM COLUNAS) =====
+    def criar_grafico_consumo_turno(df: pd.DataFrame):
+        """Cria gráfico de consumo por turno em colunas"""
+        if df.empty or 'TURNO' not in df.columns:
+            return None
+        
+        # Verificar se as colunas de consumo existem
+        colunas_consumo = []
+        if 'OXI_TOTAL' in df.columns:
+            colunas_consumo.append('OXI_TOTAL')
+        if 'GAS_TOTAL' in df.columns:
+            colunas_consumo.append('GAS_TOTAL')
+        if 'ENERGIA_TOTAL' in df.columns:
+            colunas_consumo.append('ENERGIA_TOTAL')
+        
+        if not colunas_consumo:
+            return None
+        
+        # Agrupar por turno
+        df_turno = df.groupby('TURNO')[colunas_consumo].mean().reset_index()
+        
+        # Renomear colunas para exibição
+        rename_map = {
+            'OXI_TOTAL': 'Oxigênio (m³)',
+            'GAS_TOTAL': 'Gás (m³)',
+            'ENERGIA_TOTAL': 'Energia Total (m³)'
+        }
+        
+        for old, new in rename_map.items():
+            if old in df_turno.columns:
+                df_turno = df_turno.rename(columns={old: new})
+        
+        # Cores para cada tipo de consumo
+        cores = ['#0078D4', '#E86C2C', '#6B46C1']
+        colunas_exibir = [c for c in rename_map.values() if c in df_turno.columns]
+        
+        if not colunas_exibir:
+            return None
+        
+        fig = px.bar(
+            df_turno,
+            x='TURNO',
+            y=colunas_exibir,
+            title='Consumo Médio por Turno',
+            barmode='group',
+            color_discrete_sequence=cores[:len(colunas_exibir)],
+            labels={'value': 'Consumo (m³)', 'TURNO': 'Turno'}
+        )
+        
+        fig.update_layout(
+            height=350,
+            margin=dict(l=20, r=20, t=40, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=11),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
+        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
+        
+        return fig
+    
+    # ===== GRÁFICOS =====
     
     # Nível e Tiragem
     col1, col2 = st.columns(2)
@@ -14331,7 +14440,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Tiragem insuficientes")
     
-    # Temperaturas das Boquetas
+    # Temperaturas das Boquetas - COM ESCALA AJUSTADA (1150-1350)
     st.markdown("#### 🌡️ Evolução das Temperaturas por Boqueta")
     
     boquetas_graf = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
@@ -14424,6 +14533,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 st.info("📭 Dados de Gás insuficientes")
         else:
             st.info("📭 Dados de Gás não disponíveis")
+    
+    # ===== GRÁFICO DE CONSUMO POR TURNO (EM COLUNAS) =====
+    st.markdown("#### 📊 Consumo por Turno")
+    
+    fig_consumo_turno = criar_grafico_consumo_turno(df_filtrado)
+    if fig_consumo_turno:
+        st.plotly_chart(fig_consumo_turno, use_container_width=True, key="grafico_consumo_turno")
+    else:
+        st.info("📭 Dados insuficientes para gráfico de consumo por turno")
     
     # ===== FORMULÁRIO DE LANÇAMENTO =====
     renderizar_formulario_lancamento()
