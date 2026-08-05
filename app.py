@@ -2247,13 +2247,13 @@ def render_sidebar():
     return aba_selecionada
 
 # ==================================================================================================
-# 8. MAIN - ROTEADOR PRINCIPAL
+# FUNÇÃO MAIN COMPLETA E CORRIGIDA - SEM DUPLICAÇÃO DE ELEMENTOS
 # ==================================================================================================
 
 def main():
-    """Função principal do aplicativo"""
+    """Função principal do aplicativo - VERSÃO COMPLETA CORRIGIDA"""
     
-    # Configuração da página
+    # Configuração da página DEVE ser a primeira chamada Streamlit
     st.set_page_config(
         page_title="TRS Dashboard",
         page_icon="⚙️",
@@ -2265,10 +2265,11 @@ def main():
     st.markdown(get_global_css(), unsafe_allow_html=True)
     st.markdown(NOTIFICACAO_CSS, unsafe_allow_html=True)
     
-    # Verificação de acesso
+    # Verificar acesso
     if not verificar_acesso():
         st.stop()
     
+    # Remover mensagem de login antiga
     if 'mensagem_login' in st.session_state:
         del st.session_state.mensagem_login
     
@@ -2276,27 +2277,126 @@ def main():
     renderizar_popups_pendentes()
     verificar_e_exibir_popups()
     
-    # Renderizar sidebar e obter aba selecionada
-    aba_selecionada = render_sidebar()
+    # ===== SIDEBAR - RENDERIZADA UMA ÚNICA VEZ =====
+    with st.sidebar:
+        st.markdown(f"""
+        <div style="text-align: center; padding: 20px 0 16px; border-bottom: 1px solid {THEME['border_bright']}; margin-bottom: 20px;">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 700; color: {THEME['accent_cyan']}; letter-spacing: 0.2em;">⚙ ERP - Luvidarte</div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: {THEME['text_muted']}; letter-spacing: 0.2em; text-transform: uppercase;">Aqui tem Café no bule</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+            color:{THEME['accent_cyan']};margin-bottom:8px'>
+            ▸ Setor
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # RADIO COM KEY ÚNICA PARA EVITAR DUPLICAÇÃO
+        aba_selecionada = st.radio(
+            "", 
+            list(ABAS.keys()), 
+            label_visibility="collapsed",
+            key="menu_principal_radio"  # <--- KEY ÚNICA ADICIONADA
+        )
+        st.session_state.aba_selecionada = aba_selecionada
+        
+        # Informações do usuário
+        st.markdown("---")
+        
+        usuario_logado = st.session_state.get('usuario', 'Usuário')
+        nivel_logado = st.session_state.get('nivel', '0')
+        setor_logado = st.session_state.get('setor', '')
+        
+        col_info, col_btn = st.columns([3, 1])
+        with col_info:
+            st.markdown(f"""
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {THEME['text_muted']};">
+                👤 <b style="color: {THEME['text_primary']};">{usuario_logado}</b><br>
+                📊 Nível: {nivel_logado}<br>
+                🏢 {setor_logado}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_btn:
+            if st.button("🚪", help="Sair do sistema", key="btn_logout", use_container_width=True):
+                fazer_logout()
+        
+        # Botão para limpar cache
+        st.markdown("---")
+        
+        if "ultima_atualizacao_cache" not in st.session_state:
+            st.session_state.ultima_atualizacao_cache = datetime.now()
+        
+        st.caption(f"🔄 Última atualização: {st.session_state.ultima_atualizacao_cache.strftime('%H:%M:%S')}")
+        
+        if st.button("🔄 Limpar Cache e Recarregar", use_container_width=True, type="primary", key="btn_limpar_cache"):
+            with st.spinner("🧹 Limpando cache e recarregando dados..."):
+                sucesso, mensagem = limpar_cache_e_recarregar()
+                if sucesso:
+                    st.session_state.ultima_atualizacao_cache = datetime.now()
+                    st.success(mensagem)
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(mensagem)
+        
+        if st.button("📊 Recarregar Dados Apenas", use_container_width=True, key="btn_recarregar_dados"):
+            with st.spinner("🔄 Recarregando dados..."):
+                st.cache_data.clear()
+                st.session_state.ultima_atualizacao_cache = datetime.now()
+                st.success("✅ Dados recarregados!")
+                time.sleep(0.3)
+                st.rerun()
+        
+        st.markdown("---")
+        st.caption(f"""
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: {THEME['text_muted']}; text-align: center;">
+            TRS Dashboard v2.0<br>
+            {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Roteamento para os módulos
+    # ===== ROTEAMENTO PARA TODOS OS MÓDULOS =====
     if aba_selecionada == 'PRENSADOS':
         render_prensados()
     elif aba_selecionada == 'SOPRO':
         render_sopro()
-    # Os demais módulos serão adicionados nas partes seguintes
+    elif aba_selecionada == 'TÊMPERA':
+        render_tempera()
+    elif aba_selecionada == 'AVISO DE REJEIÇÃO':
+        render_ar()
+    elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
+        render_rm()
+    elif aba_selecionada == 'FECHAMENTO TURNO':
+        render_fechamento_turno()
+    elif aba_selecionada == 'MANUTENÇÃO PREVENTIVA':
+        render_manutencao_preventiva()
+    elif aba_selecionada == 'MAPEAMENTO DE HABILIDADES':
+        render_habilidades()
+    elif aba_selecionada == 'FERRAMENTARIA':
+        render_ferramentaria()
+    elif aba_selecionada == 'PRÊMIO PRENSADOS':
+        render_premio_prensados()
+    elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
+        render_repasses_producao()
+    elif aba_selecionada == 'CONTROLE DO FORNO':
+        render_controle_forno()
     else:
-        # Placeholder para os demais módulos
         render_page_header(aba_selecionada, "Módulo em desenvolvimento...", THEME['accent_purple'])
         st.info(f"O módulo '{aba_selecionada}' será disponibilizado em breve.")
     
-    # Renderizar faixa de rolagem no rodapé
+    # ===== FAIXA DE ROLAGEM NO RODAPÉ =====
     renderizar_faixa_rolagem()
 
-# Ponto de entrada do aplicativo
+
+# ==================================================================================================
+# PONTO DE ENTRADA DO APLICATIVO
+# ==================================================================================================
+
 if __name__ == "__main__":
     main()
-
 # ==================================================================================================
 # PARTE 3/5 - MÓDULOS TÊMPERA, AVISO DE REJEIÇÃO (AR) E REQUISIÇÃO DE MANUTENÇÃO (RM)
 # ==================================================================================================
