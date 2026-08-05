@@ -13063,9 +13063,10 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.session_state.enfornadeira_alertas_mostrar = False
     
     # ======================
-    # FUNÇÃO PARA CONVERTER HORA
+    # FUNÇÃO PARA CONVERTER HORA (CORRIGIDA - ACEITA HH:MM E HH:MM:SS)
     # ======================
     def converter_hora_str(valor):
+        """Converte string de hora para objeto time (aceita HH:MM ou HH:MM:SS)"""
         if pd.isna(valor) or valor is None:
             return None
         try:
@@ -13076,7 +13077,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     h = int(partes[0])
                     m = int(partes[1])
                     s = int(partes[2]) if len(partes) > 2 else 0
-                    return dt_time(h, m, s)
+                    if 0 <= h <= 23 and 0 <= m <= 59 and 0 <= s <= 59:
+                        return dt_time(h, m, s)
             return None
         except:
             return None
@@ -13272,7 +13274,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             return False, f"❌ Erro ao salvar: {str(e)}"
     
     # ======================
-    # FUNÇÃO DE CARREGAMENTO
+    # FUNÇÃO DE CARREGAMENTO (CORRIGIDA - ACEITA HH:MM:SS)
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=300)
@@ -13352,10 +13354,22 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 df['DATA'] = df['DATA'].apply(converter_data_br)
                 df = df.dropna(subset=['DATA'])
             
-            # Converter HORA
+            # ===== CONVERTER HORA (CORRIGIDO - ACEITA HH:MM E HH:MM:SS) =====
             if 'HORA' in df.columns:
+                # Converter para objeto time
                 df['HORA_OBJ'] = df['HORA'].apply(converter_hora_str)
-                df['HORA_DEC'] = df['HORA_OBJ'].apply(lambda x: x.hour + x.minute/60 if x else 0)
+                
+                # Para valores que não converteram, tentar extrair apenas a hora
+                mask_invalida = df['HORA_OBJ'].isna()
+                if mask_invalida.any():
+                    df.loc[mask_invalida, 'HORA_OBJ'] = df.loc[mask_invalida, 'HORA'].apply(
+                        lambda x: converter_hora_str(str(x).strip())
+                    )
+                
+                # Calcular hora decimal para ordenação
+                df['HORA_DEC'] = df['HORA_OBJ'].apply(
+                    lambda x: x.hour + x.minute/60 + x.second/3600 if x else 0
+                )
             
             # Converter colunas numéricas
             colunas_numericas = ['NIVEL', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 
@@ -13418,12 +13432,28 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         return 'NOITE'
                 df['TURNO'] = df['HORA_DEC'].apply(classificar_turno)
             
+            # ===== CRIAR DATETIME PARA ORDENAÇÃO =====
             if 'DATA' in df.columns and 'HORA' in df.columns:
                 try:
-                    df['DATETIME'] = pd.to_datetime(df['DATA'].astype(str) + ' ' + df['HORA'].astype(str), errors='coerce')
+                    # Tentar criar datetime com formato completo
+                    df['DATETIME'] = pd.to_datetime(
+                        df['DATA'].astype(str) + ' ' + df['HORA'].astype(str), 
+                        errors='coerce'
+                    )
+                    
+                    # Se falhar, tentar com hora decimal
+                    if df['DATETIME'].isna().all():
+                        df['DATETIME'] = df.apply(
+                            lambda row: datetime.combine(
+                                row['DATA'] if isinstance(row['DATA'], date) else datetime.now().date(),
+                                dt_time(int(row['HORA_DEC']), int((row['HORA_DEC'] % 1) * 60))
+                            ) if row.get('HORA_DEC', 0) > 0 else pd.NaT,
+                            axis=1
+                        )
                 except:
                     df['DATETIME'] = df['DATA']
             
+            # Ordenar por data/hora
             if 'DATETIME' in df.columns:
                 df = df.sort_values('DATETIME', ascending=True)
             
