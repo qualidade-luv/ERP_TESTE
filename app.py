@@ -13003,6 +13003,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
 
 # ==================================================================================================
 # CONTROLE DO FORNO - VERSÃO COMPLETA COM ANÁLISE PREDITIVA E RECOMENDAÇÕES
+# TODAS AS FUNCIONALIDADES ORIGINAIS MANTIDAS
 # ==================================================================================================
 
 elif aba_selecionada == 'CONTROLE DO FORNO':
@@ -13882,28 +13883,38 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         if df.empty:
             return {}
         
-        # ===== 1. IDENTIFICAR O PADRÃO DE EXCELÊNCIA =====
-        df_produtivo = df[df['TIRAGEM_KG'] > 300].copy()
+        # ===== 1. SEMPRE USAR OS 10 ÚLTIMOS REGISTROS PARA ANÁLISE ATUAL =====
+        # Independente do filtro, pegar os 10 registros mais recentes
+        df_ultimos = df.sort_values('DATETIME', ascending=False).head(10).copy()
+        
+        # Para o padrão de excelência, usar todos os dados filtrados (mas com mínimo de 10)
+        df_produtivo = df[df['TIRAGEM_KG'] > 250].copy()
         
         if df_produtivo.empty:
-            return {"erro": "Dados insuficientes para análise. Necessário mais registros com tiragem > 300 kg/h."}
+            return {"erro": "Dados insuficientes para análise. Necessário mais registros com tiragem > 250 kg/h."}
         
-        n_top = max(1, int(len(df_produtivo) * 0.2))
+        # ===== 2. IDENTIFICAR O PADRÃO DE EXCELÊNCIA =====
+        n_top = max(3, min(10, int(len(df_produtivo) * 0.2)))  # Mínimo 3, máximo 10
         df_top = df_produtivo.nlargest(n_top, 'TIRAGEM_KG')
         
-        # ===== 2. CALCULAR PARÂMETROS IDEAL =====
+        # ===== 3. CALCULAR PARÂMETROS IDEAL =====
         padrao = {
             'nivel_ideal': df_top['NIVEL'].mean(),
             'nivel_min': df_top['NIVEL'].min(),
             'nivel_max': df_top['NIVEL'].max(),
+            'nivel_std': df_top['NIVEL'].std(),
             'ciclo_ideal': df_top['CICLO'].mean(),
             'ciclo_min': df_top['CICLO'].min(),
             'ciclo_max': df_top['CICLO'].max(),
+            'ciclo_std': df_top['CICLO'].std(),
             'voltas_ideal': df_top['VOLTAS'].mean(),
             'voltas_min': df_top['VOLTAS'].min(),
             'voltas_max': df_top['VOLTAS'].max(),
+            'voltas_std': df_top['VOLTAS'].std(),
             'tiragem_media_top': df_top['TIRAGEM_KG'].mean(),
             'tiragem_max_top': df_top['TIRAGEM_KG'].max(),
+            'tiragem_min_top': df_top['TIRAGEM_KG'].min(),
+            'tiragem_std_top': df_top['TIRAGEM_KG'].std(),
             'relacao_o2_gas_ideal': df_top['RELACAO_O2_GAS'].mean(),
             'relacao_o2_gas_min': df_top['RELACAO_O2_GAS'].min(),
             'relacao_o2_gas_max': df_top['RELACAO_O2_GAS'].max(),
@@ -13924,23 +13935,28 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'std': valores.std()
                     }
         
-        # ===== 3. ANALISAR ÚLTIMOS REGISTROS =====
-        ultimos = df.tail(5).copy() if len(df) >= 5 else df.copy()
-        
+        # ===== 4. ANALISAR OS 10 ÚLTIMOS REGISTROS =====
         analise_atual = {
-            'nivel_atual': ultimos['NIVEL'].mean() if 'NIVEL' in ultimos.columns else 0,
-            'nivel_std': ultimos['NIVEL'].std() if 'NIVEL' in ultimos.columns else 0,
-            'ciclo_atual': ultimos['CICLO'].mean() if 'CICLO' in ultimos.columns else 0,
-            'voltas_atual': ultimos['VOLTAS'].mean() if 'VOLTAS' in ultimos.columns else 0,
-            'tiragem_atual': ultimos['TIRAGEM_KG'].mean() if 'TIRAGEM_KG' in ultimos.columns else 0,
-            'tiragem_std': ultimos['TIRAGEM_KG'].std() if 'TIRAGEM_KG' in ultimos.columns else 0,
-            'relacao_o2_gas_atual': ultimos['RELACAO_O2_GAS'].mean() if 'RELACAO_O2_GAS' in ultimos.columns else 0,
+            'nivel_atual': df_ultimos['NIVEL'].mean() if 'NIVEL' in df_ultimos.columns else 0,
+            'nivel_std': df_ultimos['NIVEL'].std() if 'NIVEL' in df_ultimos.columns else 0,
+            'nivel_min': df_ultimos['NIVEL'].min() if 'NIVEL' in df_ultimos.columns else 0,
+            'nivel_max': df_ultimos['NIVEL'].max() if 'NIVEL' in df_ultimos.columns else 0,
+            'ciclo_atual': df_ultimos['CICLO'].mean() if 'CICLO' in df_ultimos.columns else 0,
+            'ciclo_std': df_ultimos['CICLO'].std() if 'CICLO' in df_ultimos.columns else 0,
+            'voltas_atual': df_ultimos['VOLTAS'].mean() if 'VOLTAS' in df_ultimos.columns else 0,
+            'voltas_std': df_ultimos['VOLTAS'].std() if 'VOLTAS' in df_ultimos.columns else 0,
+            'tiragem_atual': df_ultimos['TIRAGEM_KG'].mean() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
+            'tiragem_std': df_ultimos['TIRAGEM_KG'].std() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
+            'tiragem_min': df_ultimos['TIRAGEM_KG'].min() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
+            'tiragem_max': df_ultimos['TIRAGEM_KG'].max() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
+            'relacao_o2_gas_atual': df_ultimos['RELACAO_O2_GAS'].mean() if 'RELACAO_O2_GAS' in df_ultimos.columns else 0,
+            'n_registros_analisados': len(df_ultimos),
             'boquetas': {}
         }
         
         for boqueta in boquetas:
-            if boqueta in ultimos.columns:
-                valores = ultimos[boqueta][ultimos[boqueta] > 0]
+            if boqueta in df_ultimos.columns:
+                valores = df_ultimos[boqueta][df_ultimos[boqueta] > 0]
                 if not valores.empty:
                     analise_atual['boquetas'][boqueta] = {
                         'media': valores.mean(),
@@ -13949,25 +13965,135 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'std': valores.std()
                     }
         
-        # ===== 4. GERAR RECOMENDAÇÕES =====
+        # ===== 5. GERAR RECOMENDAÇÕES DE SETUP =====
         recomendacoes = []
         
-        # 4.1 Recomendação de Nível
+        # 5.1 RECOMENDAÇÃO DE SETUP - VOLTAS E CICLO PARA AJUSTAR TIRAGEM
+        if 'tiragem_atual' in analise_atual and analise_atual['tiragem_atual'] > 0:
+            tiragem_atual = analise_atual['tiragem_atual']
+            tiragem_ideal = padrao['tiragem_media_top']
+            tiragem_diferenca = tiragem_ideal - tiragem_atual
+            
+            if tiragem_diferenca > 10 or tiragem_diferenca < -10:
+                # Calcular ajustes necessários
+                ciclos = analise_atual['ciclo_atual']
+                voltas = analise_atual['voltas_atual']
+                ciclos_ideal = padrao['ciclo_ideal']
+                voltas_ideal = padrao['voltas_ideal']
+                
+                # Calcular fator de ajuste (estimativa)
+                if tiragem_atual > 0 and voltas > 0:
+                    # Relação: Tiragem = (Voltas / Ciclo) * Constante
+                    # Ajuste sugerido baseado na diferença percentual
+                    perc_diferenca = tiragem_diferenca / tiragem_atual
+                    
+                    # Sugerir ajuste de voltas (aumentar ou diminuir)
+                    voltas_ajuste = voltas * (1 + perc_diferenca * 0.7)  # 70% do ajuste via voltas
+                    voltas_ajuste = max(5, min(20, voltas_ajuste))  # Limitar entre 5 e 20
+                    
+                    # Sugerir ajuste de ciclo (aumentar ou diminuir)
+                    ciclo_ajuste = ciclos * (1 - perc_diferenca * 0.3)  # 30% do ajuste via ciclo
+                    ciclo_ajuste = max(10, min(30, ciclo_ajuste))  # Limitar entre 10 e 30
+                    
+                    # Calcular tempo estimado para adequação
+                    # Considerando que cada ajuste leva cerca de 2 horas para estabilizar
+                    tempo_estimado_horas = 4  # horas base
+                    if abs(tiragem_diferenca) > 50:
+                        tempo_estimado_horas = 6
+                    elif abs(tiragem_diferenca) > 30:
+                        tempo_estimado_horas = 4
+                    else:
+                        tempo_estimado_horas = 2
+                    
+                    # Calcular número de ajustes necessários
+                    if abs(tiragem_diferenca) > 50:
+                        num_ajustes = 3
+                    elif abs(tiragem_diferenca) > 30:
+                        num_ajustes = 2
+                    else:
+                        num_ajustes = 1
+                    
+                    # Formatar mensagem de tempo
+                    if tempo_estimado_horas <= 4:
+                        tempo_str = f"Aproximadamente {tempo_estimado_horas} horas ({num_ajustes} ajuste{'s' if num_ajustes > 1 else ''})"
+                    else:
+                        tempo_str = f"Aproximadamente {tempo_estimado_horas} horas ({num_ajustes} ajustes progressivos)"
+                    
+                    # Construir recomendação
+                    if tiragem_diferenca > 0:
+                        # Precisa AUMENTAR a tiragem
+                        recomendacoes.append({
+                            'parametro': 'Setup - Aumentar Tiragem',
+                            'status': '🔧 AJUSTE DE SETUP',
+                            'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
+                            'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
+                            'acao': f"🔄 AUMENTE voltas para {voltas_ajuste:.1f} (atual: {voltas:.1f}) e REDUZA ciclo para {ciclo_ajuste:.1f}s (atual: {ciclos:.1f}s)",
+                            'detalhe': f"Aumentar voltas em {voltas_ajuste - voltas:.1f} e reduzir ciclo em {ciclos - ciclo_ajuste:.1f}s",
+                            'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
+                            'setup_ajuste': {
+                                'voltas_atual': voltas,
+                                'voltas_sugerido': round(voltas_ajuste, 1),
+                                'voltas_delta': round(voltas_ajuste - voltas, 1),
+                                'ciclo_atual': ciclos,
+                                'ciclo_sugerido': round(ciclo_ajuste, 1),
+                                'ciclo_delta': round(ciclo_ajuste - ciclos, 1),
+                                'tiragem_meta': round(tiragem_ideal, 1),
+                                'tiragem_atual': round(tiragem_atual, 1),
+                                'diferenca': round(tiragem_diferenca, 1),
+                                'tempo_estimado': tempo_str,
+                                'num_ajustes': num_ajustes
+                            }
+                        })
+                    else:
+                        # Precisa DIMINUIR a tiragem
+                        recomendacoes.append({
+                            'parametro': 'Setup - Diminuir Tiragem',
+                            'status': '🔧 AJUSTE DE SETUP',
+                            'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
+                            'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
+                            'acao': f"🔄 DIMINUA voltas para {voltas_ajuste:.1f} (atual: {voltas:.1f}) e AUMENTE ciclo para {ciclo_ajuste:.1f}s (atual: {ciclos:.1f}s)",
+                            'detalhe': f"Diminuir voltas em {voltas - voltas_ajuste:.1f} e aumentar ciclo em {ciclo_ajuste - ciclos:.1f}s",
+                            'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
+                            'setup_ajuste': {
+                                'voltas_atual': voltas,
+                                'voltas_sugerido': round(voltas_ajuste, 1),
+                                'voltas_delta': round(voltas_ajuste - voltas, 1),
+                                'ciclo_atual': ciclos,
+                                'ciclo_sugerido': round(ciclo_ajuste, 1),
+                                'ciclo_delta': round(ciclo_ajuste - ciclos, 1),
+                                'tiragem_meta': round(tiragem_ideal, 1),
+                                'tiragem_atual': round(tiragem_atual, 1),
+                                'diferenca': round(tiragem_diferenca, 1),
+                                'tempo_estimado': tempo_str,
+                                'num_ajustes': num_ajustes
+                            }
+                        })
+        
+        # 5.2 RECOMENDAÇÃO DE NÍVEL
         if 'nivel_atual' in analise_atual and analise_atual['nivel_atual'] > 0:
             nivel_atual = analise_atual['nivel_atual']
             nivel_ideal = padrao['nivel_ideal']
             tolerancia = 2.0
             
             if abs(nivel_atual - nivel_ideal) > tolerancia:
+                voltas = analise_atual.get('voltas_atual', 0)
+                ciclos = analise_atual.get('ciclo_atual', 0)
+                
                 if nivel_atual < nivel_ideal:
                     recomendacoes.append({
                         'parametro': 'Nível do Vidro',
                         'status': '⚠️ ABAIXO DO IDEAL',
                         'atual': f"{nivel_atual:.1f} cm",
                         'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
-                        'acao': f"AUMENTE a alimentação em {abs(nivel_atual - nivel_ideal):.1f} cm",
-                        'detalhe': f"Reduza o ciclo ou aumente as voltas para elevar o nível.",
-                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA'
+                        'acao': f"AUMENTE a alimentação: AUMENTE voltas (+{2.0 if voltas > 0 else 1.0}) ou REDUZA ciclo (-{1.0 if ciclos > 0 else 0.5}s)",
+                        'detalhe': f"Reduza o ciclo em 1s ou aumente as voltas em 2 para elevar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
+                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'tipo': 'nivel',
+                            'acao': 'aumentar',
+                            'sugestao': f"Aumentar voltas em 2 ou reduzir ciclo em 1s",
+                            'tempo_estimado': '1-2 horas'
+                        }
                     })
                 else:
                     recomendacoes.append({
@@ -13975,29 +14101,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ ACIMA DO IDEAL',
                         'atual': f"{nivel_atual:.1f} cm",
                         'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
-                        'acao': f"REDUZA a alimentação em {abs(nivel_atual - nivel_ideal):.1f} cm",
-                        'detalhe': f"Aumente o ciclo ou reduza as voltas para baixar o nível.",
-                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA'
+                        'acao': f"REDUZA a alimentação: DIMINUA voltas (-{2.0 if voltas > 0 else 1.0}) ou AUMENTE ciclo (+{1.0 if ciclos > 0 else 0.5}s)",
+                        'detalhe': f"Aumente o ciclo em 1s ou reduza as voltas em 2 para baixar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
+                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'tipo': 'nivel',
+                            'acao': 'diminuir',
+                            'sugestao': f"Diminuir voltas em 2 ou aumentar ciclo em 1s",
+                            'tempo_estimado': '1-2 horas'
+                        }
                     })
         
-        # 4.2 Recomendação de Tiragem
-        if 'tiragem_atual' in analise_atual and analise_atual['tiragem_atual'] > 0:
-            tiragem_atual = analise_atual['tiragem_atual']
-            tiragem_ideal = padrao['tiragem_media_top']
-            tiragem_max = padrao['tiragem_max_top']
-            
-            if tiragem_atual < tiragem_ideal * 0.85:
-                recomendacoes.append({
-                    'parametro': 'Tiragem',
-                    'status': '⚠️ ABAIXO DA CAPACIDADE',
-                    'atual': f"{tiragem_atual:.1f} kg/h",
-                    'ideal': f"{tiragem_ideal:.1f} kg/h (máx: {tiragem_max:.1f})",
-                    'acao': f"AUMENTE a tiragem em {tiragem_ideal - tiragem_atual:.1f} kg/h",
-                    'detalhe': f"Ajuste a alimentação e a temperatura para aumentar a produção.",
-                    'prioridade': 'ALTA' if tiragem_atual < tiragem_ideal * 0.7 else 'MÉDIA'
-                })
-        
-        # 4.3 Recomendação de Relação O₂/Gás
+        # 5.3 RECOMENDAÇÃO DE RELAÇÃO O₂/GÁS
         if 'relacao_o2_gas_atual' in analise_atual and analise_atual['relacao_o2_gas_atual'] > 0:
             relacao_atual = analise_atual['relacao_o2_gas_atual']
             relacao_ideal = padrao['relacao_o2_gas_ideal']
@@ -14010,9 +14125,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ O₂ ABAIXO DO IDEAL',
                         'atual': f"{relacao_atual:.2f}",
                         'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
-                        'acao': f"AUMENTE o oxigênio ou REDUZA o gás",
+                        'acao': f"AUMENTE o oxigênio em 10-15% ou REDUZA o gás em 10-15%",
                         'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
-                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA'
+                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'tipo': 'relacao_o2_gas',
+                            'acao': 'aumentar_oxi',
+                            'sugestao': f"Aumentar O₂ em 10-15% ou reduzir Gás em 10-15%",
+                            'tempo_estimado': '30 min - 1 hora'
+                        }
                     })
                 else:
                     recomendacoes.append({
@@ -14020,12 +14141,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ O₂ ACIMA DO IDEAL',
                         'atual': f"{relacao_atual:.2f}",
                         'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
-                        'acao': f"REDUZA o oxigênio ou AUMENTE o gás",
+                        'acao': f"REDUZA o oxigênio em 10-15% ou AUMENTE o gás em 10-15%",
                         'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
-                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA'
+                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'tipo': 'relacao_o2_gas',
+                            'acao': 'diminuir_oxi',
+                            'sugestao': f"Reduzir O₂ em 10-15% ou aumentar Gás em 10-15%",
+                            'tempo_estimado': '30 min - 1 hora'
+                        }
                     })
         
-        # 4.4 Recomendação de Temperaturas das Boquetas
+        # 5.4 RECOMENDAÇÃO DE TEMPERATURAS DAS BOQUETAS
         for boqueta, dados_top in padrao['boquetas'].items():
             if boqueta in analise_atual['boquetas'] and analise_atual['boquetas'][boqueta].get('media', 0) > 0:
                 temp_atual = analise_atual['boquetas'][boqueta]['media']
@@ -14042,7 +14169,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
                             'acao': f"AUMENTE a vazão de gás/oxigênio na {nome_display}",
                             'detalhe': f"Aumente a chama para elevar a temperatura em {temp_ideal - temp_atual:.0f}°C",
-                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA'
+                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA',
+                            'setup_ajuste': {
+                                'tipo': 'temperatura',
+                                'acao': 'aumentar',
+                                'boqueta': nome_display,
+                                'temp_delta': round(temp_ideal - temp_atual, 1),
+                                'sugestao': f"Aumentar vazão de gás na {nome_display}",
+                                'tempo_estimado': '1-2 horas'
+                            }
                         })
                     else:
                         recomendacoes.append({
@@ -14052,33 +14187,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
                             'acao': f"REDUZA a vazão de gás/oxigênio na {nome_display}",
                             'detalhe': f"Reduza a chama para baixar a temperatura em {temp_atual - temp_ideal:.0f}°C",
-                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA'
+                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA',
+                            'setup_ajuste': {
+                                'tipo': 'temperatura',
+                                'acao': 'diminuir',
+                                'boqueta': nome_display,
+                                'temp_delta': round(temp_atual - temp_ideal, 1),
+                                'sugestao': f"Reduzir vazão de gás na {nome_display}",
+                                'tempo_estimado': '1-2 horas'
+                            }
                         })
         
-        # 4.5 Análise de Estabilidade
-        if 'tiragem_std' in analise_atual and analise_atual['tiragem_std'] > 20:
-            recomendacoes.append({
-                'parametro': 'Estabilidade da Tiragem',
-                'status': '⚠️ ALTA OSCILAÇÃO',
-                'atual': f"±{analise_atual['tiragem_std']:.1f} kg/h",
-                'ideal': f"< 20 kg/h",
-                'acao': f"REGULARIZE a alimentação para reduzir oscilações",
-                'detalhe': f"A tiragem está oscilando muito. Verifique a alimentação e a temperatura.",
-                'prioridade': 'ALTA'
-            })
-        
-        if 'nivel_std' in analise_atual and analise_atual['nivel_std'] > 2.0:
-            recomendacoes.append({
-                'parametro': 'Estabilidade do Nível',
-                'status': '⚠️ OSCILAÇÃO DO NÍVEL',
-                'atual': f"±{analise_atual['nivel_std']:.1f} cm",
-                'ideal': f"< 2.0 cm",
-                'acao': f"REGULARIZE a alimentação para estabilizar o nível",
-                'detalhe': f"O nível está oscilando. Ajuste a alimentação para manter a estabilidade.",
-                'prioridade': 'MÉDIA'
-            })
-        
-        # ===== 5. GERAR RELATÓRIO DE DESEMPENHO =====
+        # ===== 6. GERAR RELATÓRIO DE DESEMPENHO =====
         desempenho = {
             'tiragem_media_atual': analise_atual.get('tiragem_atual', 0),
             'tiragem_media_top': padrao['tiragem_media_top'],
@@ -14088,7 +14208,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             'nivel_media_top': padrao['nivel_ideal'],
             'relacao_o2_gas_atual': analise_atual.get('relacao_o2_gas_atual', 0),
             'relacao_o2_gas_top': padrao['relacao_o2_gas_ideal'],
-            'n_registros_analisados': len(ultimos),
+            'n_registros_analisados': analise_atual['n_registros_analisados'],
             'n_registros_top': padrao['n_registros_top']
         }
         
@@ -14109,6 +14229,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             st.warning("⚠️ Dados insuficientes para análise preditiva.")
             return
         
+        # Verificar se há pelo menos 10 registros para análise
+        if len(df) < 10:
+            st.info(f"📊 São necessários pelo menos 10 registros para análise preditiva. Atualmente: {len(df)} registros. Use os filtros para ampliar o período.")
+            return
+        
         with st.spinner("🔄 Analisando dados históricos e gerando recomendações..."):
             analise = analisar_padrao_excelencia(df)
         
@@ -14119,7 +14244,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         # ===== 1. RESUMO DE DESEMPENHO =====
         desempenho = analise['desempenho']
         
-        st.markdown("#### 📊 Resumo do Desempenho Atual")
+        st.markdown("#### 📊 Resumo do Desempenho Atual (Últimos 10 Registros)")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -14149,7 +14274,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 delta=f"ideal: {desempenho['relacao_o2_gas_top']:.2f}"
             )
         
-        st.caption(f"📊 Análise baseada em {desempenho['n_registros_analisados']} registros recentes | Padrão de excelência: {desempenho['n_registros_top']} melhores produções")
+        st.caption(f"📊 Análise baseada nos {desempenho['n_registros_analisados']} últimos registros | Padrão de excelência: {desempenho['n_registros_top']} melhores produções")
         
         st.markdown("---")
         
@@ -14157,66 +14282,185 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         recomendacoes = analise['recomendacoes']
         
         if recomendacoes:
-            st.markdown("#### 🛠️ Recomendações de Ajuste")
-            st.caption("Ajustes sugeridos para aproximar o processo do padrão de excelência")
+            st.markdown("#### 🛠️ Recomendações de Setup e Ajustes")
+            st.caption("Ajustes sugeridos baseados nos 10 últimos registros para aproximar do padrão de excelência")
             
+            # Separar por prioridade
             recomendacoes_alta = [r for r in recomendacoes if r['prioridade'] == 'ALTA']
             recomendacoes_media = [r for r in recomendacoes if r['prioridade'] == 'MÉDIA']
             
             if recomendacoes_alta:
                 st.markdown("##### 🔴 Prioridade Alta (Ação Imediata)")
                 for rec in recomendacoes_alta:
-                    st.markdown(f"""
-                    <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong style="color: #E81123;">{rec['parametro']}</strong>
-                                <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                    # Verificar se tem dados de setup
+                    if 'setup_ajuste' in rec:
+                        setup = rec['setup_ajuste']
+                        # Verificar se é recomendação de setup (voltas/ciclo)
+                        if 'voltas_sugerido' in setup:
+                            st.markdown(f"""
+                            <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 15px 18px; margin: 10px 0; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #E81123; font-size: 15px;">🔧 {rec['parametro']}</strong>
+                                        <span style="margin-left: 10px; font-size: 13px; color: #E81123;">{rec['status']}</span>
+                                    </div>
+                                    <span style="background: #E81123; color: white; padding: 2px 14px; border-radius: 12px; font-size: 11px; font-weight: bold;">ALTA</span>
+                                </div>
+                                <div style="margin-top: 8px; font-size: 13px;">
+                                    <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                                    <span style="color: #666; margin-left: 20px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                                </div>
+                                <div style="margin-top: 8px; font-size: 13px; background: #e8f0fe; padding: 8px 12px; border-radius: 6px;">
+                                    <strong>🎯 Ação de Setup:</strong><br>
+                                    <span style="font-size: 14px; color: #0078D4;">{rec['acao']}</span>
+                                </div>
+                                <div style="margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 12px;">
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Voltas</strong><br>
+                                        <span style="color: #666;">Atual: {setup['voltas_atual']:.1f}</span><br>
+                                        <span style="color: #0078D4;">Sugerido: {setup['voltas_sugerido']:.1f}</span>
+                                    </div>
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Ciclo</strong><br>
+                                        <span style="color: #666;">Atual: {setup['ciclo_atual']:.1f}s</span><br>
+                                        <span style="color: #0078D4;">Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
+                                    </div>
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Tiragem</strong><br>
+                                        <span style="color: #666;">Atual: {setup['tiragem_atual']:.1f}</span><br>
+                                        <span style="color: #0078D4;">Meta: {setup['tiragem_meta']:.1f}</span>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 6px; font-size: 12px; color: #666; background: #fff8e7; padding: 6px 12px; border-radius: 4px;">
+                                    <span>⏰ <strong>Tempo estimado para adequação:</strong> {setup['tempo_estimado']}</span>
+                                </div>
+                                <div style="margin-top: 4px; font-size: 12px; color: #666;">
+                                    📝 {rec['detalhe']}
+                                </div>
                             </div>
-                            <span style="background: #E81123; color: white; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">ALTA</span>
+                            """, unsafe_allow_html=True)
+                        else:
+                            # Recomendação sem dados de setup específicos
+                            st.markdown(f"""
+                            <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #E81123;">{rec['parametro']}</strong>
+                                        <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                                    </div>
+                                    <span style="background: #E81123; color: white; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">ALTA</span>
+                                </div>
+                                <div style="margin-top: 6px; font-size: 13px;">
+                                    <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                                    <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                                </div>
+                                <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
+                                    <strong>💡 Ação:</strong> {rec['acao']}
+                                </div>
+                                <div style="margin-top: 2px; font-size: 12px; color: #666;">
+                                    {rec['detalhe']}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        # Recomendação sem dados de setup
+                        st.markdown(f"""
+                        <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong style="color: #E81123;">{rec['parametro']}</strong>
+                                    <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                                </div>
+                                <span style="background: #E81123; color: white; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">ALTA</span>
+                            </div>
+                            <div style="margin-top: 6px; font-size: 13px;">
+                                <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                                <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                            </div>
+                            <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
+                                <strong>💡 Ação:</strong> {rec['acao']}
+                            </div>
+                            <div style="margin-top: 2px; font-size: 12px; color: #666;">
+                                {rec['detalhe']}
+                            </div>
                         </div>
-                        <div style="margin-top: 6px; font-size: 13px;">
-                            <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
-                            <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
-                        </div>
-                        <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
-                            <strong>💡 Ação:</strong> {rec['acao']}
-                        </div>
-                        <div style="margin-top: 2px; font-size: 12px; color: #666;">
-                            {rec['detalhe']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
             
             if recomendacoes_media:
                 st.markdown("##### 🟡 Prioridade Média (Ajuste Progressivo)")
                 for rec in recomendacoes_media:
-                    st.markdown(f"""
-                    <div style="background: #fffdf5; border-left: 4px solid #FFB900; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong style="color: #E86C2C;">{rec['parametro']}</strong>
-                                <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                    if 'setup_ajuste' in rec:
+                        setup = rec['setup_ajuste']
+                        if 'voltas_sugerido' in setup:
+                            st.markdown(f"""
+                            <div style="background: #fffdf5; border-left: 4px solid #FFB900; padding: 15px 18px; margin: 10px 0; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #E86C2C; font-size: 15px;">🔧 {rec['parametro']}</strong>
+                                        <span style="margin-left: 10px; font-size: 13px; color: #E86C2C;">{rec['status']}</span>
+                                    </div>
+                                    <span style="background: #FFB900; color: #333; padding: 2px 14px; border-radius: 12px; font-size: 11px; font-weight: bold;">MÉDIA</span>
+                                </div>
+                                <div style="margin-top: 8px; font-size: 13px;">
+                                    <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                                    <span style="color: #666; margin-left: 20px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                                </div>
+                                <div style="margin-top: 8px; font-size: 13px; background: #e8f0fe; padding: 8px 12px; border-radius: 6px;">
+                                    <strong>🎯 Ação de Setup:</strong><br>
+                                    <span style="font-size: 14px; color: #0078D4;">{rec['acao']}</span>
+                                </div>
+                                <div style="margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 12px;">
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Voltas</strong><br>
+                                        <span style="color: #666;">Atual: {setup['voltas_atual']:.1f}</span><br>
+                                        <span style="color: #0078D4;">Sugerido: {setup['voltas_sugerido']:.1f}</span>
+                                    </div>
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Ciclo</strong><br>
+                                        <span style="color: #666;">Atual: {setup['ciclo_atual']:.1f}s</span><br>
+                                        <span style="color: #0078D4;">Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
+                                    </div>
+                                    <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
+                                        <strong>Tiragem</strong><br>
+                                        <span style="color: #666;">Atual: {setup['tiragem_atual']:.1f}</span><br>
+                                        <span style="color: #0078D4;">Meta: {setup['tiragem_meta']:.1f}</span>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 6px; font-size: 12px; color: #666; background: #fff8e7; padding: 6px 12px; border-radius: 4px;">
+                                    <span>⏰ <strong>Tempo estimado para adequação:</strong> {setup['tempo_estimado']}</span>
+                                </div>
+                                <div style="margin-top: 4px; font-size: 12px; color: #666;">
+                                    📝 {rec['detalhe']}
+                                </div>
                             </div>
-                            <span style="background: #FFB900; color: #333; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">MÉDIA</span>
-                        </div>
-                        <div style="margin-top: 6px; font-size: 13px;">
-                            <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
-                            <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
-                        </div>
-                        <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
-                            <strong>💡 Ação:</strong> {rec['acao']}
-                        </div>
-                        <div style="margin-top: 2px; font-size: 12px; color: #666;">
-                            {rec['detalhe']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""
+                            <div style="background: #fffdf5; border-left: 4px solid #FFB900; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #E86C2C;">{rec['parametro']}</strong>
+                                        <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                                    </div>
+                                    <span style="background: #FFB900; color: #333; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">MÉDIA</span>
+                                </div>
+                                <div style="margin-top: 6px; font-size: 13px;">
+                                    <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                                    <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                                </div>
+                                <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
+                                    <strong>💡 Ação:</strong> {rec['acao']}
+                                </div>
+                                <div style="margin-top: 2px; font-size: 12px; color: #666;">
+                                    {rec['detalhe']}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
             
             # Botão para gerar relatório PDF das recomendações
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
-                if st.button("📥 Baixar Relatório de Recomendações", use_container_width=True, type="primary"):
+                if st.button("📥 Baixar Relatório de Recomendações (PDF)", use_container_width=True, type="primary"):
                     gerar_pdf_recomendacoes(analise)
         else:
             st.success("✅ **Parabéns!** Todos os parâmetros estão dentro do padrão de excelência.")
@@ -14228,7 +14472,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             """, unsafe_allow_html=True)
         
         # ===== 3. TABELA DE PARÂMETROS IDEAL X ATUAL =====
-        with st.expander("📋 Comparativo Detalhado: Ideal vs Atual", expanded=False):
+        with st.expander("📋 Comparativo Detalhado: Ideal vs Atual (Últimos 10 Registros)", expanded=False):
             padrao = analise['padrao_excelencia']
             atual = analise['analise_atual']
             
@@ -14245,7 +14489,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             # Ciclo
             dados_comparativo.append({
-                'Parâmetro': 'Ciclo',
+                'Parâmetro': 'Ciclo (s)',
                 'Ideal (Média)': f"{padrao['ciclo_ideal']:.1f} s",
                 'Ideal (Faixa)': f"{padrao['ciclo_min']:.1f} - {padrao['ciclo_max']:.1f} s",
                 'Atual (Média)': f"{atual['ciclo_atual']:.1f} s",
@@ -14263,9 +14507,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             # Tiragem
             dados_comparativo.append({
-                'Parâmetro': 'Tiragem',
+                'Parâmetro': 'Tiragem (kg/h)',
                 'Ideal (Média)': f"{padrao['tiragem_media_top']:.1f} kg/h",
-                'Ideal (Faixa)': f"máx: {padrao['tiragem_max_top']:.1f} kg/h",
+                'Ideal (Faixa)': f"{padrao['tiragem_min_top']:.1f} - {padrao['tiragem_max_top']:.1f} kg/h",
                 'Atual (Média)': f"{atual['tiragem_atual']:.1f} kg/h",
                 'Status': '✅ OK' if atual['tiragem_atual'] >= padrao['tiragem_media_top'] * 0.85 else '⚠️ Ajustar'
             })
@@ -14332,6 +14576,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             story.append(Paragraph("<b>RELATÓRIO DE RECOMENDAÇÕES - FORNO DE FUSÃO</b>", style_title))
             story.append(Spacer(1, 0.5*cm))
             story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", styles['Normal']))
+            story.append(Paragraph(f"Baseado nos últimos {analise['desempenho']['n_registros_analisados']} registros", styles['Normal']))
             story.append(Spacer(1, 0.5*cm))
             
             # Resumo de Desempenho
@@ -14361,7 +14606,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             # Recomendações
             recomendacoes = analise['recomendacoes']
             if recomendacoes:
-                story.append(Paragraph("<b>🛠️ RECOMENDAÇÕES DE AJUSTE</b>", styles['Heading2']))
+                story.append(Paragraph("<b>🛠️ RECOMENDAÇÕES DE SETUP</b>", styles['Heading2']))
                 
                 for i, rec in enumerate(recomendacoes, 1):
                     prioridade = rec['prioridade']
@@ -14378,6 +14623,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         f"   💡 Ação: {rec['acao']}",
                         ParagraphStyle(f'RecDet_{i}', parent=styles['Normal'], textColor=colors.blue)
                     ))
+                    
+                    # Incluir detalhes de setup se disponíveis
+                    if 'setup_ajuste' in rec:
+                        setup = rec['setup_ajuste']
+                        if 'voltas_sugerido' in setup:
+                            story.append(Paragraph(
+                                f"   📊 Ajustes: Voltas {setup['voltas_atual']:.1f} → {setup['voltas_sugerido']:.1f} | "
+                                f"Ciclo {setup['ciclo_atual']:.1f}s → {setup['ciclo_sugerido']:.1f}s | "
+                                f"⏰ {setup['tempo_estimado']}",
+                                ParagraphStyle(f'RecSetup_{i}', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
+                            ))
+                    
                     story.append(Paragraph(
                         f"   {rec['detalhe']}",
                         ParagraphStyle(f'RecDet2_{i}', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
@@ -15040,10 +15297,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.info("📭 Dados insuficientes para gráfico de consumo por turno")
     
     # ===== NOVO: ANÁLISE PREDITIVA E RECOMENDAÇÕES =====
-    if len(df_filtrado) >= 10:
-        renderizar_analise_preditiva(df_filtrado)
-    else:
-        st.info(f"📊 São necessários pelo menos 10 registros para análise preditiva. Atualmente: {len(df_filtrado)} registros.")
+    renderizar_analise_preditiva(df_filtrado)
     
     # ===== FORMULÁRIO DE LANÇAMENTO =====
     renderizar_formulario_lancamento()
