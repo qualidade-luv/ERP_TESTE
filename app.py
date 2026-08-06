@@ -13002,8 +13002,7 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# CONTROLE DO FORNO - VERSÃO COMPLETA COM ANÁLISE PREDITIVA E RECOMENDAÇÕES
-# TODAS AS FUNCIONALIDADES ORIGINAIS MANTIDAS
+# CONTROLE DO FORNO - VERSÃO COMPLETA CORRIGIDA
 # ==================================================================================================
 
 elif aba_selecionada == 'CONTROLE DO FORNO':
@@ -13021,19 +13020,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     # CONSTANTES - ALARMES E METAS (COM FAIXAS INDIVIDUAIS POR BOQUETA)
     # ======================
     ALARMES_CONFIG = {
-        'nivel_min': 75,              # cm
-        'nivel_max': 83,              # cm
-        'tiragem_meta': 350,          # kg/h
-        'relacao_o2_gas_ideal': 2.0,  # O₂/Gás = dobro de oxigênio
+        'nivel_min': 75,
+        'nivel_max': 83,
+        'tiragem_meta': 350,
+        'relacao_o2_gas_ideal': 2.0,
         'relacao_o2_gas_min': 1.8,
         'relacao_o2_gas_max': 2.2,
-        'consumo_gas_alerta': 500,    # m³
-        'consumo_oxi_alerta': 400,    # m³
-        'osc_nivel_alerta': 5,        # cm
-        'diferenca_temp_max': 30,     # °C (diferença máxima entre boquetas)
+        'consumo_gas_alerta': 500,
+        'consumo_oxi_alerta': 400,
+        'osc_nivel_alerta': 5,
+        'diferenca_temp_max': 30,
     }
     
-    # ===== CONFIGURAÇÃO INDIVIDUAL DE CADA BOQUETA =====
     BOQUETAS_CONFIG = {
         'BOQUETA_1': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-1 - COMAL', 'cor': '#0078D4'},
         'BOQUETA_2': {'min': 1270, 'max': 1280, 'display': 'BOQUETA-2 - PRENSA AUT.', 'cor': '#E86C2C'},
@@ -13065,7 +13063,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.session_state.enfornadeira_alertas_mostrar = False
     
     # ======================
-    # FUNÇÃO PARA CONVERTER HORA (CORRIGIDA - ACEITA HH:MM E HH:MM:SS)
+    # FUNÇÃO PARA CONVERTER HORA
     # ======================
     def converter_hora_str(valor):
         """Converte string de hora para objeto time (aceita HH:MM ou HH:MM:SS)"""
@@ -13094,7 +13092,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             return pd.NaT
         
         try:
-            # Converter data
             if isinstance(data_val, (datetime, pd.Timestamp)):
                 data_obj = data_val
             elif isinstance(data_val, date):
@@ -13104,7 +13101,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 if data_obj is None:
                     return pd.NaT
             
-            # Converter hora
             hora_str = str(hora_val).strip()
             if ':' in hora_str:
                 partes = hora_str.split(':')
@@ -13114,10 +13110,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     s = int(partes[2]) if len(partes) > 2 else 0
                     if 0 <= h <= 23 and 0 <= m <= 59 and 0 <= s <= 59:
                         return datetime(data_obj.year, data_obj.month, data_obj.day, h, m, s)
-            
-            # Se não conseguiu converter, retorna apenas a data
             return data_obj
-            
         except:
             return pd.NaT
     
@@ -13125,7 +13118,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     # FUNÇÃO PARA OBTER FAIXA IDEAL DA BOQUETA
     # ======================
     def get_faixa_boqueta(nome_boqueta: str) -> tuple:
-        """Retorna (min, max) da faixa ideal da boqueta"""
         config = BOQUETAS_CONFIG.get(nome_boqueta, {})
         return config.get('min', 0), config.get('max', 0)
     
@@ -13133,10 +13125,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     # FUNÇÃO PARA GERAR ALERTAS E SUGESTÕES
     # ======================
     def gerar_alertas_sugestoes(dados: Dict) -> List[Dict]:
-        """Gera alertas e sugestões baseados nos dados lançados"""
         alertas = []
         
-        # ===== NÍVEL =====
         nivel = dados.get('nivel', 0)
         if nivel < ALARMES_CONFIG['nivel_min']:
             diferenca = ALARMES_CONFIG['nivel_min'] - nivel
@@ -13155,7 +13145,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'sugestao': f"⚠️ O nível está {diferenca:.1f} cm acima do máximo. REDUZA a alimentação (diminua voltas ou aumente ciclo) para baixar o nível."
             })
         
-        # ===== TEMPERATURAS DAS BOQUETAS (COM FAIXAS INDIVIDUAIS) =====
         temperaturas = []
         for i in range(1, 6):
             temp = dados.get(f'boqueta_{i}', 0)
@@ -13185,7 +13174,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'sugestao': f"⚠️ A boqueta {i} está {diferenca:.0f}°C acima do máximo. REDUZA a vazão de gás ou oxigênio para esta boqueta."
                     })
             
-            # Verificar diferença entre boquetas
             if len(temperaturas) > 1:
                 temp_max = max(temperaturas)
                 temp_min = min(temperaturas)
@@ -13201,7 +13189,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'sugestao': f"⚠️ A diferença entre a boqueta mais quente ({boqueta_max}: {temp_max:.0f}°C) e a mais fria ({boqueta_min}: {temp_min:.0f}°C) é de {diferenca:.0f}°C. Verifique a distribuição de chama."
                     })
         
-        # ===== TIRAGEM =====
         tiragem = dados.get('tiragem', 0)
         if tiragem < ALARMES_CONFIG['tiragem_meta']:
             diferenca = ALARMES_CONFIG['tiragem_meta'] - tiragem
@@ -13220,7 +13207,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'sugestao': f"⚠️ Estamos trabalhando {excesso:.1f}% acima da capacidade máxima. Isso pode sobrecarregar o forno."
             })
         
-        # ===== RELAÇÃO O₂/GÁS =====
         oxi_total = dados.get('oxi_1', 0) + dados.get('oxi_2', 0)
         gas_total = dados.get('gas_1', 0) + dados.get('gas_2', 0)
         
@@ -13243,7 +13229,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     'sugestao': f"⚠️ A relação está {diferenca:.2f} acima do ideal (2.0 = dobro de oxigênio). DIMINUA oxigênio ou AUMENTE gás."
                 })
         
-        # ===== CONSUMO DE GÁS =====
         if gas_total > ALARMES_CONFIG['consumo_gas_alerta']:
             alertas.append({
                 'tipo': 'ALERTA',
@@ -13252,7 +13237,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'sugestao': "⚠️ Verifique se há vazamentos ou ajuste a relação O₂/Gás."
             })
         
-        # ===== CONSUMO DE OXIGÊNIO =====
         if oxi_total > ALARMES_CONFIG['consumo_oxi_alerta']:
             alertas.append({
                 'tipo': 'ALERTA',
@@ -13307,12 +13291,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             sheet.append_row(linha)
             st.cache_data.clear()
             return True, "✅ Registro salvo com sucesso!"
-            
         except Exception as e:
             return False, f"❌ Erro ao salvar: {str(e)}"
     
     # ======================
-    # FUNÇÃO DE CARREGAMENTO (CORRIGIDA - ACEITA HH:MM:SS E CRIA DATETIME CORRETO)
+    # FUNÇÃO DE CARREGAMENTO
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=300)
@@ -13339,11 +13322,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             cabecalho = todos_dados[0]
             valores = todos_dados[1:]
-            
-            # Criar DataFrame com cabeçalho original
             df = pd.DataFrame(valores, columns=cabecalho)
             
-            # ===== MAPEAMENTO DE COLUNAS =====
             mapa_colunas = {}
             
             for col in df.columns:
@@ -13382,34 +13362,24 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 elif 'BOQUETA-5' in col_sem_acento or 'BOQUETA_5' in col_sem_acento:
                     mapa_colunas[col] = 'BOQUETA_5'
             
-            # Aplicar renomeação
             if mapa_colunas:
                 df = df.rename(columns=mapa_colunas)
             
-            # ===== CONVERTER DADOS =====
-            # Converter DATA
             if 'DATA' in df.columns:
                 df['DATA'] = df['DATA'].apply(converter_data_br)
                 df = df.dropna(subset=['DATA'])
             
-            # ===== CONVERTER HORA (CORRIGIDO - ACEITA HH:MM E HH:MM:SS) =====
             if 'HORA' in df.columns:
-                # Converter para objeto time
                 df['HORA_OBJ'] = df['HORA'].apply(converter_hora_str)
-                
-                # Para valores que não converteram, tentar extrair apenas a hora
                 mask_invalida = df['HORA_OBJ'].isna()
                 if mask_invalida.any():
                     df.loc[mask_invalida, 'HORA_OBJ'] = df.loc[mask_invalida, 'HORA'].apply(
                         lambda x: converter_hora_str(str(x).strip())
                     )
-                
-                # Calcular hora decimal para ordenação
                 df['HORA_DEC'] = df['HORA_OBJ'].apply(
                     lambda x: x.hour + x.minute/60 + x.second/3600 if x else 0
                 )
             
-            # Converter colunas numéricas
             colunas_numericas = ['NIVEL', 'CICLO', 'VOLTAS', 'TIRAGEM_KG', 
                                 'OXI_1', 'GAS_1', 'OXI_2', 'GAS_2',
                                 'BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
@@ -13420,7 +13390,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     df[col] = df[col].astype(str).str.replace(r'[^\d\.]', '', regex=True)
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # Calcular temperatura média das boquetas
             boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
             boquetas_existentes = [b for b in boquetas if b in df.columns]
             
@@ -13431,7 +13400,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 df['TEMP_MIN'] = df_temp.min(axis=1, skipna=True).fillna(0)
                 df['TEMP_DIFERENCA'] = (df['TEMP_MAX'] - df['TEMP_MIN']).fillna(0)
             
-            # Calcular colunas derivadas
             if 'OXI_1' in df.columns and 'OXI_2' in df.columns:
                 df['OXI_TOTAL'] = df['OXI_1'] + df['OXI_2']
             
@@ -13470,20 +13438,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         return 'NOITE'
                 df['TURNO'] = df['HORA_DEC'].apply(classificar_turno)
             
-            # ===== CRIAÇÃO DO DATETIME CORRIGIDA =====
             if 'DATA' in df.columns and 'HORA' in df.columns:
-                # Tentar criar datetime combinando data e hora
                 df['DATETIME'] = df.apply(
                     lambda row: converter_datetime_completo(row['DATA'], row['HORA']),
                     axis=1
                 )
-                
-                # Se ainda houver valores inválidos, usar apenas a data
                 mask_invalid = df['DATETIME'].isna()
                 if mask_invalid.any():
                     df.loc[mask_invalid, 'DATETIME'] = df.loc[mask_invalid, 'DATA']
             
-            # Ordenar por data/hora
             if 'DATETIME' in df.columns:
                 df = df.sort_values('DATETIME', ascending=True)
             
@@ -13574,7 +13537,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.markdown("---")
         
         with st.form("form_lancamento_enfornadeira"):
-            # LINHA 1: PARÂMETROS DO TANQUE + ALIMENTAÇÃO
             st.markdown("### 📊 Parâmetros de Processo")
             
             col1, col2, col3 = st.columns(3)
@@ -13626,7 +13588,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             st.markdown("---")
             
-            # LINHA 2: TEMPERATURAS DAS BOQUETAS
             st.markdown("### 🌡️ Temperaturas das Boquetas")
             
             col_info1, col_info2, col_info3, col_info4, col_info5 = st.columns(5)
@@ -13700,7 +13661,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             st.markdown("---")
             
-            # LINHA 3: COMBUSTÍVEL
             st.markdown("### 🔥 Consumo de Combustível")
             
             col_f1, col_f2 = st.columns(2)
@@ -13793,7 +13753,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     st.session_state.enfornadeira_confirmar_salvar = True
                     st.rerun()
         
-        # CONFIRMAÇÃO DE SALVAMENTO
         if st.session_state.enfornadeira_confirmar_salvar:
             dados = st.session_state.enfornadeira_dados_lancamento
             
@@ -13839,7 +13798,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 st.write(f"O₂: **{dados['oxi_2']} m³**")
                 st.write(f"Gás: **{dados['gas_2']} m³**")
             
-            # Alertas
             alertas = gerar_alertas_sugestoes(dados)
             if alertas:
                 renderizar_alertas(alertas)
@@ -13872,7 +13830,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     st.rerun()
     
     # ======================================================================
-    # NOVO: ANÁLISE PREDITIVA E RECOMENDAÇÕES DE SETUP
+    # ANÁLISE PREDITIVA E RECOMENDAÇÕES DE SETUP - VERSÃO CORRIGIDA
     # ======================================================================
     
     def analisar_padrao_excelencia(df: pd.DataFrame) -> Dict:
@@ -13883,21 +13841,28 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         if df.empty:
             return {}
         
-        # ===== 1. SEMPRE USAR OS 10 ÚLTIMOS REGISTROS PARA ANÁLISE ATUAL =====
-        # Independente do filtro, pegar os 10 registros mais recentes
+        # ===== 1. SEMPRE USAR OS 10 ÚLTIMOS REGISTROS =====
         df_ultimos = df.sort_values('DATETIME', ascending=False).head(10).copy()
         
-        # Para o padrão de excelência, usar todos os dados filtrados (mas com mínimo de 10)
+        # ===== 2. IDENTIFICAR PADRÃO DE EXCELÊNCIA =====
         df_produtivo = df[df['TIRAGEM_KG'] > 250].copy()
         
         if df_produtivo.empty:
             return {"erro": "Dados insuficientes para análise. Necessário mais registros com tiragem > 250 kg/h."}
         
-        # ===== 2. IDENTIFICAR O PADRÃO DE EXCELÊNCIA =====
-        n_top = max(3, min(10, int(len(df_produtivo) * 0.2)))  # Mínimo 3, máximo 10
+        n_top = max(3, min(10, int(len(df_produtivo) * 0.2)))
         df_top = df_produtivo.nlargest(n_top, 'TIRAGEM_KG')
         
-        # ===== 3. CALCULAR PARÂMETROS IDEAL =====
+        # ===== 3. CALCULAR CONSTANTE TEÓRICA =====
+        # Tiragem = (Voltas / Ciclo) * CONSTANTE
+        # CONSTANTE = Tiragem / (Voltas / Ciclo)
+        
+        df_top['RELACAO_VOLTAS_CICLO'] = df_top['VOLTAS'] / df_top['CICLO']
+        
+        # Constante calculada a partir das melhores produções
+        constante_teorica = (df_top['TIRAGEM_KG'] / df_top['RELACAO_VOLTAS_CICLO']).mean()
+        
+        # ===== 4. CALCULAR PARÂMETROS IDEAL =====
         padrao = {
             'nivel_ideal': df_top['NIVEL'].mean(),
             'nivel_min': df_top['NIVEL'].min(),
@@ -13911,10 +13876,12 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             'voltas_min': df_top['VOLTAS'].min(),
             'voltas_max': df_top['VOLTAS'].max(),
             'voltas_std': df_top['VOLTAS'].std(),
+            'relacao_voltas_ciclo_ideal': df_top['RELACAO_VOLTAS_CICLO'].mean(),
             'tiragem_media_top': df_top['TIRAGEM_KG'].mean(),
             'tiragem_max_top': df_top['TIRAGEM_KG'].max(),
             'tiragem_min_top': df_top['TIRAGEM_KG'].min(),
             'tiragem_std_top': df_top['TIRAGEM_KG'].std(),
+            'constante_teorica': constante_teorica,
             'relacao_o2_gas_ideal': df_top['RELACAO_O2_GAS'].mean(),
             'relacao_o2_gas_min': df_top['RELACAO_O2_GAS'].min(),
             'relacao_o2_gas_max': df_top['RELACAO_O2_GAS'].max(),
@@ -13935,7 +13902,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'std': valores.std()
                     }
         
-        # ===== 4. ANALISAR OS 10 ÚLTIMOS REGISTROS =====
+        # ===== 5. ANALISAR OS 10 ÚLTIMOS REGISTROS =====
+        df_ultimos['RELACAO_VOLTAS_CICLO'] = df_ultimos['VOLTAS'] / df_ultimos['CICLO']
+        
         analise_atual = {
             'nivel_atual': df_ultimos['NIVEL'].mean() if 'NIVEL' in df_ultimos.columns else 0,
             'nivel_std': df_ultimos['NIVEL'].std() if 'NIVEL' in df_ultimos.columns else 0,
@@ -13943,8 +13912,14 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             'nivel_max': df_ultimos['NIVEL'].max() if 'NIVEL' in df_ultimos.columns else 0,
             'ciclo_atual': df_ultimos['CICLO'].mean() if 'CICLO' in df_ultimos.columns else 0,
             'ciclo_std': df_ultimos['CICLO'].std() if 'CICLO' in df_ultimos.columns else 0,
+            'ciclo_min': df_ultimos['CICLO'].min() if 'CICLO' in df_ultimos.columns else 0,
+            'ciclo_max': df_ultimos['CICLO'].max() if 'CICLO' in df_ultimos.columns else 0,
             'voltas_atual': df_ultimos['VOLTAS'].mean() if 'VOLTAS' in df_ultimos.columns else 0,
             'voltas_std': df_ultimos['VOLTAS'].std() if 'VOLTAS' in df_ultimos.columns else 0,
+            'voltas_min': df_ultimos['VOLTAS'].min() if 'VOLTAS' in df_ultimos.columns else 0,
+            'voltas_max': df_ultimos['VOLTAS'].max() if 'VOLTAS' in df_ultimos.columns else 0,
+            'relacao_voltas_ciclo_atual': df_ultimos['RELACAO_VOLTAS_CICLO'].mean(),
+            'relacao_voltas_ciclo_std': df_ultimos['RELACAO_VOLTAS_CICLO'].std(),
             'tiragem_atual': df_ultimos['TIRAGEM_KG'].mean() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
             'tiragem_std': df_ultimos['TIRAGEM_KG'].std() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
             'tiragem_min': df_ultimos['TIRAGEM_KG'].min() if 'TIRAGEM_KG' in df_ultimos.columns else 0,
@@ -13965,128 +13940,125 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'std': valores.std()
                     }
         
-        # ===== 5. GERAR RECOMENDAÇÕES DE SETUP =====
+        # ===== 6. CALCULAR EFICIÊNCIA DO SETUP =====
+        # Tiragem Teórica = Constante * (Voltas Atual / Ciclo Atual)
+        tiragem_teorica = constante_teorica * analise_atual['relacao_voltas_ciclo_atual']
+        tiragem_atual = analise_atual['tiragem_atual']
+        
+        eficiencia_setup = (tiragem_atual / tiragem_teorica * 100) if tiragem_teorica > 0 else 0
+        
+        # ===== 7. GERAR RECOMENDAÇÕES =====
         recomendacoes = []
         
-        # 5.1 RECOMENDAÇÃO DE SETUP - VOLTAS E CICLO PARA AJUSTAR TIRAGEM
-        if 'tiragem_atual' in analise_atual and analise_atual['tiragem_atual'] > 0:
-            tiragem_atual = analise_atual['tiragem_atual']
+        # 7.1 RECOMENDAÇÃO PRINCIPAL - AJUSTE DE VOLTAS E CICLO
+        if tiragem_atual > 0 and tiragem_teorica > 0:
             tiragem_ideal = padrao['tiragem_media_top']
             tiragem_diferenca = tiragem_ideal - tiragem_atual
             
-            if tiragem_diferenca > 10 or tiragem_diferenca < -10:
-                # Calcular ajustes necessários
-                ciclos = analise_atual['ciclo_atual']
-                voltas = analise_atual['voltas_atual']
-                ciclos_ideal = padrao['ciclo_ideal']
-                voltas_ideal = padrao['voltas_ideal']
+            if abs(tiragem_diferenca) > 10:
+                voltas_atual = analise_atual['voltas_atual']
+                ciclo_atual = analise_atual['ciclo_atual']
                 
-                # Calcular fator de ajuste (estimativa)
-                if tiragem_atual > 0 and voltas > 0:
-                    # Relação: Tiragem = (Voltas / Ciclo) * Constante
-                    # Ajuste sugerido baseado na diferença percentual
-                    perc_diferenca = tiragem_diferenca / tiragem_atual
-                    
-                    # Sugerir ajuste de voltas (aumentar ou diminuir)
-                    voltas_ajuste = voltas * (1 + perc_diferenca * 0.7)  # 70% do ajuste via voltas
-                    voltas_ajuste = max(5, min(20, voltas_ajuste))  # Limitar entre 5 e 20
-                    
-                    # Sugerir ajuste de ciclo (aumentar ou diminuir)
-                    ciclo_ajuste = ciclos * (1 - perc_diferenca * 0.3)  # 30% do ajuste via ciclo
-                    ciclo_ajuste = max(10, min(30, ciclo_ajuste))  # Limitar entre 10 e 30
-                    
-                    # Calcular tempo estimado para adequação
-                    # Considerando que cada ajuste leva cerca de 2 horas para estabilizar
-                    tempo_estimado_horas = 4  # horas base
-                    if abs(tiragem_diferenca) > 50:
-                        tempo_estimado_horas = 6
-                    elif abs(tiragem_diferenca) > 30:
-                        tempo_estimado_horas = 4
-                    else:
-                        tempo_estimado_horas = 2
-                    
-                    # Calcular número de ajustes necessários
-                    if abs(tiragem_diferenca) > 50:
-                        num_ajustes = 3
-                    elif abs(tiragem_diferenca) > 30:
-                        num_ajustes = 2
-                    else:
-                        num_ajustes = 1
-                    
-                    # Formatar mensagem de tempo
-                    if tempo_estimado_horas <= 4:
-                        tempo_str = f"Aproximadamente {tempo_estimado_horas} horas ({num_ajustes} ajuste{'s' if num_ajustes > 1 else ''})"
-                    else:
-                        tempo_str = f"Aproximadamente {tempo_estimado_horas} horas ({num_ajustes} ajustes progressivos)"
-                    
-                    # Construir recomendação
-                    if tiragem_diferenca > 0:
-                        # Precisa AUMENTAR a tiragem
-                        recomendacoes.append({
-                            'parametro': 'Setup - Aumentar Tiragem',
-                            'status': '🔧 AJUSTE DE SETUP',
-                            'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
-                            'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
-                            'acao': f"🔄 AUMENTE voltas para {voltas_ajuste:.1f} (atual: {voltas:.1f}) e REDUZA ciclo para {ciclo_ajuste:.1f}s (atual: {ciclos:.1f}s)",
-                            'detalhe': f"Aumentar voltas em {voltas_ajuste - voltas:.1f} e reduzir ciclo em {ciclos - ciclo_ajuste:.1f}s",
-                            'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
-                            'setup_ajuste': {
-                                'voltas_atual': voltas,
-                                'voltas_sugerido': round(voltas_ajuste, 1),
-                                'voltas_delta': round(voltas_ajuste - voltas, 1),
-                                'ciclo_atual': ciclos,
-                                'ciclo_sugerido': round(ciclo_ajuste, 1),
-                                'ciclo_delta': round(ciclo_ajuste - ciclos, 1),
-                                'tiragem_meta': round(tiragem_ideal, 1),
-                                'tiragem_atual': round(tiragem_atual, 1),
-                                'diferenca': round(tiragem_diferenca, 1),
-                                'tempo_estimado': tempo_str,
-                                'num_ajustes': num_ajustes
-                            }
-                        })
-                    else:
-                        # Precisa DIMINUIR a tiragem
-                        recomendacoes.append({
-                            'parametro': 'Setup - Diminuir Tiragem',
-                            'status': '🔧 AJUSTE DE SETUP',
-                            'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
-                            'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
-                            'acao': f"🔄 DIMINUA voltas para {voltas_ajuste:.1f} (atual: {voltas:.1f}) e AUMENTE ciclo para {ciclo_ajuste:.1f}s (atual: {ciclos:.1f}s)",
-                            'detalhe': f"Diminuir voltas em {voltas - voltas_ajuste:.1f} e aumentar ciclo em {ciclo_ajuste - ciclos:.1f}s",
-                            'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
-                            'setup_ajuste': {
-                                'voltas_atual': voltas,
-                                'voltas_sugerido': round(voltas_ajuste, 1),
-                                'voltas_delta': round(voltas_ajuste - voltas, 1),
-                                'ciclo_atual': ciclos,
-                                'ciclo_sugerido': round(ciclo_ajuste, 1),
-                                'ciclo_delta': round(ciclo_ajuste - ciclos, 1),
-                                'tiragem_meta': round(tiragem_ideal, 1),
-                                'tiragem_atual': round(tiragem_atual, 1),
-                                'diferenca': round(tiragem_diferenca, 1),
-                                'tempo_estimado': tempo_str,
-                                'num_ajustes': num_ajustes
-                            }
-                        })
+                # Calcular ajustes baseados na diferença percentual
+                perc_diferenca = tiragem_diferenca / tiragem_atual if tiragem_atual > 0 else 0
+                
+                # Ajuste de voltas (60% do ajuste)
+                voltas_ajuste = voltas_atual * (1 + perc_diferenca * 0.6)
+                voltas_ajuste = max(0.5, min(10.0, voltas_ajuste))
+                
+                # Ajuste de ciclo (40% do ajuste)
+                ciclo_ajuste = ciclo_atual * (1 - perc_diferenca * 0.4)
+                ciclo_ajuste = max(0.5, min(20.0, ciclo_ajuste))
+                
+                voltas_ajuste = round(voltas_ajuste, 1)
+                ciclo_ajuste = round(ciclo_ajuste, 1)
+                
+                if voltas_ajuste < 0.5:
+                    voltas_ajuste = 0.5
+                if ciclo_ajuste < 0.5:
+                    ciclo_ajuste = 0.5
+                
+                # Calcular tempo estimado
+                if abs(tiragem_diferenca) > 50:
+                    tempo_estimado_horas = 6
+                    num_ajustes = 3
+                elif abs(tiragem_diferenca) > 30:
+                    tempo_estimado_horas = 4
+                    num_ajustes = 2
+                else:
+                    tempo_estimado_horas = 2
+                    num_ajustes = 1
+                
+                tempo_str = f"Aproximadamente {tempo_estimado_horas} horas ({num_ajustes} ajuste{'s' if num_ajustes > 1 else ''} progressivo{'s' if num_ajustes > 1 else ''})"
+                
+                if tiragem_diferenca > 0:
+                    # Precisa AUMENTAR a tiragem
+                    recomendacoes.append({
+                        'parametro': 'Setup - Aumentar Tiragem',
+                        'status': '🔧 AJUSTE DE SETUP',
+                        'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
+                        'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
+                        'acao': f"🔄 AUMENTE voltas para {voltas_ajuste:.1f} (atual: {voltas_atual:.1f}) e REDUZA ciclo para {ciclo_ajuste:.1f}s (atual: {ciclo_atual:.1f}s)",
+                        'detalhe': f"Aumentar voltas em {voltas_ajuste - voltas_atual:.1f} e reduzir ciclo em {ciclo_atual - ciclo_ajuste:.1f}s",
+                        'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'voltas_atual': voltas_atual,
+                            'voltas_sugerido': voltas_ajuste,
+                            'voltas_delta': voltas_ajuste - voltas_atual,
+                            'ciclo_atual': ciclo_atual,
+                            'ciclo_sugerido': ciclo_ajuste,
+                            'ciclo_delta': ciclo_ajuste - ciclo_atual,
+                            'tiragem_meta': round(tiragem_ideal, 1),
+                            'tiragem_atual': round(tiragem_atual, 1),
+                            'tiragem_teorica': round(tiragem_teorica, 1),
+                            'diferenca': round(tiragem_diferenca, 1),
+                            'eficiencia_setup': round(eficiencia_setup, 1),
+                            'tempo_estimado': tempo_str,
+                            'num_ajustes': num_ajustes
+                        }
+                    })
+                else:
+                    # Precisa DIMINUIR a tiragem
+                    recomendacoes.append({
+                        'parametro': 'Setup - Diminuir Tiragem',
+                        'status': '🔧 AJUSTE DE SETUP',
+                        'atual': f"Tiragem: {tiragem_atual:.1f} kg/h",
+                        'ideal': f"Meta: {tiragem_ideal:.1f} kg/h",
+                        'acao': f"🔄 DIMINUA voltas para {voltas_ajuste:.1f} (atual: {voltas_atual:.1f}) e AUMENTE ciclo para {ciclo_ajuste:.1f}s (atual: {ciclo_atual:.1f}s)",
+                        'detalhe': f"Diminuir voltas em {voltas_atual - voltas_ajuste:.1f} e aumentar ciclo em {ciclo_ajuste - ciclo_atual:.1f}s",
+                        'prioridade': 'ALTA' if abs(tiragem_diferenca) > 50 else 'MÉDIA',
+                        'setup_ajuste': {
+                            'voltas_atual': voltas_atual,
+                            'voltas_sugerido': voltas_ajuste,
+                            'voltas_delta': voltas_ajuste - voltas_atual,
+                            'ciclo_atual': ciclo_atual,
+                            'ciclo_sugerido': ciclo_ajuste,
+                            'ciclo_delta': ciclo_ajuste - ciclo_atual,
+                            'tiragem_meta': round(tiragem_ideal, 1),
+                            'tiragem_atual': round(tiragem_atual, 1),
+                            'tiragem_teorica': round(tiragem_teorica, 1),
+                            'diferenca': round(tiragem_diferenca, 1),
+                            'eficiencia_setup': round(eficiencia_setup, 1),
+                            'tempo_estimado': tempo_str,
+                            'num_ajustes': num_ajustes
+                        }
+                    })
         
-        # 5.2 RECOMENDAÇÃO DE NÍVEL
+        # 7.2 RECOMENDAÇÃO DE NÍVEL
         if 'nivel_atual' in analise_atual and analise_atual['nivel_atual'] > 0:
             nivel_atual = analise_atual['nivel_atual']
             nivel_ideal = padrao['nivel_ideal']
             tolerancia = 2.0
             
             if abs(nivel_atual - nivel_ideal) > tolerancia:
-                voltas = analise_atual.get('voltas_atual', 0)
-                ciclos = analise_atual.get('ciclo_atual', 0)
-                
                 if nivel_atual < nivel_ideal:
                     recomendacoes.append({
                         'parametro': 'Nível do Vidro',
                         'status': '⚠️ ABAIXO DO IDEAL',
                         'atual': f"{nivel_atual:.1f} cm",
                         'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
-                        'acao': f"AUMENTE a alimentação: AUMENTE voltas (+{2.0 if voltas > 0 else 1.0}) ou REDUZA ciclo (-{1.0 if ciclos > 0 else 0.5}s)",
-                        'detalhe': f"Reduza o ciclo em 1s ou aumente as voltas em 2 para elevar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
+                        'acao': f"AUMENTE a alimentação: +{2.0} voltas ou -{1.0}s no ciclo",
+                        'detalhe': f"Elevar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
                         'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA',
                         'setup_ajuste': {
                             'tipo': 'nivel',
@@ -14101,8 +14073,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ ACIMA DO IDEAL',
                         'atual': f"{nivel_atual:.1f} cm",
                         'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
-                        'acao': f"REDUZA a alimentação: DIMINUA voltas (-{2.0 if voltas > 0 else 1.0}) ou AUMENTE ciclo (+{1.0 if ciclos > 0 else 0.5}s)",
-                        'detalhe': f"Aumente o ciclo em 1s ou reduza as voltas em 2 para baixar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
+                        'acao': f"REDUZA a alimentação: -{2.0} voltas ou +{1.0}s no ciclo",
+                        'detalhe': f"Baixar o nível em ~{abs(nivel_atual - nivel_ideal):.1f}cm",
                         'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA',
                         'setup_ajuste': {
                             'tipo': 'nivel',
@@ -14112,7 +14084,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         }
                     })
         
-        # 5.3 RECOMENDAÇÃO DE RELAÇÃO O₂/GÁS
+        # 7.3 RECOMENDAÇÃO DE RELAÇÃO O₂/GÁS
         if 'relacao_o2_gas_atual' in analise_atual and analise_atual['relacao_o2_gas_atual'] > 0:
             relacao_atual = analise_atual['relacao_o2_gas_atual']
             relacao_ideal = padrao['relacao_o2_gas_ideal']
@@ -14125,8 +14097,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ O₂ ABAIXO DO IDEAL',
                         'atual': f"{relacao_atual:.2f}",
                         'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
-                        'acao': f"AUMENTE o oxigênio em 10-15% ou REDUZA o gás em 10-15%",
-                        'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
+                        'acao': f"AUMENTE O₂ em 10-15% ou REDUZA Gás em 10-15%",
+                        'detalhe': f"Relação ideal: 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
                         'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA',
                         'setup_ajuste': {
                             'tipo': 'relacao_o2_gas',
@@ -14141,8 +14113,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'status': '⚠️ O₂ ACIMA DO IDEAL',
                         'atual': f"{relacao_atual:.2f}",
                         'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
-                        'acao': f"REDUZA o oxigênio em 10-15% ou AUMENTE o gás em 10-15%",
-                        'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
+                        'acao': f"REDUZA O₂ em 10-15% ou AUMENTE Gás em 10-15%",
+                        'detalhe': f"Relação ideal: 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
                         'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA',
                         'setup_ajuste': {
                             'tipo': 'relacao_o2_gas',
@@ -14152,7 +14124,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         }
                     })
         
-        # 5.4 RECOMENDAÇÃO DE TEMPERATURAS DAS BOQUETAS
+        # 7.4 RECOMENDAÇÃO DE TEMPERATURAS DAS BOQUETAS
         for boqueta, dados_top in padrao['boquetas'].items():
             if boqueta in analise_atual['boquetas'] and analise_atual['boquetas'][boqueta].get('media', 0) > 0:
                 temp_atual = analise_atual['boquetas'][boqueta]['media']
@@ -14167,8 +14139,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             'status': '⚠️ TEMP. BAIXA',
                             'atual': f"{temp_atual:.0f} °C",
                             'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
-                            'acao': f"AUMENTE a vazão de gás/oxigênio na {nome_display}",
-                            'detalhe': f"Aumente a chama para elevar a temperatura em {temp_ideal - temp_atual:.0f}°C",
+                            'acao': f"AUMENTE vazão de gás/oxigênio na {nome_display}",
+                            'detalhe': f"Elevar temperatura em {temp_ideal - temp_atual:.0f}°C",
                             'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA',
                             'setup_ajuste': {
                                 'tipo': 'temperatura',
@@ -14185,8 +14157,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             'status': '⚠️ TEMP. ALTA',
                             'atual': f"{temp_atual:.0f} °C",
                             'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
-                            'acao': f"REDUZA a vazão de gás/oxigênio na {nome_display}",
-                            'detalhe': f"Reduza a chama para baixar a temperatura em {temp_atual - temp_ideal:.0f}°C",
+                            'acao': f"REDUZA vazão de gás/oxigênio na {nome_display}",
+                            'detalhe': f"Baixar temperatura em {temp_atual - temp_ideal:.0f}°C",
                             'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA',
                             'setup_ajuste': {
                                 'tipo': 'temperatura',
@@ -14198,7 +14170,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             }
                         })
         
-        # ===== 6. GERAR RELATÓRIO DE DESEMPENHO =====
+        # ===== 8. GERAR RELATÓRIO DE DESEMPENHO =====
         desempenho = {
             'tiragem_media_atual': analise_atual.get('tiragem_atual', 0),
             'tiragem_media_top': padrao['tiragem_media_top'],
@@ -14208,6 +14180,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             'nivel_media_top': padrao['nivel_ideal'],
             'relacao_o2_gas_atual': analise_atual.get('relacao_o2_gas_atual', 0),
             'relacao_o2_gas_top': padrao['relacao_o2_gas_ideal'],
+            'eficiencia_setup': eficiencia_setup,
             'n_registros_analisados': analise_atual['n_registros_analisados'],
             'n_registros_top': padrao['n_registros_top']
         }
@@ -14219,6 +14192,10 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             'desempenho': desempenho
         }
 
+    # ======================================================================
+    # RENDERIZAR ANÁLISE PREDITIVA
+    # ======================================================================
+    
     def renderizar_analise_preditiva(df: pd.DataFrame):
         """Renderiza o painel de análise preditiva e recomendações de setup"""
         
@@ -14229,7 +14206,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             st.warning("⚠️ Dados insuficientes para análise preditiva.")
             return
         
-        # Verificar se há pelo menos 10 registros para análise
         if len(df) < 10:
             st.info(f"📊 São necessários pelo menos 10 registros para análise preditiva. Atualmente: {len(df)} registros. Use os filtros para ampliar o período.")
             return
@@ -14274,7 +14250,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 delta=f"ideal: {desempenho['relacao_o2_gas_top']:.2f}"
             )
         
-        st.caption(f"📊 Análise baseada nos {desempenho['n_registros_analisados']} últimos registros | Padrão de excelência: {desempenho['n_registros_top']} melhores produções")
+        # Adicionar eficiência do setup
+        st.caption(f"📊 Eficiência do Setup: {desempenho['eficiencia_setup']:.1f}% | Análise baseada nos {desempenho['n_registros_analisados']} últimos registros | Padrão: {desempenho['n_registros_top']} melhores produções")
         
         st.markdown("---")
         
@@ -14285,18 +14262,18 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             st.markdown("#### 🛠️ Recomendações de Setup e Ajustes")
             st.caption("Ajustes sugeridos baseados nos 10 últimos registros para aproximar do padrão de excelência")
             
-            # Separar por prioridade
             recomendacoes_alta = [r for r in recomendacoes if r['prioridade'] == 'ALTA']
             recomendacoes_media = [r for r in recomendacoes if r['prioridade'] == 'MÉDIA']
             
             if recomendacoes_alta:
                 st.markdown("##### 🔴 Prioridade Alta (Ação Imediata)")
                 for rec in recomendacoes_alta:
-                    # Verificar se tem dados de setup
                     if 'setup_ajuste' in rec:
                         setup = rec['setup_ajuste']
-                        # Verificar se é recomendação de setup (voltas/ciclo)
                         if 'voltas_sugerido' in setup:
+                            seta_voltas = "⬆️" if setup['voltas_delta'] > 0 else "⬇️" if setup['voltas_delta'] < 0 else "➡️"
+                            seta_ciclo = "⬆️" if setup['ciclo_delta'] > 0 else "⬇️" if setup['ciclo_delta'] < 0 else "➡️"
+                            
                             st.markdown(f"""
                             <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 15px 18px; margin: 10px 0; border-radius: 8px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -14318,12 +14295,12 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Voltas</strong><br>
                                         <span style="color: #666;">Atual: {setup['voltas_atual']:.1f}</span><br>
-                                        <span style="color: #0078D4;">Sugerido: {setup['voltas_sugerido']:.1f}</span>
+                                        <span style="color: #0078D4;">{seta_voltas} Sugerido: {setup['voltas_sugerido']:.1f}</span>
                                     </div>
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Ciclo</strong><br>
                                         <span style="color: #666;">Atual: {setup['ciclo_atual']:.1f}s</span><br>
-                                        <span style="color: #0078D4;">Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
+                                        <span style="color: #0078D4;">{seta_ciclo} Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
                                     </div>
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Tiragem</strong><br>
@@ -14331,8 +14308,13 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                                         <span style="color: #0078D4;">Meta: {setup['tiragem_meta']:.1f}</span>
                                     </div>
                                 </div>
-                                <div style="margin-top: 6px; font-size: 12px; color: #666; background: #fff8e7; padding: 6px 12px; border-radius: 4px;">
-                                    <span>⏰ <strong>Tempo estimado para adequação:</strong> {setup['tempo_estimado']}</span>
+                                <div style="margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
+                                    <div style="background: #e8f5e9; padding: 4px 10px; border-radius: 4px;">
+                                        <strong>📊 Eficiência do Setup:</strong> {setup.get('eficiencia_setup', 0):.1f}%
+                                    </div>
+                                    <div style="background: #fff8e7; padding: 4px 10px; border-radius: 4px;">
+                                        <span>⏰ <strong>Tempo estimado:</strong> {setup['tempo_estimado']}</span>
+                                    </div>
                                 </div>
                                 <div style="margin-top: 4px; font-size: 12px; color: #666;">
                                     📝 {rec['detalhe']}
@@ -14340,7 +14322,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             </div>
                             """, unsafe_allow_html=True)
                         else:
-                            # Recomendação sem dados de setup específicos
                             st.markdown(f"""
                             <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -14363,7 +14344,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             </div>
                             """, unsafe_allow_html=True)
                     else:
-                        # Recomendação sem dados de setup
                         st.markdown(f"""
                         <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -14392,6 +14372,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     if 'setup_ajuste' in rec:
                         setup = rec['setup_ajuste']
                         if 'voltas_sugerido' in setup:
+                            seta_voltas = "⬆️" if setup['voltas_delta'] > 0 else "⬇️" if setup['voltas_delta'] < 0 else "➡️"
+                            seta_ciclo = "⬆️" if setup['ciclo_delta'] > 0 else "⬇️" if setup['ciclo_delta'] < 0 else "➡️"
+                            
                             st.markdown(f"""
                             <div style="background: #fffdf5; border-left: 4px solid #FFB900; padding: 15px 18px; margin: 10px 0; border-radius: 8px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -14413,12 +14396,12 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Voltas</strong><br>
                                         <span style="color: #666;">Atual: {setup['voltas_atual']:.1f}</span><br>
-                                        <span style="color: #0078D4;">Sugerido: {setup['voltas_sugerido']:.1f}</span>
+                                        <span style="color: #0078D4;">{seta_voltas} Sugerido: {setup['voltas_sugerido']:.1f}</span>
                                     </div>
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Ciclo</strong><br>
                                         <span style="color: #666;">Atual: {setup['ciclo_atual']:.1f}s</span><br>
-                                        <span style="color: #0078D4;">Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
+                                        <span style="color: #0078D4;">{seta_ciclo} Sugerido: {setup['ciclo_sugerido']:.1f}s</span>
                                     </div>
                                     <div style="background: #f0f0f0; padding: 6px 10px; border-radius: 4px; text-align: center;">
                                         <strong>Tiragem</strong><br>
@@ -14426,8 +14409,13 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                                         <span style="color: #0078D4;">Meta: {setup['tiragem_meta']:.1f}</span>
                                     </div>
                                 </div>
-                                <div style="margin-top: 6px; font-size: 12px; color: #666; background: #fff8e7; padding: 6px 12px; border-radius: 4px;">
-                                    <span>⏰ <strong>Tempo estimado para adequação:</strong> {setup['tempo_estimado']}</span>
+                                <div style="margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
+                                    <div style="background: #e8f5e9; padding: 4px 10px; border-radius: 4px;">
+                                        <strong>📊 Eficiência do Setup:</strong> {setup.get('eficiencia_setup', 0):.1f}%
+                                    </div>
+                                    <div style="background: #fff8e7; padding: 4px 10px; border-radius: 4px;">
+                                        <span>⏰ <strong>Tempo estimado:</strong> {setup['tempo_estimado']}</span>
+                                    </div>
                                 </div>
                                 <div style="margin-top: 4px; font-size: 12px; color: #666;">
                                     📝 {rec['detalhe']}
@@ -14457,7 +14445,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             </div>
                             """, unsafe_allow_html=True)
             
-            # Botão para gerar relatório PDF das recomendações
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
                 if st.button("📥 Baixar Relatório de Recomendações (PDF)", use_container_width=True, type="primary"):
@@ -14478,7 +14465,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             dados_comparativo = []
             
-            # Nível
             dados_comparativo.append({
                 'Parâmetro': 'Nível do Vidro',
                 'Ideal (Média)': f"{padrao['nivel_ideal']:.1f} cm",
@@ -14487,7 +14473,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'Status': '✅ OK' if abs(atual['nivel_atual'] - padrao['nivel_ideal']) <= 2 else '⚠️ Ajustar'
             })
             
-            # Ciclo
             dados_comparativo.append({
                 'Parâmetro': 'Ciclo (s)',
                 'Ideal (Média)': f"{padrao['ciclo_ideal']:.1f} s",
@@ -14496,7 +14481,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'Status': '✅ OK' if abs(atual['ciclo_atual'] - padrao['ciclo_ideal']) <= 2 else '⚠️ Ajustar'
             })
             
-            # Voltas
             dados_comparativo.append({
                 'Parâmetro': 'Voltas',
                 'Ideal (Média)': f"{padrao['voltas_ideal']:.1f}",
@@ -14505,7 +14489,14 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'Status': '✅ OK' if abs(atual['voltas_atual'] - padrao['voltas_ideal']) <= 2 else '⚠️ Ajustar'
             })
             
-            # Tiragem
+            dados_comparativo.append({
+                'Parâmetro': 'Relação Voltas/Ciclo',
+                'Ideal (Média)': f"{padrao['relacao_voltas_ciclo_ideal']:.2f}",
+                'Ideal (Faixa)': f"{padrao['voltas_min']/padrao['ciclo_max']:.2f} - {padrao['voltas_max']/padrao['ciclo_min']:.2f}",
+                'Atual (Média)': f"{atual['relacao_voltas_ciclo_atual']:.2f}",
+                'Status': '✅ OK' if abs(atual['relacao_voltas_ciclo_atual'] - padrao['relacao_voltas_ciclo_ideal']) <= 0.1 else '⚠️ Ajustar'
+            })
+            
             dados_comparativo.append({
                 'Parâmetro': 'Tiragem (kg/h)',
                 'Ideal (Média)': f"{padrao['tiragem_media_top']:.1f} kg/h",
@@ -14514,7 +14505,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'Status': '✅ OK' if atual['tiragem_atual'] >= padrao['tiragem_media_top'] * 0.85 else '⚠️ Ajustar'
             })
             
-            # Relação O2/Gás
             dados_comparativo.append({
                 'Parâmetro': 'Relação O₂/Gás',
                 'Ideal (Média)': f"{padrao['relacao_o2_gas_ideal']:.2f}",
@@ -14523,7 +14513,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'Status': '✅ OK' if abs(atual['relacao_o2_gas_atual'] - padrao['relacao_o2_gas_ideal']) <= 0.15 else '⚠️ Ajustar'
             })
             
-            # Boquetas
             for boqueta in ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']:
                 if boqueta in padrao['boquetas'] and boqueta in atual['boquetas']:
                     nome_display = boqueta.replace('_', '-')
@@ -14549,8 +14538,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             styled_df = df_comparativo.style.apply(style_comparativo, axis=1)
             st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
 
+    # ======================================================================
+    # GERAR PDF DAS RECOMENDAÇÕES
+    # ======================================================================
+    
     def gerar_pdf_recomendacoes(analise: Dict):
-        """Gera PDF com as recomendações de setup"""
         try:
             from reportlab.lib.pagesizes import A4
             from reportlab.lib import colors
@@ -14571,7 +14563,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             story = []
             styles = getSampleStyleSheet()
             
-            # Título
             style_title = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, alignment=1, spaceAfter=12)
             story.append(Paragraph("<b>RELATÓRIO DE RECOMENDAÇÕES - FORNO DE FUSÃO</b>", style_title))
             story.append(Spacer(1, 0.5*cm))
@@ -14579,7 +14570,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             story.append(Paragraph(f"Baseado nos últimos {analise['desempenho']['n_registros_analisados']} registros", styles['Normal']))
             story.append(Spacer(1, 0.5*cm))
             
-            # Resumo de Desempenho
             desempenho = analise['desempenho']
             story.append(Paragraph("<b>📊 RESUMO DE DESEMPENHO</b>", styles['Heading2']))
             
@@ -14587,11 +14577,13 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 ['Métrica', 'Valor Atual', 'Meta/Ideal'],
                 ['Tiragem (kg/h)', f"{desempenho['tiragem_media_atual']:.1f}", f"{desempenho['tiragem_media_top']:.1f}"],
                 ['Capacidade Utilizada', f"{desempenho['percentual_capacidade']:.1f}%", "> 85%"],
+                ['Eficiência do Setup', f"{desempenho['eficiencia_setup']:.1f}%", "> 90%"],
                 ['Nível (cm)', f"{desempenho['nivel_media_atual']:.1f}", f"{desempenho['nivel_media_top']:.1f}"],
+                ['Relação Voltas/Ciclo', f"{analise['analise_atual']['relacao_voltas_ciclo_atual']:.2f}", f"{analise['padrao_excelencia']['relacao_voltas_ciclo_ideal']:.2f}"],
                 ['Relação O₂/Gás', f"{desempenho['relacao_o2_gas_atual']:.2f}", f"{desempenho['relacao_o2_gas_top']:.2f}"],
             ]
             
-            tabela_resumo = Table(dados_resumo, colWidths=[5*cm, 4*cm, 4*cm])
+            tabela_resumo = Table(dados_resumo, colWidths=[5*cm, 3.5*cm, 4.5*cm])
             tabela_resumo.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.grey),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
@@ -14603,7 +14595,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             story.append(tabela_resumo)
             story.append(Spacer(1, 0.5*cm))
             
-            # Recomendações
             recomendacoes = analise['recomendacoes']
             if recomendacoes:
                 story.append(Paragraph("<b>🛠️ RECOMENDAÇÕES DE SETUP</b>", styles['Heading2']))
@@ -14624,13 +14615,13 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         ParagraphStyle(f'RecDet_{i}', parent=styles['Normal'], textColor=colors.blue)
                     ))
                     
-                    # Incluir detalhes de setup se disponíveis
                     if 'setup_ajuste' in rec:
                         setup = rec['setup_ajuste']
                         if 'voltas_sugerido' in setup:
                             story.append(Paragraph(
                                 f"   📊 Ajustes: Voltas {setup['voltas_atual']:.1f} → {setup['voltas_sugerido']:.1f} | "
                                 f"Ciclo {setup['ciclo_atual']:.1f}s → {setup['ciclo_sugerido']:.1f}s | "
+                                f"Eficiência: {setup.get('eficiencia_setup', 0):.1f}% | "
                                 f"⏰ {setup['tempo_estimado']}",
                                 ParagraphStyle(f'RecSetup_{i}', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
                             ))
@@ -14643,7 +14634,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             else:
                 story.append(Paragraph("✅ Todos os parâmetros estão dentro do padrão de excelência.", styles['Normal']))
             
-            # Rodapé
             story.append(Spacer(1, 1*cm))
             story.append(Paragraph(
                 "Documento gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte",
@@ -14702,7 +14692,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         turnos = ["(Todos)", "MANHÃ", "TARDE", "NOITE"]
         turno_filtro = st.selectbox("🕐 Turno", turnos, key="enfornadeira_turno")
     
-    # ===== APLICAR FILTROS =====
     df_filtrado = df.copy()
     
     if periodo == 'DIA':
@@ -14728,14 +14717,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         renderizar_formulario_lancamento()
         st.stop()
     
-    # ===== CALCULAR INDICADORES =====
+    # ======================================================================
+    # CALCULAR INDICADORES
+    # ======================================================================
     def calcular_indicadores(df: pd.DataFrame) -> Dict:
         indicadores = {}
         
         if df.empty:
             return indicadores
         
-        # PRODUÇÃO
         if 'TIRAGEM_KG' in df.columns:
             tiragem = df['TIRAGEM_KG']
             indicadores['tiragem_media'] = tiragem.mean()
@@ -14746,7 +14736,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             horas = len(df)
             indicadores['producao_diaria'] = tiragem.sum() / (horas / 24) if horas > 0 else 0
         
-        # NÍVEL
         if 'NIVEL' in df.columns:
             nivel = df['NIVEL']
             indicadores['nivel_atual'] = nivel.iloc[-1] if not nivel.empty else 0
@@ -14756,7 +14745,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             indicadores['nivel_osc'] = nivel.max() - nivel.min() if not nivel.empty else 0
             indicadores['nivel_std'] = nivel.std()
         
-        # BOQUETAS
         boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
         boquetas_existentes = [b for b in boquetas if b in df.columns]
         
@@ -14805,7 +14793,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             diferencas_validas = diferencas.dropna()
             indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
         
-        # ALIMENTAÇÃO
         if 'CICLO' in df.columns:
             indicadores['ciclo_media'] = df['CICLO'].mean()
             indicadores['ciclo_atual'] = df['CICLO'].iloc[-1] if not df.empty else 0
@@ -14817,7 +14804,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         if 'INDICE_ALIMENTACAO' in df.columns:
             indicadores['indice_alimentacao_media'] = df['INDICE_ALIMENTACAO'].mean()
         
-        # COMBUSTÍVEL
         if 'OXI_TOTAL' in df.columns:
             indicadores['oxi_media'] = df['OXI_TOTAL'].mean()
         
@@ -14833,7 +14819,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 indicadores['relacao_o2_gas_media'] = relacao_validas.mean()
                 indicadores['relacao_o2_gas_atual'] = relacao_validas.iloc[-1] if not relacao_validas.empty else 0
         
-        # EFICIÊNCIA
         if 'OXI_POR_TON' in df.columns:
             indicadores['oxi_por_ton_media'] = df['OXI_POR_TON'].replace([np.inf, -np.inf], 0).mean()
         
@@ -14926,7 +14911,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     indicadores = calcular_indicadores(df_filtrado)
     alarmes = identificar_alarmes(df_filtrado, indicadores)
     
-    # ===== HEADER =====
+    # ======================================================================
+    # HEADER E KPIS
+    # ======================================================================
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, {THEME['bg_card']} 0%, {THEME['bg_card2']} 100%); 
                 padding: 15px 20px; border-radius: 10px; 
@@ -14941,7 +14928,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)
     
-    # ===== KPIs =====
     st.markdown("### 📊 Indicadores do Forno")
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -14968,7 +14954,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # ===== TEMPERATURAS DAS BOQUETAS =====
+    # ======================================================================
+    # TEMPERATURAS DAS BOQUETAS
+    # ======================================================================
     st.markdown("#### 🌡️ Temperaturas por Boqueta")
     
     boquetas_cols = st.columns(5)
@@ -15001,7 +14989,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     
     st.markdown("---")
     
-    # ===== ALARMES =====
+    # ======================================================================
+    # ALARMES
+    # ======================================================================
     if alarmes:
         st.markdown("### 🚨 Alarmes")
         for alarme in alarmes:
@@ -15015,7 +15005,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             """, unsafe_allow_html=True)
         st.markdown("---")
     
-    # ===== GRÁFICOS =====
+    # ======================================================================
+    # GRÁFICOS
+    # ======================================================================
     st.markdown("### 📈 Gráficos Analíticos")
     
     def criar_grafico_linha(df: pd.DataFrame, coluna: str, titulo: str, cor: str, 
@@ -15171,7 +15163,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         
         return fig
     
-    # ===== EXIBIR GRÁFICOS =====
+    # ======================================================================
+    # EXIBIR GRÁFICOS
+    # ======================================================================
     col1, col2 = st.columns(2)
     
     with col1:
@@ -15194,7 +15188,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Tiragem insuficientes")
     
-    # Temperaturas das Boquetas
     st.markdown("#### 🌡️ Evolução das Temperaturas por Boqueta")
     
     boquetas_graf = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
@@ -15220,7 +15213,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     else:
         st.info("📭 Nenhuma boqueta com dados disponíveis para o gráfico")
     
-    # Temperatura Média e Relação O2/Gás
     col1, col2 = st.columns(2)
     
     with col1:
@@ -15260,7 +15252,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Relação O₂/Gás não disponíveis")
     
-    # Consumo de Combustível
     col1, col2 = st.columns(2)
     
     with col1:
@@ -15287,7 +15278,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Gás não disponíveis")
     
-    # ===== GRÁFICO DE CONSUMO POR TURNO =====
     st.markdown("#### 📊 Consumo por Turno")
     
     fig_consumo_turno = criar_grafico_consumo_turno(df_filtrado)
@@ -15296,13 +15286,19 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     else:
         st.info("📭 Dados insuficientes para gráfico de consumo por turno")
     
-    # ===== NOVO: ANÁLISE PREDITIVA E RECOMENDAÇÕES =====
+    # ======================================================================
+    # ANÁLISE PREDITIVA E RECOMENDAÇÕES (NOVO)
+    # ======================================================================
     renderizar_analise_preditiva(df_filtrado)
     
-    # ===== FORMULÁRIO DE LANÇAMENTO =====
+    # ======================================================================
+    # FORMULÁRIO DE LANÇAMENTO
+    # ======================================================================
     renderizar_formulario_lancamento()
     
-    # ===== TABELA DE DADOS =====
+    # ======================================================================
+    # TABELA DE DADOS
+    # ======================================================================
     with st.expander("📋 Ver dados detalhados", expanded=False):
         df_exibicao = df_filtrado.copy()
         
