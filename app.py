@@ -13002,8 +13002,9 @@ elif aba_selecionada == 'REPASSES DE PRODUÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# CONTROLE DO FORNO - CONTROLE DO FORNO DE FUSÃO (VERSÃO COMPLETA - CORRIGIDA HH:MM:SS)
+# CONTROLE DO FORNO - VERSÃO COMPLETA COM ANÁLISE PREDITIVA E RECOMENDAÇÕES
 # ==================================================================================================
+
 elif aba_selecionada == 'CONTROLE DO FORNO':
     render_page_header("CONTROLE DO FORNO", 
                        f"Controle do Forno de Fusão · Atualizado {get_horario_brasilia()}", 
@@ -13027,16 +13028,16 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         'relacao_o2_gas_max': 2.2,
         'consumo_gas_alerta': 500,    # m³
         'consumo_oxi_alerta': 400,    # m³
-        'osc_nivel_alerta': 5,       # cm
+        'osc_nivel_alerta': 5,        # cm
         'diferenca_temp_max': 30,     # °C (diferença máxima entre boquetas)
     }
     
     # ===== CONFIGURAÇÃO INDIVIDUAL DE CADA BOQUETA =====
     BOQUETAS_CONFIG = {
-        'BOQUETA_1': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-1', 'cor': '#0078D4'},
-        'BOQUETA_2': {'min': 1270, 'max': 1280, 'display': 'BOQUETA-2', 'cor': '#E86C2C'},
-        'BOQUETA_3': {'min': 1240, 'max': 1260, 'display': 'BOQUETA-3', 'cor': '#FFB900'},
-        'BOQUETA_4': {'min': 1100, 'max': 1240, 'display': 'BOQUETA-4', 'cor': '#107C10'},
+        'BOQUETA_1': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-1 - COMAL', 'cor': '#0078D4'},
+        'BOQUETA_2': {'min': 1270, 'max': 1280, 'display': 'BOQUETA-2 - PRENSA AUT.', 'cor': '#E86C2C'},
+        'BOQUETA_3': {'min': 1240, 'max': 1260, 'display': 'BOQUETA-3 ODILON', 'cor': '#FFB900'},
+        'BOQUETA_4': {'min': 1100, 'max': 1240, 'display': 'BOQUETA-4 CABEÇA', 'cor': '#107C10'},
         'BOQUETA_5': {'min': 1100, 'max': 1240, 'display': 'BOQUETA-5', 'cor': '#6B46C1'},
     }
     
@@ -13556,7 +13557,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.markdown('</div>', unsafe_allow_html=True)
     
     # ======================
-    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO DE LANÇAMENTO - LAYOUT ORGANIZADO
+    # FUNÇÃO PARA RENDERIZAR FORMULÁRIO DE LANÇAMENTO
     # ======================
     def renderizar_formulario_lancamento():
         """Renderiza o formulário para lançamento de apontamentos com layout organizado"""
@@ -13564,7 +13565,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.markdown("---")
         st.markdown("### ✏️ Lançamento de Apontamentos")
         
-        # Data e hora atuais (não editáveis)
         agora = get_horario_brasilia_obj()
         
         st.info(f"📅 Data e hora do lançamento: **{agora.strftime('%d/%m/%Y %H:%M:%S')}** (Horário de Brasília)")
@@ -13573,9 +13573,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.markdown("---")
         
         with st.form("form_lancamento_enfornadeira"):
-            # ============================================================
             # LINHA 1: PARÂMETROS DO TANQUE + ALIMENTAÇÃO
-            # ============================================================
             st.markdown("### 📊 Parâmetros de Processo")
             
             col1, col2, col3 = st.columns(3)
@@ -13627,12 +13625,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             st.markdown("---")
             
-            # ============================================================
-            # LINHA 2: TEMPERATURAS DAS BOQUETAS (5 em linha) - VALOR PADRÃO 0
-            # ============================================================
+            # LINHA 2: TEMPERATURAS DAS BOQUETAS
             st.markdown("### 🌡️ Temperaturas das Boquetas")
             
-            # Mostrar faixas ideais de cada boqueta
             col_info1, col_info2, col_info3, col_info4, col_info5 = st.columns(5)
             with col_info1:
                 st.caption("B1: 1220-1240°C")
@@ -13704,9 +13699,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             
             st.markdown("---")
             
-            # ============================================================
-            # LINHA 3: COMBUSTÍVEL (Maçarico 1 e 2 lado a lado)
-            # ============================================================
+            # LINHA 3: COMBUSTÍVEL
             st.markdown("### 🔥 Consumo de Combustível")
             
             col_f1, col_f2 = st.columns(2)
@@ -13756,9 +13749,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             st.markdown("---")
             st.caption("* Campos obrigatórios")
             
-            # ============================================================
-            # BOTÃO DE SUBMIT
-            # ============================================================
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
                 submitted = st.form_submit_button(
@@ -13767,11 +13757,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     use_container_width=True
                 )
             
-            # ============================================================
-            # PROCESSAR SUBMISSÃO
-            # ============================================================
             if submitted:
-                # Validar campos obrigatórios (apenas campos que podem ser 0 são considerados opcionais)
                 campos_obrigatorios = {
                     'Nível': nivel,
                     'Ciclo': ciclo,
@@ -13783,21 +13769,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     'Gás M³ - 2': gas_2
                 }
                 
-                # Campos de temperatura são opcionais (podem ser 0)
-                campos_temperatura = {
-                    'BOQUETA-1': boqueta_1,
-                    'BOQUETA-2': boqueta_2,
-                    'BOQUETA-3': boqueta_3,
-                    'BOQUETA-4': boqueta_4,
-                    'BOQUETA-5': boqueta_5
-                }
-                
                 campos_vazios = [nome for nome, valor in campos_obrigatorios.items() if valor <= 0]
                 
                 if campos_vazios:
                     st.error(f"❌ Preencha todos os campos obrigatórios: {', '.join(campos_vazios)}")
                 else:
-                    # Salvar dados no session state para confirmação
                     st.session_state.enfornadeira_dados_lancamento = {
                         'nivel': nivel,
                         'boqueta_1': boqueta_1,
@@ -13816,9 +13792,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     st.session_state.enfornadeira_confirmar_salvar = True
                     st.rerun()
         
-        # ============================================================
         # CONFIRMAÇÃO DE SALVAMENTO
-        # ============================================================
         if st.session_state.enfornadeira_confirmar_salvar:
             dados = st.session_state.enfornadeira_dados_lancamento
             
@@ -13826,12 +13800,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             st.markdown("### ⚠️ Confirmação")
             st.warning("⚠️ Você está prestes a salvar um novo registro na planilha.")
             
-            # ============================================================
-            # RESUMO DOS DADOS EM CARDS
-            # ============================================================
             st.markdown("**📋 Resumo dos dados:**")
             
-            # Linha 1: Tanque + Alimentação
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
                 st.markdown("**📊 Tanque**")
@@ -13844,7 +13814,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 st.write(f"Voltas: **{dados['voltas']}**")
                 st.write(f"Tiragem: **{dados['tiragem']} kg/h**")
             
-            # Linha 2: Temperaturas das Boquetas (5 em linha)
             st.markdown("**🌡️ Temperaturas das Boquetas**")
             col_t1, col_t2, col_t3, col_t4, col_t5 = st.columns(5)
             with col_t1:
@@ -13858,7 +13827,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             with col_t5:
                 st.write(f"B5: **{dados['boqueta_5']} °C**")
             
-            # Linha 3: Combustível
             st.markdown("**🔥 Combustível**")
             col_c1, col_c2 = st.columns(2)
             with col_c1:
@@ -13870,16 +13838,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 st.write(f"O₂: **{dados['oxi_2']} m³**")
                 st.write(f"Gás: **{dados['gas_2']} m³**")
             
-            # ============================================================
-            # ALERTAS
-            # ============================================================
+            # Alertas
             alertas = gerar_alertas_sugestoes(dados)
             if alertas:
                 renderizar_alertas(alertas)
             
-            # ============================================================
-            # BOTÕES DE CONFIRMAÇÃO
-            # ============================================================
             col_conf1, col_conf2, col_conf3 = st.columns(3)
             with col_conf1:
                 if st.button("✅ SIM, SALVAR", type="primary", use_container_width=True):
@@ -13907,9 +13870,546 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     st.session_state.enfornadeira_confirmar_salvar = False
                     st.rerun()
     
-    # ======================
+    # ======================================================================
+    # NOVO: ANÁLISE PREDITIVA E RECOMENDAÇÕES DE SETUP
+    # ======================================================================
+    
+    def analisar_padrao_excelencia(df: pd.DataFrame) -> Dict:
+        """
+        Analisa os dados históricos para identificar o padrão de excelência
+        e gerar recomendações de setup baseadas nas últimas extrações
+        """
+        if df.empty:
+            return {}
+        
+        # ===== 1. IDENTIFICAR O PADRÃO DE EXCELÊNCIA =====
+        df_produtivo = df[df['TIRAGEM_KG'] > 300].copy()
+        
+        if df_produtivo.empty:
+            return {"erro": "Dados insuficientes para análise. Necessário mais registros com tiragem > 300 kg/h."}
+        
+        n_top = max(1, int(len(df_produtivo) * 0.2))
+        df_top = df_produtivo.nlargest(n_top, 'TIRAGEM_KG')
+        
+        # ===== 2. CALCULAR PARÂMETROS IDEAL =====
+        padrao = {
+            'nivel_ideal': df_top['NIVEL'].mean(),
+            'nivel_min': df_top['NIVEL'].min(),
+            'nivel_max': df_top['NIVEL'].max(),
+            'ciclo_ideal': df_top['CICLO'].mean(),
+            'ciclo_min': df_top['CICLO'].min(),
+            'ciclo_max': df_top['CICLO'].max(),
+            'voltas_ideal': df_top['VOLTAS'].mean(),
+            'voltas_min': df_top['VOLTAS'].min(),
+            'voltas_max': df_top['VOLTAS'].max(),
+            'tiragem_media_top': df_top['TIRAGEM_KG'].mean(),
+            'tiragem_max_top': df_top['TIRAGEM_KG'].max(),
+            'relacao_o2_gas_ideal': df_top['RELACAO_O2_GAS'].mean(),
+            'relacao_o2_gas_min': df_top['RELACAO_O2_GAS'].min(),
+            'relacao_o2_gas_max': df_top['RELACAO_O2_GAS'].max(),
+            'n_registros_top': len(df_top),
+            'n_registros_total': len(df_produtivo),
+            'boquetas': {}
+        }
+        
+        boquetas = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
+        for boqueta in boquetas:
+            if boqueta in df_top.columns:
+                valores = df_top[boqueta][df_top[boqueta] > 0]
+                if not valores.empty:
+                    padrao['boquetas'][boqueta] = {
+                        'media': valores.mean(),
+                        'min': valores.min(),
+                        'max': valores.max(),
+                        'std': valores.std()
+                    }
+        
+        # ===== 3. ANALISAR ÚLTIMOS REGISTROS =====
+        ultimos = df.tail(5).copy() if len(df) >= 5 else df.copy()
+        
+        analise_atual = {
+            'nivel_atual': ultimos['NIVEL'].mean() if 'NIVEL' in ultimos.columns else 0,
+            'nivel_std': ultimos['NIVEL'].std() if 'NIVEL' in ultimos.columns else 0,
+            'ciclo_atual': ultimos['CICLO'].mean() if 'CICLO' in ultimos.columns else 0,
+            'voltas_atual': ultimos['VOLTAS'].mean() if 'VOLTAS' in ultimos.columns else 0,
+            'tiragem_atual': ultimos['TIRAGEM_KG'].mean() if 'TIRAGEM_KG' in ultimos.columns else 0,
+            'tiragem_std': ultimos['TIRAGEM_KG'].std() if 'TIRAGEM_KG' in ultimos.columns else 0,
+            'relacao_o2_gas_atual': ultimos['RELACAO_O2_GAS'].mean() if 'RELACAO_O2_GAS' in ultimos.columns else 0,
+            'boquetas': {}
+        }
+        
+        for boqueta in boquetas:
+            if boqueta in ultimos.columns:
+                valores = ultimos[boqueta][ultimos[boqueta] > 0]
+                if not valores.empty:
+                    analise_atual['boquetas'][boqueta] = {
+                        'media': valores.mean(),
+                        'min': valores.min(),
+                        'max': valores.max(),
+                        'std': valores.std()
+                    }
+        
+        # ===== 4. GERAR RECOMENDAÇÕES =====
+        recomendacoes = []
+        
+        # 4.1 Recomendação de Nível
+        if 'nivel_atual' in analise_atual and analise_atual['nivel_atual'] > 0:
+            nivel_atual = analise_atual['nivel_atual']
+            nivel_ideal = padrao['nivel_ideal']
+            tolerancia = 2.0
+            
+            if abs(nivel_atual - nivel_ideal) > tolerancia:
+                if nivel_atual < nivel_ideal:
+                    recomendacoes.append({
+                        'parametro': 'Nível do Vidro',
+                        'status': '⚠️ ABAIXO DO IDEAL',
+                        'atual': f"{nivel_atual:.1f} cm",
+                        'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
+                        'acao': f"AUMENTE a alimentação em {abs(nivel_atual - nivel_ideal):.1f} cm",
+                        'detalhe': f"Reduza o ciclo ou aumente as voltas para elevar o nível.",
+                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA'
+                    })
+                else:
+                    recomendacoes.append({
+                        'parametro': 'Nível do Vidro',
+                        'status': '⚠️ ACIMA DO IDEAL',
+                        'atual': f"{nivel_atual:.1f} cm",
+                        'ideal': f"{nivel_ideal:.1f} cm (faixa: {padrao['nivel_min']:.1f}-{padrao['nivel_max']:.1f})",
+                        'acao': f"REDUZA a alimentação em {abs(nivel_atual - nivel_ideal):.1f} cm",
+                        'detalhe': f"Aumente o ciclo ou reduza as voltas para baixar o nível.",
+                        'prioridade': 'ALTA' if abs(nivel_atual - nivel_ideal) > 5 else 'MÉDIA'
+                    })
+        
+        # 4.2 Recomendação de Tiragem
+        if 'tiragem_atual' in analise_atual and analise_atual['tiragem_atual'] > 0:
+            tiragem_atual = analise_atual['tiragem_atual']
+            tiragem_ideal = padrao['tiragem_media_top']
+            tiragem_max = padrao['tiragem_max_top']
+            
+            if tiragem_atual < tiragem_ideal * 0.85:
+                recomendacoes.append({
+                    'parametro': 'Tiragem',
+                    'status': '⚠️ ABAIXO DA CAPACIDADE',
+                    'atual': f"{tiragem_atual:.1f} kg/h",
+                    'ideal': f"{tiragem_ideal:.1f} kg/h (máx: {tiragem_max:.1f})",
+                    'acao': f"AUMENTE a tiragem em {tiragem_ideal - tiragem_atual:.1f} kg/h",
+                    'detalhe': f"Ajuste a alimentação e a temperatura para aumentar a produção.",
+                    'prioridade': 'ALTA' if tiragem_atual < tiragem_ideal * 0.7 else 'MÉDIA'
+                })
+        
+        # 4.3 Recomendação de Relação O₂/Gás
+        if 'relacao_o2_gas_atual' in analise_atual and analise_atual['relacao_o2_gas_atual'] > 0:
+            relacao_atual = analise_atual['relacao_o2_gas_atual']
+            relacao_ideal = padrao['relacao_o2_gas_ideal']
+            tolerancia_rel = 0.15
+            
+            if abs(relacao_atual - relacao_ideal) > tolerancia_rel:
+                if relacao_atual < relacao_ideal:
+                    recomendacoes.append({
+                        'parametro': 'Relação O₂/Gás',
+                        'status': '⚠️ O₂ ABAIXO DO IDEAL',
+                        'atual': f"{relacao_atual:.2f}",
+                        'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
+                        'acao': f"AUMENTE o oxigênio ou REDUZA o gás",
+                        'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
+                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA'
+                    })
+                else:
+                    recomendacoes.append({
+                        'parametro': 'Relação O₂/Gás',
+                        'status': '⚠️ O₂ ACIMA DO IDEAL',
+                        'atual': f"{relacao_atual:.2f}",
+                        'ideal': f"{relacao_ideal:.2f} (faixa: {padrao['relacao_o2_gas_min']:.2f}-{padrao['relacao_o2_gas_max']:.2f})",
+                        'acao': f"REDUZA o oxigênio ou AUMENTE o gás",
+                        'detalhe': f"A relação ideal é 2.0 (dobro de oxigênio). Atual: {relacao_atual:.2f}",
+                        'prioridade': 'ALTA' if abs(relacao_atual - relacao_ideal) > 0.3 else 'MÉDIA'
+                    })
+        
+        # 4.4 Recomendação de Temperaturas das Boquetas
+        for boqueta, dados_top in padrao['boquetas'].items():
+            if boqueta in analise_atual['boquetas'] and analise_atual['boquetas'][boqueta].get('media', 0) > 0:
+                temp_atual = analise_atual['boquetas'][boqueta]['media']
+                temp_ideal = dados_top['media']
+                tolerancia_temp = 15
+                nome_display = boqueta.replace('_', '-')
+                
+                if abs(temp_atual - temp_ideal) > tolerancia_temp:
+                    if temp_atual < temp_ideal:
+                        recomendacoes.append({
+                            'parametro': f'{nome_display}',
+                            'status': '⚠️ TEMP. BAIXA',
+                            'atual': f"{temp_atual:.0f} °C",
+                            'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
+                            'acao': f"AUMENTE a vazão de gás/oxigênio na {nome_display}",
+                            'detalhe': f"Aumente a chama para elevar a temperatura em {temp_ideal - temp_atual:.0f}°C",
+                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA'
+                        })
+                    else:
+                        recomendacoes.append({
+                            'parametro': f'{nome_display}',
+                            'status': '⚠️ TEMP. ALTA',
+                            'atual': f"{temp_atual:.0f} °C",
+                            'ideal': f"{temp_ideal:.0f} °C (faixa: {dados_top['min']:.0f}-{dados_top['max']:.0f})",
+                            'acao': f"REDUZA a vazão de gás/oxigênio na {nome_display}",
+                            'detalhe': f"Reduza a chama para baixar a temperatura em {temp_atual - temp_ideal:.0f}°C",
+                            'prioridade': 'ALTA' if abs(temp_atual - temp_ideal) > 30 else 'MÉDIA'
+                        })
+        
+        # 4.5 Análise de Estabilidade
+        if 'tiragem_std' in analise_atual and analise_atual['tiragem_std'] > 20:
+            recomendacoes.append({
+                'parametro': 'Estabilidade da Tiragem',
+                'status': '⚠️ ALTA OSCILAÇÃO',
+                'atual': f"±{analise_atual['tiragem_std']:.1f} kg/h",
+                'ideal': f"< 20 kg/h",
+                'acao': f"REGULARIZE a alimentação para reduzir oscilações",
+                'detalhe': f"A tiragem está oscilando muito. Verifique a alimentação e a temperatura.",
+                'prioridade': 'ALTA'
+            })
+        
+        if 'nivel_std' in analise_atual and analise_atual['nivel_std'] > 2.0:
+            recomendacoes.append({
+                'parametro': 'Estabilidade do Nível',
+                'status': '⚠️ OSCILAÇÃO DO NÍVEL',
+                'atual': f"±{analise_atual['nivel_std']:.1f} cm",
+                'ideal': f"< 2.0 cm",
+                'acao': f"REGULARIZE a alimentação para estabilizar o nível",
+                'detalhe': f"O nível está oscilando. Ajuste a alimentação para manter a estabilidade.",
+                'prioridade': 'MÉDIA'
+            })
+        
+        # ===== 5. GERAR RELATÓRIO DE DESEMPENHO =====
+        desempenho = {
+            'tiragem_media_atual': analise_atual.get('tiragem_atual', 0),
+            'tiragem_media_top': padrao['tiragem_media_top'],
+            'diferenca_tiragem': analise_atual.get('tiragem_atual', 0) - padrao['tiragem_media_top'],
+            'percentual_capacidade': (analise_atual.get('tiragem_atual', 0) / padrao['tiragem_media_top'] * 100) if padrao['tiragem_media_top'] > 0 else 0,
+            'nivel_media_atual': analise_atual.get('nivel_atual', 0),
+            'nivel_media_top': padrao['nivel_ideal'],
+            'relacao_o2_gas_atual': analise_atual.get('relacao_o2_gas_atual', 0),
+            'relacao_o2_gas_top': padrao['relacao_o2_gas_ideal'],
+            'n_registros_analisados': len(ultimos),
+            'n_registros_top': padrao['n_registros_top']
+        }
+        
+        return {
+            'padrao_excelencia': padrao,
+            'analise_atual': analise_atual,
+            'recomendacoes': recomendacoes,
+            'desempenho': desempenho
+        }
+
+    def renderizar_analise_preditiva(df: pd.DataFrame):
+        """Renderiza o painel de análise preditiva e recomendações de setup"""
+        
+        st.markdown("---")
+        st.markdown("### 🔮 ANÁLISE PREDITIVA E RECOMENDAÇÕES DE SETUP")
+        
+        if df.empty:
+            st.warning("⚠️ Dados insuficientes para análise preditiva.")
+            return
+        
+        with st.spinner("🔄 Analisando dados históricos e gerando recomendações..."):
+            analise = analisar_padrao_excelencia(df)
+        
+        if "erro" in analise:
+            st.warning(f"⚠️ {analise['erro']}")
+            return
+        
+        # ===== 1. RESUMO DE DESEMPENHO =====
+        desempenho = analise['desempenho']
+        
+        st.markdown("#### 📊 Resumo do Desempenho Atual")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            perc_capacidade = desempenho['percentual_capacidade']
+            cor = "🟢" if perc_capacidade >= 90 else "🟡" if perc_capacidade >= 75 else "🔴"
+            st.metric(
+                f"{cor} Capacidade Utilizada",
+                f"{perc_capacidade:.1f}%",
+                delta=f"{desempenho['diferenca_tiragem']:+.1f} kg/h"
+            )
+        with col2:
+            st.metric(
+                "🎯 Tiragem Atual",
+                f"{desempenho['tiragem_media_atual']:.1f} kg/h",
+                delta=f"meta: {desempenho['tiragem_media_top']:.1f} kg/h"
+            )
+        with col3:
+            st.metric(
+                "📈 Nível Médio",
+                f"{desempenho['nivel_media_atual']:.1f} cm",
+                delta=f"ideal: {desempenho['nivel_media_top']:.1f} cm"
+            )
+        with col4:
+            st.metric(
+                "⚖️ Relação O₂/Gás",
+                f"{desempenho['relacao_o2_gas_atual']:.2f}",
+                delta=f"ideal: {desempenho['relacao_o2_gas_top']:.2f}"
+            )
+        
+        st.caption(f"📊 Análise baseada em {desempenho['n_registros_analisados']} registros recentes | Padrão de excelência: {desempenho['n_registros_top']} melhores produções")
+        
+        st.markdown("---")
+        
+        # ===== 2. RECOMENDAÇÕES DE SETUP =====
+        recomendacoes = analise['recomendacoes']
+        
+        if recomendacoes:
+            st.markdown("#### 🛠️ Recomendações de Ajuste")
+            st.caption("Ajustes sugeridos para aproximar o processo do padrão de excelência")
+            
+            recomendacoes_alta = [r for r in recomendacoes if r['prioridade'] == 'ALTA']
+            recomendacoes_media = [r for r in recomendacoes if r['prioridade'] == 'MÉDIA']
+            
+            if recomendacoes_alta:
+                st.markdown("##### 🔴 Prioridade Alta (Ação Imediata)")
+                for rec in recomendacoes_alta:
+                    st.markdown(f"""
+                    <div style="background: #fff5f5; border-left: 4px solid #E81123; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong style="color: #E81123;">{rec['parametro']}</strong>
+                                <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                            </div>
+                            <span style="background: #E81123; color: white; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">ALTA</span>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 13px;">
+                            <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                            <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                        </div>
+                        <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
+                            <strong>💡 Ação:</strong> {rec['acao']}
+                        </div>
+                        <div style="margin-top: 2px; font-size: 12px; color: #666;">
+                            {rec['detalhe']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            if recomendacoes_media:
+                st.markdown("##### 🟡 Prioridade Média (Ajuste Progressivo)")
+                for rec in recomendacoes_media:
+                    st.markdown(f"""
+                    <div style="background: #fffdf5; border-left: 4px solid #FFB900; padding: 12px 16px; margin: 8px 0; border-radius: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong style="color: #E86C2C;">{rec['parametro']}</strong>
+                                <span style="margin-left: 10px; font-size: 13px;">{rec['status']}</span>
+                            </div>
+                            <span style="background: #FFB900; color: #333; padding: 2px 12px; border-radius: 12px; font-size: 11px; font-weight: bold;">MÉDIA</span>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 13px;">
+                            <span style="color: #666;">Atual:</span> <strong>{rec['atual']}</strong>
+                            <span style="color: #666; margin-left: 15px;">Ideal:</span> <strong>{rec['ideal']}</strong>
+                        </div>
+                        <div style="margin-top: 4px; font-size: 13px; color: #0078D4;">
+                            <strong>💡 Ação:</strong> {rec['acao']}
+                        </div>
+                        <div style="margin-top: 2px; font-size: 12px; color: #666;">
+                            {rec['detalhe']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Botão para gerar relatório PDF das recomendações
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+            with col_btn2:
+                if st.button("📥 Baixar Relatório de Recomendações", use_container_width=True, type="primary"):
+                    gerar_pdf_recomendacoes(analise)
+        else:
+            st.success("✅ **Parabéns!** Todos os parâmetros estão dentro do padrão de excelência.")
+            st.markdown("""
+            <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 15px 20px; border-radius: 8px; margin: 10px 0;">
+                <strong>🎯 Processo Estável</strong><br>
+                O forno está operando dentro dos parâmetros ideais. Continue monitorando para manter a estabilidade.
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ===== 3. TABELA DE PARÂMETROS IDEAL X ATUAL =====
+        with st.expander("📋 Comparativo Detalhado: Ideal vs Atual", expanded=False):
+            padrao = analise['padrao_excelencia']
+            atual = analise['analise_atual']
+            
+            dados_comparativo = []
+            
+            # Nível
+            dados_comparativo.append({
+                'Parâmetro': 'Nível do Vidro',
+                'Ideal (Média)': f"{padrao['nivel_ideal']:.1f} cm",
+                'Ideal (Faixa)': f"{padrao['nivel_min']:.1f} - {padrao['nivel_max']:.1f} cm",
+                'Atual (Média)': f"{atual['nivel_atual']:.1f} cm",
+                'Status': '✅ OK' if abs(atual['nivel_atual'] - padrao['nivel_ideal']) <= 2 else '⚠️ Ajustar'
+            })
+            
+            # Ciclo
+            dados_comparativo.append({
+                'Parâmetro': 'Ciclo',
+                'Ideal (Média)': f"{padrao['ciclo_ideal']:.1f} s",
+                'Ideal (Faixa)': f"{padrao['ciclo_min']:.1f} - {padrao['ciclo_max']:.1f} s",
+                'Atual (Média)': f"{atual['ciclo_atual']:.1f} s",
+                'Status': '✅ OK' if abs(atual['ciclo_atual'] - padrao['ciclo_ideal']) <= 2 else '⚠️ Ajustar'
+            })
+            
+            # Voltas
+            dados_comparativo.append({
+                'Parâmetro': 'Voltas',
+                'Ideal (Média)': f"{padrao['voltas_ideal']:.1f}",
+                'Ideal (Faixa)': f"{padrao['voltas_min']:.1f} - {padrao['voltas_max']:.1f}",
+                'Atual (Média)': f"{atual['voltas_atual']:.1f}",
+                'Status': '✅ OK' if abs(atual['voltas_atual'] - padrao['voltas_ideal']) <= 2 else '⚠️ Ajustar'
+            })
+            
+            # Tiragem
+            dados_comparativo.append({
+                'Parâmetro': 'Tiragem',
+                'Ideal (Média)': f"{padrao['tiragem_media_top']:.1f} kg/h",
+                'Ideal (Faixa)': f"máx: {padrao['tiragem_max_top']:.1f} kg/h",
+                'Atual (Média)': f"{atual['tiragem_atual']:.1f} kg/h",
+                'Status': '✅ OK' if atual['tiragem_atual'] >= padrao['tiragem_media_top'] * 0.85 else '⚠️ Ajustar'
+            })
+            
+            # Relação O2/Gás
+            dados_comparativo.append({
+                'Parâmetro': 'Relação O₂/Gás',
+                'Ideal (Média)': f"{padrao['relacao_o2_gas_ideal']:.2f}",
+                'Ideal (Faixa)': f"{padrao['relacao_o2_gas_min']:.2f} - {padrao['relacao_o2_gas_max']:.2f}",
+                'Atual (Média)': f"{atual['relacao_o2_gas_atual']:.2f}",
+                'Status': '✅ OK' if abs(atual['relacao_o2_gas_atual'] - padrao['relacao_o2_gas_ideal']) <= 0.15 else '⚠️ Ajustar'
+            })
+            
+            # Boquetas
+            for boqueta in ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']:
+                if boqueta in padrao['boquetas'] and boqueta in atual['boquetas']:
+                    nome_display = boqueta.replace('_', '-')
+                    dados_top = padrao['boquetas'][boqueta]
+                    dados_atual = atual['boquetas'][boqueta]
+                    
+                    dados_comparativo.append({
+                        'Parâmetro': f'{nome_display} (Temp.)',
+                        'Ideal (Média)': f"{dados_top['media']:.0f} °C",
+                        'Ideal (Faixa)': f"{dados_top['min']:.0f} - {dados_top['max']:.0f} °C",
+                        'Atual (Média)': f"{dados_atual['media']:.0f} °C",
+                        'Status': '✅ OK' if abs(dados_atual['media'] - dados_top['media']) <= 15 else '⚠️ Ajustar'
+                    })
+            
+            df_comparativo = pd.DataFrame(dados_comparativo)
+            
+            def style_comparativo(row):
+                if '✅' in row['Status']:
+                    return ['background-color: #d4edda; color: #155724;'] * len(row)
+                else:
+                    return ['background-color: #fff3cd; color: #856404;'] * len(row)
+            
+            styled_df = df_comparativo.style.apply(style_comparativo, axis=1)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
+
+    def gerar_pdf_recomendacoes(analise: Dict):
+        """Gera PDF com as recomendações de setup"""
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.units import cm
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                topMargin=2*cm,
+                bottomMargin=2*cm,
+                leftMargin=2*cm,
+                rightMargin=2*cm
+            )
+            
+            story = []
+            styles = getSampleStyleSheet()
+            
+            # Título
+            style_title = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, alignment=1, spaceAfter=12)
+            story.append(Paragraph("<b>RELATÓRIO DE RECOMENDAÇÕES - FORNO DE FUSÃO</b>", style_title))
+            story.append(Spacer(1, 0.5*cm))
+            story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", styles['Normal']))
+            story.append(Spacer(1, 0.5*cm))
+            
+            # Resumo de Desempenho
+            desempenho = analise['desempenho']
+            story.append(Paragraph("<b>📊 RESUMO DE DESEMPENHO</b>", styles['Heading2']))
+            
+            dados_resumo = [
+                ['Métrica', 'Valor Atual', 'Meta/Ideal'],
+                ['Tiragem (kg/h)', f"{desempenho['tiragem_media_atual']:.1f}", f"{desempenho['tiragem_media_top']:.1f}"],
+                ['Capacidade Utilizada', f"{desempenho['percentual_capacidade']:.1f}%", "> 85%"],
+                ['Nível (cm)', f"{desempenho['nivel_media_atual']:.1f}", f"{desempenho['nivel_media_top']:.1f}"],
+                ['Relação O₂/Gás', f"{desempenho['relacao_o2_gas_atual']:.2f}", f"{desempenho['relacao_o2_gas_top']:.2f}"],
+            ]
+            
+            tabela_resumo = Table(dados_resumo, colWidths=[5*cm, 4*cm, 4*cm])
+            tabela_resumo.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                ('PADDING', (0,0), (-1,-1), 6),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ]))
+            story.append(tabela_resumo)
+            story.append(Spacer(1, 0.5*cm))
+            
+            # Recomendações
+            recomendacoes = analise['recomendacoes']
+            if recomendacoes:
+                story.append(Paragraph("<b>🛠️ RECOMENDAÇÕES DE AJUSTE</b>", styles['Heading2']))
+                
+                for i, rec in enumerate(recomendacoes, 1):
+                    prioridade = rec['prioridade']
+                    emoji = "🔴" if prioridade == "ALTA" else "🟡"
+                    story.append(Paragraph(
+                        f"{emoji} <b>{rec['parametro']}</b> - {rec['status']}",
+                        ParagraphStyle(f'Rec_{i}', parent=styles['Normal'], spaceAfter=4)
+                    ))
+                    story.append(Paragraph(
+                        f"   Atual: {rec['atual']} | Ideal: {rec['ideal']}",
+                        styles['Normal']
+                    ))
+                    story.append(Paragraph(
+                        f"   💡 Ação: {rec['acao']}",
+                        ParagraphStyle(f'RecDet_{i}', parent=styles['Normal'], textColor=colors.blue)
+                    ))
+                    story.append(Paragraph(
+                        f"   {rec['detalhe']}",
+                        ParagraphStyle(f'RecDet2_{i}', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
+                    ))
+                    story.append(Spacer(1, 0.2*cm))
+            else:
+                story.append(Paragraph("✅ Todos os parâmetros estão dentro do padrão de excelência.", styles['Normal']))
+            
+            # Rodapé
+            story.append(Spacer(1, 1*cm))
+            story.append(Paragraph(
+                "Documento gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte",
+                ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, alignment=1)
+            ))
+            
+            doc.build(story)
+            buffer.seek(0)
+            
+            st.download_button(
+                label="📥 Baixar PDF",
+                data=buffer.getvalue(),
+                file_name=f"recomendacoes_forno_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao gerar PDF: {str(e)}")
+
+    # ======================================================================
     # CARREGAR DADOS
-    # ======================
+    # ======================================================================
     with st.spinner("🔄 Carregando dados do Forno..."):
         df = carregar_dados_enfornadeira()
     
@@ -13918,9 +14418,9 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         renderizar_formulario_lancamento()
         st.stop()
     
-    # ======================
+    # ======================================================================
     # FILTROS
-    # ======================
+    # ======================================================================
     st.markdown("### 🔍 Filtros")
     
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
@@ -14030,13 +14530,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         'faixa_max': temp_max
                     }
             
-            # Estatísticas gerais
             df_temp = df[boquetas_existentes].replace(0, np.nan)
             temp_medias = df_temp.mean(axis=1, skipna=True)
             temp_medias_validas = temp_medias.dropna()
             indicadores['temp_media_geral'] = temp_medias_validas.mean() if not temp_medias_validas.empty else 0
             
-            # Últimos valores válidos
             ultima_linha = df_temp.iloc[-1] if not df_temp.empty else pd.Series()
             ultima_linha_valida = ultima_linha.dropna()
             if not ultima_linha_valida.empty:
@@ -14046,7 +14544,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 indicadores['temp_diferenca_atual'] = 0
                 indicadores['temp_media_atual'] = 0
             
-            # Diferença média
             diferencas = df_temp.max(axis=1, skipna=True) - df_temp.min(axis=1, skipna=True)
             diferencas_validas = diferencas.dropna()
             indicadores['temp_diferenca_media'] = diferencas_validas.mean() if not diferencas_validas.empty else 0
@@ -14097,7 +14594,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         if df.empty or not indicadores:
             return alarmes
         
-        # Nível
         if 'nivel_atual' in indicadores and indicadores['nivel_atual'] < ALARMES_CONFIG['nivel_min']:
             alarmes.append({
                 'tipo': 'CRÍTICO',
@@ -14112,7 +14608,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                 'cor': '#FFB900'
             })
         
-        # BOQUETAS (COM FAIXAS INDIVIDUAIS)
         boquetas_temp = indicadores.get('temp_boquetas', {})
         for boqueta, dados_temp in boquetas_temp.items():
             if dados_temp.get('tem_dados', False):
@@ -14134,7 +14629,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                             'cor': '#FFB900'
                         })
         
-        # Diferença entre boquetas
         if 'temp_diferenca_atual' in indicadores:
             diff = indicadores['temp_diferenca_atual']
             if diff > 0 and diff > ALARMES_CONFIG['diferenca_temp_max']:
@@ -14144,7 +14638,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     'cor': '#FFB900'
                 })
         
-        # Tiragem
         if 'tiragem_media' in indicadores:
             tiragem = indicadores['tiragem_media']
             if tiragem < ALARMES_CONFIG['tiragem_meta']:
@@ -14155,7 +14648,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                     'cor': '#FFB900'
                 })
         
-        # Relação O2/Gás
         if 'relacao_o2_gas_atual' in indicadores:
             rel = indicadores['relacao_o2_gas_atual']
             if rel > 0:
@@ -14174,7 +14666,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         
         return alarmes
     
-    # ===== CALCULAR INDICADORES =====
     indicadores = calcular_indicadores(df_filtrado)
     alarmes = identificar_alarmes(df_filtrado, indicadores)
     
@@ -14220,7 +14711,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         valor = indicadores.get('nivel_osc', 0)
         st.metric("📉 Oscilação Nível", f"{valor:.1f} cm")
     
-    # ===== TEMPERATURAS DAS BOQUETAS (COM FAIXAS INDIVIDUAIS) =====
+    # ===== TEMPERATURAS DAS BOQUETAS =====
     st.markdown("#### 🌡️ Temperaturas por Boqueta")
     
     boquetas_cols = st.columns(5)
@@ -14335,7 +14826,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             color_discrete_sequence=cores[:len(colunas_existentes)]
         )
         
-        # Adicionar faixas individuais para cada boqueta
         if faixas:
             for i, coluna in enumerate(colunas_existentes):
                 if coluna in faixas:
@@ -14351,7 +14841,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
                         annotation_font_size=8
                     )
         
-        # ===== AJUSTE DA ESCALA DO EIXO Y PARA TEMPERATURAS (1150-1350) =====
         fig.update_yaxes(range=[1150, 1350])
         
         fig.update_layout(
@@ -14368,55 +14857,10 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         
         return fig
     
-    def criar_grafico_barras(df: pd.DataFrame, colunas: List[str], titulo: str, cores: List[str]):
-        """Cria gráfico de barras agrupadas"""
-        if df.empty:
-            return None
-        
-        df_plot = df.copy()
-        
-        if 'TURNO' in df_plot.columns:
-            df_agg = df_plot.groupby('TURNO')[colunas].mean().reset_index()
-        else:
-            df_plot['PERIODO'] = df_plot['DATETIME'].dt.strftime('%H:00') if 'DATETIME' in df_plot.columns else df_plot.index
-            df_agg = df_plot.groupby('PERIODO')[colunas].mean().reset_index()
-        
-        # Verificar se colunas existem
-        colunas_existentes = [c for c in colunas if c in df_agg.columns]
-        if not colunas_existentes:
-            return None
-        
-        fig = px.bar(
-            df_agg,
-            x=df_agg.columns[0],
-            y=colunas_existentes,
-            title=titulo,
-            barmode='group',
-            color_discrete_sequence=cores[:len(colunas_existentes)],
-            labels={df_agg.columns[0]: ''}
-        )
-        
-        fig.update_layout(
-            height=300,
-            margin=dict(l=20, r=20, t=40, b=40),
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(size=11),
-            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
-        )
-        
-        fig.update_xaxes(showgrid=True, gridcolor='#e0e0e0')
-        fig.update_yaxes(showgrid=True, gridcolor='#e0e0e0')
-        
-        return fig
-    
-    # ===== GRÁFICO DE CONSUMO POR TURNO (EM COLUNAS) =====
     def criar_grafico_consumo_turno(df: pd.DataFrame):
-        """Cria gráfico de consumo por turno em colunas"""
         if df.empty or 'TURNO' not in df.columns:
             return None
         
-        # Verificar se as colunas de consumo existem
         colunas_consumo = []
         if 'OXI_TOTAL' in df.columns:
             colunas_consumo.append('OXI_TOTAL')
@@ -14428,10 +14872,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         if not colunas_consumo:
             return None
         
-        # Agrupar por turno
         df_turno = df.groupby('TURNO')[colunas_consumo].mean().reset_index()
         
-        # Renomear colunas para exibição
         rename_map = {
             'OXI_TOTAL': 'Oxigênio (m³)',
             'GAS_TOTAL': 'Gás (m³)',
@@ -14442,7 +14884,6 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
             if old in df_turno.columns:
                 df_turno = df_turno.rename(columns={old: new})
         
-        # Cores para cada tipo de consumo
         cores = ['#0078D4', '#E86C2C', '#6B46C1']
         colunas_exibir = [c for c in rename_map.values() if c in df_turno.columns]
         
@@ -14473,9 +14914,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         
         return fig
     
-    # ===== GRÁFICOS =====
-    
-    # Nível e Tiragem
+    # ===== EXIBIR GRÁFICOS =====
     col1, col2 = st.columns(2)
     
     with col1:
@@ -14498,14 +14937,13 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Tiragem insuficientes")
     
-    # Temperaturas das Boquetas - COM ESCALA AJUSTADA (1150-1350)
+    # Temperaturas das Boquetas
     st.markdown("#### 🌡️ Evolução das Temperaturas por Boqueta")
     
     boquetas_graf = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
     boquetas_graf_existentes = [b for b in boquetas_graf if b in df_filtrado.columns and df_filtrado[b].sum() > 0]
     
     if boquetas_graf_existentes:
-        # Criar dicionário de faixas para cada boqueta
         faixas_graf = {}
         for b in boquetas_graf_existentes:
             min_val, max_val = get_faixa_boqueta(b)
@@ -14592,7 +15030,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         else:
             st.info("📭 Dados de Gás não disponíveis")
     
-    # ===== GRÁFICO DE CONSUMO POR TURNO (EM COLUNAS) =====
+    # ===== GRÁFICO DE CONSUMO POR TURNO =====
     st.markdown("#### 📊 Consumo por Turno")
     
     fig_consumo_turno = criar_grafico_consumo_turno(df_filtrado)
@@ -14600,6 +15038,12 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         st.plotly_chart(fig_consumo_turno, use_container_width=True, key="grafico_consumo_turno")
     else:
         st.info("📭 Dados insuficientes para gráfico de consumo por turno")
+    
+    # ===== NOVO: ANÁLISE PREDITIVA E RECOMENDAÇÕES =====
+    if len(df_filtrado) >= 10:
+        renderizar_analise_preditiva(df_filtrado)
+    else:
+        st.info(f"📊 São necessários pelo menos 10 registros para análise preditiva. Atualmente: {len(df_filtrado)} registros.")
     
     # ===== FORMULÁRIO DE LANÇAMENTO =====
     renderizar_formulario_lancamento()
