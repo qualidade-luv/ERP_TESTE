@@ -13020,15 +13020,15 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     # ======================
     ALARMES_CONFIG = {
         'nivel_min': 75,              # cm
-        'nivel_max': 85,              # cm
+        'nivel_max': 83,              # cm
         'tiragem_meta': 350,          # kg/h
         'relacao_o2_gas_ideal': 2.0,  # O₂/Gás = dobro de oxigênio
         'relacao_o2_gas_min': 1.8,
         'relacao_o2_gas_max': 2.2,
         'consumo_gas_alerta': 500,    # m³
         'consumo_oxi_alerta': 400,    # m³
-        'osc_nivel_alerta': 10,       # cm
-        'diferenca_temp_max': 20,     # °C (diferença máxima entre boquetas)
+        'osc_nivel_alerta': 5,       # cm
+        'diferenca_temp_max': 30,     # °C (diferença máxima entre boquetas)
     }
     
     # ===== CONFIGURAÇÃO INDIVIDUAL DE CADA BOQUETA =====
@@ -13036,11 +13036,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         'BOQUETA_1': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-1', 'cor': '#0078D4'},
         'BOQUETA_2': {'min': 1270, 'max': 1280, 'display': 'BOQUETA-2', 'cor': '#E86C2C'},
         'BOQUETA_3': {'min': 1240, 'max': 1260, 'display': 'BOQUETA-3', 'cor': '#FFB900'},
-        'BOQUETA_4': {'min': 1220, 'max': 1240, 'display': 'BOQUETA-4', 'cor': '#107C10'},
-        'BOQUETA_5': {'min': 1250, 'max': 1270, 'display': 'BOQUETA-5', 'cor': '#6B46C1'},
+        'BOQUETA_4': {'min': 1100, 'max': 1240, 'display': 'BOQUETA-4', 'cor': '#107C10'},
+        'BOQUETA_5': {'min': 1100, 'max': 1240, 'display': 'BOQUETA-5', 'cor': '#6B46C1'},
     }
     
-    NOMES_BOQUETAS_DISPLAY = ['BOQUETA-1', 'BOQUETA-2', 'BOQUETA-3', 'BOQUETA-4', 'BOQUETA-5']
+    NOMES_BOQUETAS_DISPLAY = ['BOQUETA-1 - COMAL', 'BOQUETA-2 - PRENSA AUT.', 'BOQUETA-3 ODILON', 'BOQUETA-4 CABEÇA', 'BOQUETA-5']
     NOMES_BOQUETAS_DF = ['BOQUETA_1', 'BOQUETA_2', 'BOQUETA_3', 'BOQUETA_4', 'BOQUETA_5']
     CORES_BOQUETAS = ['#0078D4', '#E86C2C', '#FFB900', '#107C10', '#6B46C1']
     
