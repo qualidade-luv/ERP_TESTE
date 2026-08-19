@@ -4025,6 +4025,14 @@ elif aba_selecionada == 'TÊMPERA':
         if pd.isna(valor) or valor is None:
             return 0.0
         
+        # Se for string, tenta converter
+        if isinstance(valor, str):
+            valor_str = valor.strip().replace(',', '.')
+            try:
+                valor = float(valor_str)
+            except:
+                return 0.0
+        
         try:
             valor = float(valor)
         except:
@@ -4183,7 +4191,7 @@ elif aba_selecionada == 'TÊMPERA':
             if 'D_TEMPERA' in df.columns:
                 df['D_TEMPERA'] = df['D_TEMPERA'].apply(converter_data_br)
             
-            # ===== CONVERTER COLUNAS NUMÉRICAS =====
+            # ===== CONVERTER COLUNAS NUMÉRICAS (exceto TRS) =====
             colunas_numericas = [
                 'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
                 'AUD_TEMPERA'
@@ -4195,7 +4203,10 @@ elif aba_selecionada == 'TÊMPERA':
             
             # ===== CONVERTER TRS_TEMPERA COM A FUNÇÃO ESPECIAL =====
             if 'TRS_TEMPERA' in df.columns:
-                df['TRS_TEMPERA'] = df['TRS_TEMPERA'].apply(converter_trs)
+                # Pega os valores brutos da coluna
+                df['TRS_TEMPERA_RAW'] = df['TRS_TEMPERA']
+                # Aplica a conversão especial
+                df['TRS_TEMPERA'] = df['TRS_TEMPERA_RAW'].apply(converter_trs)
             else:
                 df['TRS_TEMPERA'] = 0.0
             
