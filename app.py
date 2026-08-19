@@ -4013,6 +4013,48 @@ elif aba_selecionada == 'TÊMPERA':
     ]
     
     # ======================
+    # FUNÇÃO CORRIGIDA PARA CONVERTER HORAS DECIMAIS PARA HH:MM
+    # ======================
+    def horas_para_str(horas):
+        """
+        Converte horas (em formato decimal ou minutos) para string HH:MM
+        - Se o valor for < 24, considera como horas decimais
+        - Se o valor for >= 24, considera como minutos (divide por 60)
+        - Se o valor for NaN ou None, retorna "00:00"
+        """
+        if pd.isna(horas) or horas is None:
+            return "00:00"
+        
+        try:
+            horas = float(horas)
+        except:
+            return "00:00"
+        
+        if horas <= 0:
+            return "00:00"
+        
+        # Se o valor for muito grande (> 1000), provavelmente está em minutos
+        # ou é um valor que precisa ser dividido
+        if horas > 1000:
+            # Verifica se parece ser minutos (valor > 1000 geralmente é minutos)
+            horas = horas / 60  # Converte minutos para horas
+        
+        # Se ainda for muito grande (> 100), pode ser segundos
+        if horas > 100:
+            horas = horas / 3600  # Converte segundos para horas
+        
+        # Agora temos horas decimais
+        horas_int = int(horas)
+        minutos = int((horas - horas_int) * 60)
+        
+        # Garantir que minutos não ultrapassem 59
+        if minutos >= 60:
+            horas_int += minutos // 60
+            minutos = minutos % 60
+        
+        return f"{horas_int:02d}:{minutos:02d}"
+    
+    # ======================
     # FUNÇÃO PARA CARREGAR DADOS DA TÊMPERA (DA PLANILHA TRS_INDUSTRIAL)
     # ======================
     @st.cache_data(ttl=1200)
@@ -4092,16 +4134,17 @@ elif aba_selecionada == 'TÊMPERA':
             if 'DATA' in df.columns:
                 df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
             
-            # ===== FUNÇÃO PARA CONVERTER HORAS DECIMAIS PARA HH:MM =====
-            def horas_decimais_para_str(horas):
-                if pd.isna(horas) or horas is None or horas == 0:
-                    return "00:00"
-                horas_int = int(horas)
-                minutos = int((horas - horas_int) * 60)
-                return f"{horas_int:02d}:{minutos:02d}"
+            # ===== CONVERTER HORAS PARA STRING USANDO A FUNÇÃO CORRIGIDA =====
+            df['MANU_TEMPERA_STR'] = df['MANU_TEMPERA'].apply(horas_para_str)
+            df['PARADA_TEMPERA_STR'] = df['PARADA_TEMPERA'].apply(horas_para_str)
             
-            df['MANU_TEMPERA_STR'] = df['MANU_TEMPERA'].apply(horas_decimais_para_str)
-            df['PARADA_TEMPERA_STR'] = df['PARADA_TEMPERA'].apply(horas_decimais_para_str)
+            # Também manter os valores numéricos para soma
+            df['MANU_TEMPERA_NUM'] = df['MANU_TEMPERA'].apply(
+                lambda x: float(x) if pd.notna(x) else 0
+            )
+            df['PARADA_TEMPERA_NUM'] = df['PARADA_TEMPERA'].apply(
+                lambda x: float(x) if pd.notna(x) else 0
+            )
             
             # ===== ORDENAR POR DATA =====
             if 'DATA' in df.columns:
@@ -4114,6 +4157,39 @@ elif aba_selecionada == 'TÊMPERA':
             import traceback
             traceback.print_exc()
             return pd.DataFrame()
+    
+    # ======================
+    # FUNÇÃO PARA SOMAR HORAS E CONVERTER PARA STRING
+    # ======================
+    def somar_horas_e_converter(series):
+        """
+        Soma os valores de horas e converte para string HH:MM
+        """
+        total = 0
+        for val in series:
+            if pd.notna(val):
+                try:
+                    total += float(val)
+                except:
+                    pass
+        
+        # Se o total for muito grande (> 1000), pode estar em minutos
+        if total > 1000:
+            total = total / 60
+        
+        # Se ainda for muito grande (> 100), pode estar em segundos
+        if total > 100:
+            total = total / 3600
+        
+        # Converter para HH:MM
+        horas_int = int(total)
+        minutos = int((total - horas_int) * 60)
+        
+        if minutos >= 60:
+            horas_int += minutos // 60
+            minutos = minutos % 60
+        
+        return f"{horas_int:02d}:{minutos:02d}"
     
     # ======================
     # CARREGAR DADOS
@@ -4198,19 +4274,10 @@ elif aba_selecionada == 'TÊMPERA':
     total_aprovado = int(df['AP_TEMPERA'].sum()) if 'AP_TEMPERA' in df.columns else 0
     total_meta = int(df['META_LIQUIDA'].sum()) if 'META_LIQUIDA' in df.columns else 0
     trs_medio = df['TRS_LIQUIDO'].mean() if 'TRS_LIQUIDO' in df.columns else 0
-    total_manut = df['MANU_TEMPERA'].sum() if 'MANU_TEMPERA' in df.columns else 0
-    total_parada = df['PARADA_TEMPERA'].sum() if 'PARADA_TEMPERA' in df.columns else 0
     
-    # Converter horas decimais para HH:MM
-    def horas_decimais_para_str_kpi(horas):
-        if pd.isna(horas) or horas is None or horas == 0:
-            return "00:00"
-        horas_int = int(horas)
-        minutos = int((horas - horas_int) * 60)
-        return f"{horas_int:02d}:{minutos:02d}"
-    
-    total_manut_str = horas_decimais_para_str_kpi(total_manut)
-    total_parada_str = horas_decimais_para_str_kpi(total_parada)
+    # ===== CALCULAR PARADAS USANDO A FUNÇÃO CORRIGIDA =====
+    total_manut_str = somar_horas_e_converter(df['MANU_TEMPERA_NUM'] if 'MANU_TEMPERA_NUM' in df.columns else df['MANU_TEMPERA'])
+    total_parada_str = somar_horas_e_converter(df['PARADA_TEMPERA_NUM'] if 'PARADA_TEMPERA_NUM' in df.columns else df['PARADA_TEMPERA'])
     
     # ===== PAGE HEADER =====
     render_page_header("TÊMPERA", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_purple'])
@@ -4300,11 +4367,11 @@ elif aba_selecionada == 'TÊMPERA':
     if 'TRS_LIQUIDO' in df_display.columns:
         df_display['TRS_LIQUIDO_STR'] = df_display['TRS_LIQUIDO'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "0%")
     
-    # Garantir colunas de tempo
+    # Garantir colunas de tempo com a formatação correta
     if 'MANU_TEMPERA_STR' not in df_display.columns:
-        df_display['MANU_TEMPERA_STR'] = df_display['MANU_TEMPERA'].apply(horas_decimais_para_str_kpi)
+        df_display['MANU_TEMPERA_STR'] = df_display['MANU_TEMPERA'].apply(horas_para_str)
     if 'PARADA_TEMPERA_STR' not in df_display.columns:
-        df_display['PARADA_TEMPERA_STR'] = df_display['PARADA_TEMPERA'].apply(horas_decimais_para_str_kpi)
+        df_display['PARADA_TEMPERA_STR'] = df_display['PARADA_TEMPERA'].apply(horas_para_str)
     
     # Colunas para exibição na tabela principal
     colunas_tabela = [
@@ -4313,15 +4380,6 @@ elif aba_selecionada == 'TÊMPERA':
         'META_LIQUIDA', 'TRS_LIQUIDO_STR',
         'MANU_TEMPERA_STR', 'PARADA_TEMPERA_STR'
     ]
-    
-    # Verificar quais colunas existem
-    colunas_existentes = []
-    for col in colunas_tabela:
-        if col in df_display.columns:
-            colunas_existentes.append(col)
-        elif col.replace('_STR', '') in df_display.columns:
-            # Tentar com nome original
-            pass
     
     # Mapear nomes de colunas para exibição
     nome_colunas = {
@@ -4343,17 +4401,11 @@ elif aba_selecionada == 'TÊMPERA':
     for col_orig, col_nome in nome_colunas.items():
         if col_orig in df_display.columns:
             df_exibicao[col_nome] = df_display[col_orig]
-        elif col_orig.replace('_STR', '') in df_display.columns:
-            # Usar coluna original e formatar
-            col_orig_sem_str = col_orig.replace('_STR', '')
-            if col_orig_sem_str in df_display.columns:
-                df_exibicao[col_nome] = df_display[col_orig_sem_str]
     
     # Aplicar estilo à tabela
     def estilo_tabela_tempera(row):
         styles = [''] * len(row)
         try:
-            # Verificar se há coluna TRS Líquido
             if 'TRS Líquido' in row.index:
                 trs_str = str(row['TRS Líquido']).replace('%', '').strip()
                 if trs_str and trs_str != '0%':
@@ -4373,7 +4425,6 @@ elif aba_selecionada == 'TÊMPERA':
         styled_df = df_exibicao.style.apply(estilo_tabela_tempera, axis=1)
         st.dataframe(styled_df, use_container_width=True, height=400, hide_index=True)
         
-        # Quantidade de registros exibidos
         qtd_mostrar = qtd if qtd > 0 else len(df_exibicao)
         st.caption(f"📊 Exibindo {min(qtd_mostrar, len(df_exibicao))} de {len(df_exibicao)} registros")
     else:
@@ -4384,24 +4435,19 @@ elif aba_selecionada == 'TÊMPERA':
     # ===== TABELA REGISTROS DE TÊMPERA (ORIGINAL) =====
     render_section_header("📋 Registros de Têmpera", "▸", THEME['accent_purple'])
     
-    # Usar os dados originais da tabela de têmpera
     if not df.empty:
         df_temp_display = df.sort_values(by="DATA", ascending=False).head(qtd if qtd > 0 else 100).copy()
         df_temp_display['DATA'] = pd.to_datetime(df_temp_display['DATA']).dt.strftime('%d/%m/%Y')
         
-        # Colunas originais da têmpera
         colunas_temp = ['DATA', 'TURNO', 'REFERÊNCIA', 'AP_TEMPERA', 'REFUGADO_TOTAL', 'TRS_LIQUIDO']
         colunas_temp = [c for c in colunas_temp if c in df_temp_display.columns]
         
-        # Adicionar colunas de defeitos se existirem
         for col in COLUNAS_DEFEITOS_TEMPERA:
             if col in df_temp_display.columns and df_temp_display[col].sum() > 0:
                 colunas_temp.append(col)
         
-        # Criar DataFrame para exibição
         df_exibicao_temp = df_temp_display[colunas_temp].copy()
         
-        # Renomear colunas
         rename_map_temp = {
             'DATA': 'Data',
             'TURNO': 'Turno',
@@ -4414,11 +4460,9 @@ elif aba_selecionada == 'TÊMPERA':
             if col_old in df_exibicao_temp.columns:
                 df_exibicao_temp = df_exibicao_temp.rename(columns={col_old: col_new})
         
-        # Formatar TRS
         if 'TRS Líquido (%)' in df_exibicao_temp.columns:
             df_exibicao_temp['TRS Líquido (%)'] = df_exibicao_temp['TRS Líquido (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "0%")
         
-        # Formatar números
         for col in ['Aprovadas', 'Refugado Total']:
             if col in df_exibicao_temp.columns:
                 df_exibicao_temp[col] = df_exibicao_temp[col].apply(lambda x: f"{int(x):,}".replace(",", ".") if pd.notna(x) else "0")
@@ -4463,7 +4507,6 @@ elif aba_selecionada == 'TÊMPERA':
     st.markdown("<hr>", unsafe_allow_html=True)
     render_section_header("📊 Distribuição de Defeitos da Têmpera", "▸", THEME['accent_purple'])
     
-    # Calcular soma dos defeitos
     defeitos_soma = {}
     for col in COLUNAS_DEFEITOS_TEMPERA:
         if col in df.columns and df[col].sum() > 0:
@@ -4513,7 +4556,6 @@ elif aba_selecionada == 'TÊMPERA':
         df_ref = df_ref.sort_values('TRS_LIQUIDO', ascending=False)
         
         if not df_ref.empty:
-            # Limitar a top 10 para visualização
             df_ref_top = df_ref.head(10)
             
             fig, ax = plt.subplots(figsize=(10, 4), facecolor=THEME['bg_card'])
@@ -4536,7 +4578,6 @@ elif aba_selecionada == 'TÊMPERA':
             st.pyplot(fig)
             plt.close(fig)
             
-            # Tabela de referências
             with st.expander("📋 Ver tabela completa por referência", expanded=False):
                 df_ref_display = df_ref.copy()
                 for col in ['TOTAL_PECAS', 'AP_TEMPERA', 'REFUGADO_TOTAL', 'META_LIQUIDA']:
