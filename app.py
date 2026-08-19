@@ -3992,7 +3992,7 @@ elif aba_selecionada == 'SOPRO':
 
 
 # ==================================================================================================
-# TÊMPERA - VERSÃO COMPLETA COM CORREÇÃO DO MAPEAMENTO DE COLUNAS
+# TÊMPERA - VERSÃO COM DUAS PLANILHAS (TRS_TEMPERA + TRS_INDUSTRIAL)
 # ==================================================================================================
 elif aba_selecionada == 'TÊMPERA':
     render_page_header(
@@ -4002,13 +4002,18 @@ elif aba_selecionada == 'TÊMPERA':
     )
 
     # ======================
-    # CONFIGURAÇÕES DA PLANILHA
+    # CONFIGURAÇÕES DAS PLANILHAS
     # ======================
-    ID_PLANILHA_TEMPERA = '1GJegUHosaQLEJVMCH6QVuKjSjuaxrWkgzNEr9vM5Yio'
-    ABA_TEMPERA = 'TRS_TEMPERA'
+    # Planilha 1: TRS_TEMPERA (detalhes de defeitos)
+    ID_PLANILHA_TEMPERA_DETALHES = '1GJegUHosaQLEJVMCH6QVuKjSjuaxrWkgzNEr9vM5Yio'
+    ABA_TEMPERA_DETALHES = 'TRS_TEMPERA'
+    
+    # Planilha 2: TRS_INDUSTRIAL (dados de têmpera)
+    ID_PLANILHA_TEMPERA_INDUSTRIAL = '1Hjy4UGtgwIPJgqmcv46LyXNWOrYk_oeJWWV5vlfKF2k'
+    ABA_TEMPERA_INDUSTRIAL = 'TRS_INDUSTRIAL'
 
     # ======================
-    # COLUNAS DE DEFEITOS DA TÊMPERA - NOMES EXATOS DA PLANILHA
+    # COLUNAS DE DEFEITOS DA TÊMPERA (da planilha TRS_TEMPERA)
     # ======================
     COLUNAS_DEFEITOS_TEMPERA = [
         'EMPENADA / OVALIZADA T',
@@ -4033,163 +4038,26 @@ elif aba_selecionada == 'TÊMPERA':
         return f"{horas_int:02d}:{minutos:02d}"
 
     # ======================
-    # FUNÇÃO DE CARREGAMENTO DE DADOS - CORRIGIDA
+    # FUNÇÃO DE CARREGAMENTO DA PLANILHA TRS_TEMPERA (detalhes)
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=1200)
-    def carregar_dados_tempera_novo():
+    def carregar_dados_tempera_detalhes():
         """
-        Carrega os dados da planilha TRS_TEMPERA com as colunas específicas
-        """
-        try:
-            client = get_gspread_client()
-            if client is None:
-                st.error("❌ Erro ao conectar ao Google Sheets")
-                return pd.DataFrame()
-
-            spreadsheet = client.open_by_key(ID_PLANILHA_TEMPERA)
-            
-            try:
-                sheet = spreadsheet.worksheet(ABA_TEMPERA)
-            except Exception as e:
-                st.error(f"❌ Aba '{ABA_TEMPERA}' não encontrada. Erro: {e}")
-                return pd.DataFrame()
-
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                st.info("📭 Nenhum dado encontrado na planilha.")
-                return pd.DataFrame()
-
-            cabecalho = todos_dados[0]
-            valores = todos_dados[1:]
-            
-            # Criar DataFrame com os dados brutos
-            df = pd.DataFrame(valores, columns=cabecalho)
-            
-            # Limpar nomes das colunas (remover espaços extras)
-            df.columns = df.columns.str.strip()
-            
-            # Debug: mostrar colunas encontradas
-            print("Colunas encontradas:", list(df.columns))
-            
-            # Mapear colunas - USANDO OS NOMES EXATOS DA PLANILHA
-            # As colunas já estão com os nomes corretos, só precisamos garantir que existem
-            
-            # Verificar se temos as colunas mínimas
-            colunas_necessarias = ['FIFO', 'DATA', 'AP_TEMPERA']
-            colunas_faltando = [c for c in colunas_necessarias if c not in df.columns]
-            
-            if colunas_faltando:
-                st.warning(f"⚠️ Colunas não encontradas: {', '.join(colunas_faltando)}")
-                # Tentar encontrar colunas com nomes semelhantes
-                for col in df.columns:
-                    col_clean = col.strip().upper()
-                    if 'FIFO' in col_clean:
-                        df = df.rename(columns={col: 'FIFO'})
-                    elif col_clean == 'DATA' or 'DATA' in col_clean:
-                        df = df.rename(columns={col: 'DATA'})
-                    elif 'AP_TEMPERA' in col_clean or 'AP_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'AP_TEMPERA'})
-                    elif 'D_TEMPERA' in col_clean or 'D_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'D_TEMPERA'})
-                    elif 'META_TEMPERA' in col_clean or 'META_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'META_TEMPERA'})
-                    elif 'TRS_TEMPERA' in col_clean or 'TRS_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'TRS_TEMPERA'})
-                    elif 'MANU_TEMPERA' in col_clean or 'MANU_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'MANU_TEMPERA'})
-                    elif 'PARADA_TEMPERA' in col_clean or 'PARADA_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'PARADA_TEMPERA'})
-                    elif 'HORAS_TEMPERA' in col_clean or 'HORAS_TEMP' in col_clean:
-                        df = df.rename(columns={col: 'HORAS_TEMPERA'})
-                    elif 'TURNO' in col_clean:
-                        df = df.rename(columns={col: 'TURNO'})
-            
-            # Verificar novamente após tentativa de correção
-            colunas_necessarias = ['DATA', 'AP_TEMPERA']
-            colunas_faltando = [c for c in colunas_necessarias if c not in df.columns]
-            
-            if colunas_faltando:
-                st.error(f"❌ Colunas obrigatórias não encontradas: {', '.join(colunas_faltando)}")
-                st.write("Colunas disponíveis:", list(df.columns))
-                return pd.DataFrame()
-            
-            # ===== CONVERTER DATAS =====
-            if 'DATA' in df.columns:
-                df['DATA'] = df['DATA'].apply(converter_data_br)
-                df = df.dropna(subset=['DATA'])
-            
-            if 'D_TEMPERA' in df.columns:
-                df['D_TEMPERA'] = df['D_TEMPERA'].apply(converter_data_br)
-            
-            # ===== CONVERTER COLUNAS NUMÉRICAS =====
-            colunas_numericas = [
-                'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
-                'TRS_TEMPERA', 'AUD_TEMPERA', 'MANU_TEMPERA', 'PARADA_TEMPERA'
-            ] + COLUNAS_DEFEITOS_TEMPERA
-            
-            for col in colunas_numericas:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-            # ===== CALCULAR REFUGADO =====
-            # Somar todos os defeitos das colunas específicas
-            colunas_defeitos_existentes = [col for col in COLUNAS_DEFEITOS_TEMPERA if col in df.columns]
-            
-            if colunas_defeitos_existentes:
-                df['REFUGADO'] = df[colunas_defeitos_existentes].sum(axis=1)
-            else:
-                df['REFUGADO'] = 0
-                st.warning("⚠️ Nenhuma coluna de defeitos encontrada. REFUGADO será 0.")
-            
-            # ===== CALCULAR TOTAL DE PEÇAS =====
-            df['TOTAL_PECAS'] = df['AP_TEMPERA'] + df['REFUGADO']
-            
-            # ===== GARANTIR META LÍQUIDA =====
-            if 'META_TEMPERA' not in df.columns:
-                df['META_TEMPERA'] = df['TOTAL_PECAS']
-            
-            # ===== GARANTIR TRS =====
-            if 'TRS_TEMPERA' not in df.columns:
-                # Calcular TRS se não existir
-                df['TRS_TEMPERA'] = (df['AP_TEMPERA'] / df['META_TEMPERA'] * 100).fillna(0)
-            
-            # ===== REMOVER LINHAS SEM DADOS =====
-            df = df[df['AP_TEMPERA'] > 0]
-            
-            # ===== ORDENAR POR DATA =====
-            if 'DATA' in df.columns:
-                df = df.sort_values('DATA', ascending=False)
-            
-            return df
-
-        except Exception as e:
-            st.error(f"❌ Erro ao carregar dados: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return pd.DataFrame()
-
-    # ======================
-    # FUNÇÃO DE CARREGAMENTO ORIGINAL (PARA A TABELA REGISTROS DE TÊMPERA)
-    # ======================
-    @retry_on_quota()
-    @st.cache_data(ttl=1200)
-    def carregar_dados_tempera_original():
-        """
-        Carrega os dados da planilha TRS_TEMPERA - VERSÃO ORIGINAL
+        Carrega os dados da planilha TRS_TEMPERA com defeitos detalhados
         """
         try:
             client = get_gspread_client()
             if client is None:
                 return pd.DataFrame()
-            
-            sheet = client.open_by_key(ID_PLANILHA_TEMPERA).worksheet(ABA_TEMPERA)
+
+            spreadsheet = client.open_by_key(ID_PLANILHA_TEMPERA_DETALHES)
+            sheet = spreadsheet.worksheet(ABA_TEMPERA_DETALHES)
             todos_dados = sheet.get_all_values()
             
             if len(todos_dados) < 2:
                 return pd.DataFrame()
-            
+
             cabecalho = todos_dados[0]
             valores = todos_dados[1:]
             df = pd.DataFrame(valores, columns=cabecalho)
@@ -4197,14 +4065,173 @@ elif aba_selecionada == 'TÊMPERA':
             
             return df
         except Exception as e:
-            st.error(f"❌ Erro ao carregar registros originais: {str(e)}")
+            st.warning(f"⚠️ Erro ao carregar TRS_TEMPERA: {str(e)}")
             return pd.DataFrame()
 
     # ======================
-    # CARREGAR DADOS - NOVA VERSÃO
+    # FUNÇÃO DE CARREGAMENTO DA PLANILHA TRS_INDUSTRIAL (dados de têmpera)
+    # ======================
+    @retry_on_quota()
+    @st.cache_data(ttl=1200)
+    def carregar_dados_tempera_industrial():
+        """
+        Carrega os dados da planilha TRS_INDUSTRIAL com colunas de têmpera
+        """
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return pd.DataFrame()
+
+            spreadsheet = client.open_by_key(ID_PLANILHA_TEMPERA_INDUSTRIAL)
+            sheet = spreadsheet.worksheet(ABA_TEMPERA_INDUSTRIAL)
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return pd.DataFrame()
+
+            cabecalho = todos_dados[0]
+            valores = todos_dados[1:]
+            df = pd.DataFrame(valores, columns=cabecalho)
+            df.columns = df.columns.str.strip()
+            
+            return df
+        except Exception as e:
+            st.warning(f"⚠️ Erro ao carregar TRS_INDUSTRIAL: {str(e)}")
+            return pd.DataFrame()
+
+    # ======================
+    # FUNÇÃO PARA COMBINAR AS DUAS PLANILHAS
+    # ======================
+    def combinar_dados_tempera(df_industrial: pd.DataFrame, df_detalhes: pd.DataFrame) -> pd.DataFrame:
+        """
+        Combina os dados da TRS_INDUSTRIAL (dados de têmpera) com os detalhes da TRS_TEMPERA
+        """
+        if df_industrial.empty:
+            return pd.DataFrame()
+        
+        # Fazer uma cópia para não alterar o original
+        df_combinado = df_industrial.copy()
+        
+        # ===== MAPEAR COLUNAS DA TRS_INDUSTRIAL =====
+        # Procurar colunas de têmpera na TRS_INDUSTRIAL
+        colunas_tempera = ['FIFO', 'DATA', 'TURNO', 'D_TEMPERA', 'AP_TEMPERA', 
+                          'HORAS_TEMPERA', 'META_TEMPERA', 'TRS_TEMPERA', 
+                          'AUD_TEMPERA', 'MANU_TEMPERA', 'PARADA_TEMPERA']
+        
+        # Verificar quais colunas existem
+        colunas_existentes = [col for col in colunas_tempera if col in df_combinado.columns]
+        
+        if not colunas_existentes:
+            st.error("❌ Nenhuma coluna de têmpera encontrada na TRS_INDUSTRIAL")
+            st.write("Colunas disponíveis:", list(df_combinado.columns))
+            return pd.DataFrame()
+        
+        # ===== BUSCAR DADOS DE DEFEITOS DA TRS_TEMPERA =====
+        if not df_detalhes.empty:
+            # Tentar encontrar uma coluna de identificação comum (FIFO ou DATA)
+            # Usar FIFO se disponível em ambas
+            if 'FIFO' in df_combinado.columns and 'FIFO' in df_detalhes.columns:
+                # Converter FIFO para string para match
+                df_combinado['FIFO_STR'] = df_combinado['FIFO'].astype(str)
+                df_detalhes['FIFO_STR'] = df_detalhes['FIFO'].astype(str)
+                
+                # Fazer merge pelo FIFO
+                df_merged = df_combinado.merge(
+                    df_detalhes[['FIFO_STR'] + COLUNAS_DEFEITOS_TEMPERA],
+                    on='FIFO_STR',
+                    how='left'
+                )
+                
+                # Remover coluna auxiliar
+                df_merged = df_merged.drop(columns=['FIFO_STR'])
+                if 'FIFO_STR_y' in df_merged.columns:
+                    df_merged = df_merged.drop(columns=['FIFO_STR_y'])
+                
+                df_combinado = df_merged
+                
+            elif 'DATA' in df_combinado.columns and 'DATA' in df_detalhes.columns:
+                # Fallback: usar DATA se FIFO não estiver disponível
+                df_combinado['DATA_STR'] = df_combinado['DATA'].astype(str)
+                df_detalhes['DATA_STR'] = df_detalhes['DATA'].astype(str)
+                
+                df_merged = df_combinado.merge(
+                    df_detalhes[['DATA_STR'] + COLUNAS_DEFEITOS_TEMPERA],
+                    on='DATA_STR',
+                    how='left'
+                )
+                
+                df_merged = df_merged.drop(columns=['DATA_STR'])
+                if 'DATA_STR_y' in df_merged.columns:
+                    df_merged = df_merged.drop(columns=['DATA_STR_y'])
+                
+                df_combinado = df_merged
+        
+        # ===== CONVERTER DATAS =====
+        if 'DATA' in df_combinado.columns:
+            df_combinado['DATA'] = df_combinado['DATA'].apply(converter_data_br)
+            df_combinado = df_combinado.dropna(subset=['DATA'])
+        
+        if 'D_TEMPERA' in df_combinado.columns:
+            df_combinado['D_TEMPERA'] = df_combinado['D_TEMPERA'].apply(converter_data_br)
+        
+        # ===== CONVERTER COLUNAS NUMÉRICAS =====
+        colunas_numericas = [
+            'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
+            'TRS_TEMPERA', 'AUD_TEMPERA', 'MANU_TEMPERA', 'PARADA_TEMPERA'
+        ] + COLUNAS_DEFEITOS_TEMPERA
+        
+        for col in colunas_numericas:
+            if col in df_combinado.columns:
+                df_combinado[col] = pd.to_numeric(df_combinado[col], errors='coerce').fillna(0)
+        
+        # ===== CALCULAR REFUGADO =====
+        # Somar todos os defeitos das colunas específicas
+        colunas_defeitos_existentes = [col for col in COLUNAS_DEFEITOS_TEMPERA if col in df_combinado.columns]
+        
+        if colunas_defeitos_existentes:
+            df_combinado['REFUGADO'] = df_combinado[colunas_defeitos_existentes].sum(axis=1)
+        else:
+            df_combinado['REFUGADO'] = 0
+        
+        # ===== CALCULAR TOTAL DE PEÇAS =====
+        if 'AP_TEMPERA' in df_combinado.columns:
+            df_combinado['TOTAL_PECAS'] = df_combinado['AP_TEMPERA'] + df_combinado['REFUGADO']
+        else:
+            df_combinado['TOTAL_PECAS'] = df_combinado['REFUGADO']
+        
+        # ===== GARANTIR META LÍQUIDA =====
+        if 'META_TEMPERA' not in df_combinado.columns:
+            df_combinado['META_TEMPERA'] = df_combinado['TOTAL_PECAS']
+        
+        # ===== GARANTIR TRS =====
+        if 'TRS_TEMPERA' not in df_combinado.columns:
+            # Calcular TRS se não existir
+            df_combinado['TRS_TEMPERA'] = (df_combinado['AP_TEMPERA'] / df_combinado['META_TEMPERA'] * 100).fillna(0)
+        
+        # ===== REMOVER LINHAS SEM DADOS =====
+        if 'AP_TEMPERA' in df_combinado.columns:
+            df_combinado = df_combinado[df_combinado['AP_TEMPERA'] > 0]
+        else:
+            # Se não tiver AP_TEMPERA, filtrar por TOTAL_PECAS
+            df_combinado = df_combinado[df_combinado['TOTAL_PECAS'] > 0]
+        
+        # ===== ORDENAR POR DATA =====
+        if 'DATA' in df_combinado.columns:
+            df_combinado = df_combinado.sort_values('DATA', ascending=False)
+        
+        return df_combinado
+
+    # ======================
+    # CARREGAR DADOS DAS DUAS PLANILHAS
     # ======================
     with st.spinner("🔄 Carregando dados da Têmpera..."):
-        df = carregar_dados_tempera_novo()
+        # Carregar da TRS_INDUSTRIAL (dados de têmpera)
+        df_industrial = carregar_dados_tempera_industrial()
+        # Carregar da TRS_TEMPERA (detalhes de defeitos)
+        df_detalhes = carregar_dados_tempera_detalhes()
+        
+        # Combinar os dados
+        df = combinar_dados_tempera(df_industrial, df_detalhes)
 
     if df.empty:
         st.warning("⚠️ Não foi possível carregar os dados da Têmpera.")
@@ -4241,6 +4268,9 @@ elif aba_selecionada == 'TÊMPERA':
         qtd = st.number_input("Linhas na tabela", min_value=0, max_value=5000, value=20, step=10, key="tempera_qtd")
         
         st.markdown("---")
+        st.caption("📊 Dados combinados de:")
+        st.caption("- TRS_INDUSTRIAL (dados de têmpera)")
+        st.caption("- TRS_TEMPERA (defeitos detalhados)")
         
         if st.button("🔄 Recarregar Dados", key="btn_recarregar_tempera", use_container_width=True):
             st.cache_data.clear()
@@ -4269,7 +4299,7 @@ elif aba_selecionada == 'TÊMPERA':
     # ======================
     total_pecas = int(df_filtrado['TOTAL_PECAS'].sum())
     total_refugado = int(df_filtrado['REFUGADO'].sum())
-    total_aprovado = int(df_filtrado['AP_TEMPERA'].sum())
+    total_aprovado = int(df_filtrado['AP_TEMPERA'].sum()) if 'AP_TEMPERA' in df_filtrado.columns else 0
     total_meta = int(df_filtrado['META_TEMPERA'].sum()) if 'META_TEMPERA' in df_filtrado.columns else total_pecas
     
     # TRS Líquido = (APROVADO / META) * 100
@@ -4426,6 +4456,7 @@ elif aba_selecionada == 'TÊMPERA':
         st.dataframe(styled_df, use_container_width=True, height=400)
         
         st.caption(f"📊 Total: {len(df_filtrado)} registros | Período: {data_ini.strftime('%d/%m/%Y') if data_ini else 'Início'} a {data_fim.strftime('%d/%m/%Y') if data_fim else 'Hoje'}")
+        st.caption("📌 Dados combinados de TRS_INDUSTRIAL (têmpera) + TRS_TEMPERA (defeitos)")
 
     else:
         st.info("📭 Nenhum dado encontrado.")
@@ -4433,34 +4464,29 @@ elif aba_selecionada == 'TÊMPERA':
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # ======================
-    # TABELA ORIGINAL - REGISTROS DE TÊMPERA
+    # TABELA ORIGINAL - REGISTROS DE TÊMPERA (da TRS_TEMPERA)
     # ======================
-    render_section_header("📋 Registros de Têmpera", "▸", THEME['accent_purple'])
+    render_section_header("📋 Registros de Têmpera (Detalhes)", "▸", THEME['accent_purple'])
 
-    with st.spinner("Carregando registros originais..."):
-        df_original = carregar_dados_tempera_original()
+    with st.spinner("Carregando registros detalhados da TRS_TEMPERA..."):
+        df_detalhes_filtrado = df_detalhes.copy()
 
-    if not df_original.empty:
-        # Aplicar os mesmos filtros de data e turno
-        df_original_filtrado = df_original.copy()
+    if not df_detalhes_filtrado.empty:
+        # Aplicar filtros de data
+        if data_ini and 'DATA' in df_detalhes_filtrado.columns:
+            df_detalhes_filtrado['DATA'] = df_detalhes_filtrado['DATA'].apply(converter_data_br)
+            df_detalhes_filtrado = df_detalhes_filtrado.dropna(subset=['DATA'])
+            df_detalhes_filtrado = df_detalhes_filtrado[df_detalhes_filtrado['DATA'] >= pd.to_datetime(data_ini)]
         
-        if data_ini and 'DATA' in df_original_filtrado.columns:
-            df_original_filtrado['DATA'] = df_original_filtrado['DATA'].apply(converter_data_br)
-            df_original_filtrado = df_original_filtrado.dropna(subset=['DATA'])
-            df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] >= pd.to_datetime(data_ini)]
-        
-        if data_fim and 'DATA' in df_original_filtrado.columns:
-            df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] <= pd.to_datetime(data_fim)]
-        
-        if turno != "(Todos)" and 'TURNO' in df_original_filtrado.columns:
-            df_original_filtrado = df_original_filtrado[df_original_filtrado['TURNO'].astype(str).str.upper() == turno.upper()]
+        if data_fim and 'DATA' in df_detalhes_filtrado.columns:
+            df_detalhes_filtrado = df_detalhes_filtrado[df_detalhes_filtrado['DATA'] <= pd.to_datetime(data_fim)]
         
         # Exibir a tabela original com as primeiras linhas
         qtd_exibir = qtd if qtd > 0 else 20
-        st.dataframe(df_original_filtrado.head(qtd_exibir), use_container_width=True, height=400)
-        st.caption(f"📊 Exibindo {min(qtd_exibir, len(df_original_filtrado))} de {len(df_original_filtrado)} registros")
+        st.dataframe(df_detalhes_filtrado.head(qtd_exibir), use_container_width=True, height=400)
+        st.caption(f"📊 Exibindo {min(qtd_exibir, len(df_detalhes_filtrado))} de {len(df_detalhes_filtrado)} registros da TRS_TEMPERA")
     else:
-        st.info("📭 Nenhum registro encontrado na planilha original.")
+        st.info("📭 Nenhum registro encontrado na planilha TRS_TEMPERA.")
 
     # ======================
     # SEÇÃO DE ESTATÍSTICAS ADICIONAIS (MANTIDA DO ORIGINAL)
@@ -4615,7 +4641,7 @@ elif aba_selecionada == 'TÊMPERA':
             
             if len(df_fifo) > 0:
                 total_registros = len(df_fifo)
-                total_aprovado = int(df_fifo['AP_TEMPERA'].sum())
+                total_aprovado = int(df_fifo['AP_TEMPERA'].sum()) if 'AP_TEMPERA' in df_fifo.columns else 0
                 total_defeitos = int(df_fifo['REFUGADO'].sum())
                 total_pecas = int(df_fifo['TOTAL_PECAS'].sum())
                 trs_medio = df_fifo['TRS_TEMPERA'].mean() if 'TRS_TEMPERA' in df_fifo.columns else 0
@@ -4663,7 +4689,7 @@ elif aba_selecionada == 'TÊMPERA':
                 
                 if len(df_t) > 0:
                     total_registros = len(df_t)
-                    total_aprovado = int(df_t['AP_TEMPERA'].sum())
+                    total_aprovado = int(df_t['AP_TEMPERA'].sum()) if 'AP_TEMPERA' in df_t.columns else 0
                     total_defeitos = int(df_t['REFUGADO'].sum())
                     total_pecas = int(df_t['TOTAL_PECAS'].sum())
                     trs_medio = df_t['TRS_TEMPERA'].mean() if 'TRS_TEMPERA' in df_t.columns else 0
