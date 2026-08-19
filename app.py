@@ -3992,409 +3992,487 @@ elif aba_selecionada == 'SOPRO':
 
 
 # ==================================================================================================
-# TÊMPERA (COM MAPEAMENTO CORRETO DAS COLUNAS)
+# TÊMPERA - VERSÃO COMPLETA COM NOVOS CARDS E TABELA
 # ==================================================================================================
 elif aba_selecionada == 'TÊMPERA':
-    ABA = 'TRS_TEMPERA'
-
-    # Mapeamento dos códigos de defeito
-    MAPEAMENTO_DEFEITOS = {
-        1: 'Estourou após furar',
-        2: 'Quebra no resfriamento',
-        3: 'Quebra teste impacto',
-        4: 'Furada e não fraturou',
-        5: 'Quebra de quarentena',
-        6: 'Ovalizada'
-    }
-    
-    CODIGOS_DEFEITO_REAIS = [2, 3, 4, 5, 6]
+    render_page_header(
+        "TÊMPERA",
+        f"Industrial · Atualizado {get_horario_brasilia()}",
+        THEME['accent_purple']
+    )
 
     # ======================
-    # ARQUIVO DE CACHE LOCAL
+    # CONFIGURAÇÕES DA PLANILHA
     # ======================
-    CACHE_FILE_TEMPERA = "cache_tempera.pkl"
-    
-    def safe_float(val):
-        """Converte valor para float de forma segura"""
-        if val is None or pd.isna(val):
-            return 0.0
-        try:
-            val_str = str(val).strip()
-            if val_str == '' or val_str == 'nan':
-                return 0.0
-            val_str = val_str.replace(',', '.')
-            return float(val_str)
-        except:
-            return 0.0
-
-    def salvar_cache_tempera(df):
-        """Salva o DataFrame em cache local"""
-        try:
-            df.to_pickle(CACHE_FILE_TEMPERA)
-            return True
-        except Exception as e:
-            print(f"Erro ao salvar cache: {e}")
-            return False
-    
-    def carregar_cache_tempera():
-        """Carrega o DataFrame do cache local"""
-        try:
-            if os.path.exists(CACHE_FILE_TEMPERA):
-                df = pd.read_pickle(CACHE_FILE_TEMPERA)
-                if not df.empty:
-                    return df
-            return None
-        except Exception as e:
-            print(f"Erro ao carregar cache: {e}")
-            return None
+    ID_PLANILHA_TEMPERA = '1GJegUHosaQLEJVMCH6QVuKjSjuaxrWkgzNEr9vM5Yio'
+    ABA_TEMPERA = 'TRS_TEMPERA'
 
     # ======================
-    # FUNÇÃO DE PROCESSAMENTO DOS DADOS - CORRIGIDA
+    # COLUNAS DE DEFEITOS DA TÊMPERA
     # ======================
-    def processar_dados_tempera(todos_dados):
-        """Processa os dados brutos da planilha e retorna DataFrame processado"""
-        if len(todos_dados) < 2:
-            return pd.DataFrame()
-        
-        cabecalho = todos_dados[0]
-        valores = todos_dados[1:]
-        df = pd.DataFrame(valores, columns=cabecalho)
-        
-        # ===== CORREÇÃO: Mapeamento baseado nos nomes REAIS das colunas =====
-        # Baseado no diagnóstico: os nomes reais são 'DATA TEMP.', 'TURNO TEMP.', 'PROD.'
-        
-        # Mapeamento de nomes de colunas
-        rename_map = {}
-        
-        for col in df.columns:
-            col_clean = str(col).strip().upper()
-            
-            if 'DATA TEMP' in col_clean or col_clean == 'DATA':
-                rename_map[col] = 'DATA_TEMP'
-            elif 'TURNO TEMP' in col_clean or col_clean == 'TURNO':
-                rename_map[col] = 'TURNO_TEMP'
-            elif col_clean == 'PROD.' or col_clean == 'PRODUTO' or col_clean == 'PROD':
-                rename_map[col] = 'PRODUTO'
-            elif col_clean == 'GANCHEIRA':
-                rename_map[col] = 'GANCHEIRA'
-            elif col_clean == 'SUPEIOR' or col_clean == 'SUPERIOR':
-                rename_map[col] = 'SUPERIOR'
-            elif col_clean == 'MEIO':
-                rename_map[col] = 'MEIO'
-            elif col_clean == 'INFERIOR':
-                rename_map[col] = 'INFERIOR'
-            elif col_clean == 'A1':
-                rename_map[col] = 'A1'
-            elif col_clean == 'C1':
-                rename_map[col] = 'C1'
-            elif col_clean == 'A2':
-                rename_map[col] = 'A2'
-            elif col_clean == 'C2':
-                rename_map[col] = 'C2'
-            elif col_clean == 'A3':
-                rename_map[col] = 'A3'
-            elif col_clean == 'C3':
-                rename_map[col] = 'C3'
-            elif col_clean == 'A4':
-                rename_map[col] = 'A4'
-            elif col_clean == 'C4':
-                rename_map[col] = 'C4'
-            elif col_clean == 'A5':
-                rename_map[col] = 'A5'
-            elif col_clean == 'C5':
-                rename_map[col] = 'C5'
-            elif col_clean == 'A E B':
-                rename_map[col] = 'A e B'
-            elif col_clean == 'APROVADAS':
-                rename_map[col] = 'APROVADAS'
-        
-        # Aplicar renomeação
-        df = df.rename(columns=rename_map)
-        
-        # Converter datas
-        if 'DATA_TEMP' in df.columns:
-            df['DATA'] = df['DATA_TEMP'].apply(converter_data_br)
-        
-        if 'DATA' in df.columns:
-            df = df.dropna(subset=['DATA'])
-        
-        # Converter colunas numéricas
-        colunas_numericas = ['SUPERIOR', 'MEIO', 'INFERIOR', 'A1', 'C1', 'A2', 'C2', 'A3', 'C3', 'A4', 'C4', 'A5', 'C5', 'A e B', 'APROVADAS']
-        
-        for col in colunas_numericas:
-            if col in df.columns:
-                df[col] = df[col].apply(safe_float)
-        
-        # CORREÇÃO: Tempo C2 - converter para segundos
-        if 'C2' in df.columns:
-            def converter_tempo_c2(val):
-                if pd.isna(val) or val == 0:
-                    return 0
-                if val <= 1:
-                    return val * 100
-                elif val <= 10:
-                    return val * 10
-                else:
-                    return val
-            df['C2'] = df['C2'].apply(converter_tempo_c2)
-        
-        # Identificar colunas de posições (colunas com números)
-        colunas_posicoes_validas = []
-        for col in df.columns:
-            try:
-                # Tenta converter para número
-                num = float(str(col).strip())
-                if 19 <= num <= 70:
-                    colunas_posicoes_validas.append(col)
-            except:
-                pass
-        
-        # Se não encontrou colunas de posição, tentar identificar colunas com números
-        if not colunas_posicoes_validas:
-            for col in df.columns:
-                try:
-                    num = float(str(col).strip())
-                    if 1 <= num <= 100:
-                        colunas_posicoes_validas.append(col)
-                except:
-                    pass
-        
-        # Inicializar colunas
-        df['TOTAL_PECAS'] = 40
-        df['APROVADO'] = 40
-        df['TOTAL_DEFEITOS'] = 0
-        df['IS_CRITICO'] = False
-        
-        for codigo, nome in MAPEAMENTO_DEFEITOS.items():
-            nome_clean = nome.upper().replace(' ', '_').replace('Ç', 'C').replace('Ã', 'A').replace('Á', 'A').replace('Ó', 'O')
-            df[f'QTD_{nome_clean}'] = 0
-        
-        # Processar cada linha para contar defeitos
-        for idx, row in df.iterrows():
-            defeitos_contagem = {codigo: 0 for codigo in MAPEAMENTO_DEFEITOS.keys()}
-            
-            for col in colunas_posicoes_validas:
-                try:
-                    val = row[col]
-                    if pd.notna(val) and str(val).strip():
-                        # Converter para número
-                        val_str = str(val).strip().replace(',', '.')
-                        codigo = int(float(val_str))
-                        if codigo in MAPEAMENTO_DEFEITOS:
-                            defeitos_contagem[codigo] += 1
-                except:
-                    pass
-            
-            total_defeitos_reais = sum(defeitos_contagem.get(cod, 0) for cod in CODIGOS_DEFEITO_REAIS)
-            aprovadas = 40 - total_defeitos_reais
-            
-            df.at[idx, 'APROVADO'] = aprovadas
-            df.at[idx, 'TOTAL_DEFEITOS'] = total_defeitos_reais
-            df.at[idx, 'TRS (%)'] = (aprovadas / 40 * 100) if 40 > 0 else 0
-            
-            is_critico = False
-            if defeitos_contagem.get(4, 0) >= 1:
-                is_critico = True
-            if defeitos_contagem.get(3, 0) > 2:
-                is_critico = True
-            df.at[idx, 'IS_CRITICO'] = is_critico
-            
-            for codigo, nome in MAPEAMENTO_DEFEITOS.items():
-                nome_clean = nome.upper().replace(' ', '_').replace('Ç', 'C').replace('Ã', 'A').replace('Á', 'A').replace('Ó', 'O')
-                col_nome = f'QTD_{nome_clean}'
-                if col_nome in df.columns:
-                    df.at[idx, col_nome] = defeitos_contagem.get(codigo, 0)
-        
-        return df
+    COLUNAS_DEFEITOS_TEMPERA = [
+        'EMPENADA / OVALIZADA T',
+        'QUEBRA RESFRIAMENTO T',
+        'EMPENADA T',
+        'QUEBRA T',
+        'IMPACTO T',
+        'QUARENTENA T',
+        'TESTE FURAÇÃO T',
+        'PROCESSOS ANTERIORES T'
+    ]
 
     # ======================
-    # FUNÇÃO DE CARREGAMENTO COM VALIDAÇÃO
+    # FUNÇÃO PARA CONVERTER HORAS DECIMAIS PARA STRING HH:MM
     # ======================
-    @retry_on_quota(max_retries=3, delay=5)
-    def carregar_dados_tempera():
+    def horas_para_str(horas):
+        """Converte horas decimais para string HH:MM"""
+        if pd.isna(horas) or horas is None or horas == 0:
+            return "00:00"
+        horas_int = int(horas)
+        minutos = int((horas - horas_int) * 60)
+        return f"{horas_int:02d}:{minutos:02d}"
+
+    # ======================
+    # FUNÇÃO DE CARREGAMENTO DE DADOS - NOVA VERSÃO
+    # ======================
+    @retry_on_quota()
+    @st.cache_data(ttl=1200)
+    def carregar_dados_tempera_novo():
         """
-        Carrega dados da têmpera com validação e fallback para cache
+        Carrega os dados da planilha TRS_TEMPERA com as colunas específicas
+        para os novos cards e tabela
         """
-        # 1. TENTAR CARREGAR DO CACHE PRIMEIRO (mais rápido)
-        df_cache = carregar_cache_tempera()
-        if df_cache is not None and not df_cache.empty:
-            return df_cache
-        
-        # 2. TENTAR CARREGAR DA API
         try:
             client = get_gspread_client()
             if client is None:
-                st.error("❌ Não foi possível conectar ao Google Sheets")
+                st.error("❌ Erro ao conectar ao Google Sheets")
                 return pd.DataFrame()
+
+            spreadsheet = client.open_by_key(ID_PLANILHA_TEMPERA)
             
-            # Tentar carregar a planilha
             try:
-                sheet = client.open_by_key(ID_PLANILHA_TEMPERA).worksheet(ABA)
+                sheet = spreadsheet.worksheet(ABA_TEMPERA)
             except Exception as e:
-                st.error(f"❌ Erro ao acessar a planilha: {e}")
+                st.error(f"❌ Aba '{ABA_TEMPERA}' não encontrada. Erro: {e}")
                 return pd.DataFrame()
-            
-            # Ler os dados
+
             todos_dados = sheet.get_all_values()
             
-            # Validar se há dados
             if len(todos_dados) < 2:
-                st.warning("⚠️ A planilha está vazia ou não tem dados suficientes.")
+                st.info("📭 Nenhum dado encontrado na planilha.")
                 return pd.DataFrame()
+
+            cabecalho = todos_dados[0]
+            valores = todos_dados[1:]
             
-            # Processar os dados
-            df = processar_dados_tempera(todos_dados)
+            # Criar DataFrame com os dados brutos
+            df = pd.DataFrame(valores, columns=cabecalho)
             
-            # Validar se o processamento gerou dados
-            if df.empty:
-                st.warning("⚠️ Nenhum dado válido encontrado na planilha.")
-                return pd.DataFrame()
+            # Limpar nomes das colunas
+            df.columns = df.columns.str.strip()
             
-            # Salvar em cache
-            salvar_cache_tempera(df)
+            # Mapear colunas existentes para os nomes padronizados
+            mapa_colunas = {}
+            for col in df.columns:
+                col_clean = str(col).strip().upper()
+                
+                if col_clean == 'FIFO':
+                    mapa_colunas[col] = 'FIFO'
+                elif col_clean == 'DATA':
+                    mapa_colunas[col] = 'DATA'
+                elif col_clean == 'TURNO':
+                    mapa_colunas[col] = 'TURNO'
+                elif col_clean == 'D_TEMPERA':
+                    mapa_colunas[col] = 'D_TEMPERA'
+                elif col_clean == 'AP_TEMPERA':
+                    mapa_colunas[col] = 'AP_TEMPERA'
+                elif col_clean == 'HORAS_TEMPERA':
+                    mapa_colunas[col] = 'HORAS_TEMPERA'
+                elif col_clean == 'META_TEMPERA':
+                    mapa_colunas[col] = 'META_TEMPERA'
+                elif col_clean == 'TRS_TEMPERA':
+                    mapa_colunas[col] = 'TRS_TEMPERA'
+                elif col_clean == 'AUD_TEMPERA':
+                    mapa_colunas[col] = 'AUD_TEMPERA'
+                elif col_clean == 'MANU_TEMPERA':
+                    mapa_colunas[col] = 'MANU_TEMPERA'
+                elif col_clean == 'PARADA_TEMPERA':
+                    mapa_colunas[col] = 'PARADA_TEMPERA'
+            
+            # Aplicar renomeação
+            if mapa_colunas:
+                df = df.rename(columns=mapa_colunas)
+            
+            # Verificar se temos as colunas mínimas
+            colunas_minimas = ['FIFO', 'DATA', 'AP_TEMPERA']
+            colunas_faltando = [c for c in colunas_minimas if c not in df.columns]
+            
+            if colunas_faltando:
+                st.warning(f"⚠️ Colunas não encontradas: {', '.join(colunas_faltando)}")
+                # Tentar continuar com as colunas disponíveis
+                for col in colunas_minimas:
+                    if col not in df.columns:
+                        df[col] = 0
+            
+            # ===== CONVERTER DATAS =====
+            if 'DATA' in df.columns:
+                df['DATA'] = df['DATA'].apply(converter_data_br)
+                df = df.dropna(subset=['DATA'])
+            
+            if 'D_TEMPERA' in df.columns:
+                df['D_TEMPERA'] = df['D_TEMPERA'].apply(converter_data_br)
+            
+            # ===== CONVERTER COLUNAS NUMÉRICAS =====
+            colunas_numericas = [
+                'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
+                'TRS_TEMPERA', 'AUD_TEMPERA', 'MANU_TEMPERA', 'PARADA_TEMPERA'
+            ] + COLUNAS_DEFEITOS_TEMPERA
+            
+            for col in colunas_numericas:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            # ===== CALCULAR REFUGADO =====
+            # Somar todos os defeitos das colunas específicas
+            colunas_defeitos_existentes = [col for col in COLUNAS_DEFEITOS_TEMPERA if col in df.columns]
+            
+            if colunas_defeitos_existentes:
+                df['REFUGADO'] = df[colunas_defeitos_existentes].sum(axis=1)
+            else:
+                df['REFUGADO'] = 0
+            
+            # ===== CALCULAR TOTAL DE PEÇAS =====
+            df['TOTAL_PECAS'] = df['AP_TEMPERA'] + df['REFUGADO']
+            
+            # ===== GARANTIR META LÍQUIDA =====
+            if 'META_TEMPERA' not in df.columns:
+                df['META_TEMPERA'] = df['TOTAL_PECAS']
+            
+            # ===== GARANTIR TRS =====
+            if 'TRS_TEMPERA' not in df.columns:
+                df['TRS_TEMPERA'] = 0
+            
+            # ===== REMOVER LINHAS SEM DADOS =====
+            df = df[df['AP_TEMPERA'] > 0]
+            
+            # ===== ORDENAR POR DATA =====
+            if 'DATA' in df.columns:
+                df = df.sort_values('DATA', ascending=False)
             
             return df
-            
+
         except Exception as e:
-            # Tratamento para erro de quota
-            if "429" in str(e) or "Quota exceeded" in str(e):
-                st.warning("⚠️ Limite de requisições ao Google Sheets atingido.")
-                # Tentar carregar do cache novamente
-                df_cache = carregar_cache_tempera()
-                if df_cache is not None and not df_cache.empty:
-                    st.info(f"📂 Usando dados em cache ({len(df_cache)} registros).")
-                    return df_cache
-                else:
-                    st.error("❌ Sem dados em cache disponíveis. Aguarde alguns minutos e tente novamente.")
-                    return pd.DataFrame()
-            else:
-                st.error(f"❌ Erro ao carregar dados: {str(e)}")
-                df_cache = carregar_cache_tempera()
-                if df_cache is not None and not df_cache.empty:
-                    st.info(f"📂 Usando dados em cache devido ao erro ({len(df_cache)} registros).")
-                    return df_cache
-                return pd.DataFrame()
+            st.error(f"❌ Erro ao carregar dados: {str(e)}")
+            return pd.DataFrame()
 
     # ======================
-    # FUNÇÃO PARA FORCAR RECARREGAMENTO
+    # FUNÇÃO DE CARREGAMENTO ORIGINAL (PARA A TABELA REGISTROS DE TÊMPERA)
     # ======================
-    def forcar_recarregamento_tempera():
-        """Força o recarregamento dos dados da API"""
+    @retry_on_quota()
+    @st.cache_data(ttl=1200)
+    def carregar_dados_tempera_original():
+        """
+        Carrega os dados da planilha TRS_TEMPERA - VERSÃO ORIGINAL
+        para manter compatibilidade com a tabela "Registros de Têmpera"
+        """
         try:
-            if os.path.exists(CACHE_FILE_TEMPERA):
-                os.remove(CACHE_FILE_TEMPERA)
-            st.cache_data.clear()
-            return True
-        except:
-            return False
+            client = get_gspread_client()
+            if client is None:
+                return pd.DataFrame()
+            
+            sheet = client.open_by_key(ID_PLANILHA_TEMPERA).worksheet(ABA_TEMPERA)
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return pd.DataFrame()
+            
+            cabecalho = todos_dados[0]
+            valores = todos_dados[1:]
+            df = pd.DataFrame(valores, columns=cabecalho)
+            df.columns = df.columns.str.strip()
+            
+            return df
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar registros originais: {str(e)}")
+            return pd.DataFrame()
 
     # ======================
-    # CARREGAR DADOS PRIMEIRO
+    # CARREGAR DADOS - NOVA VERSÃO
     # ======================
-    with st.spinner("Carregando dados da Têmpera..."):
-        df_base = carregar_dados_tempera()
+    with st.spinner("🔄 Carregando dados da Têmpera..."):
+        df = carregar_dados_tempera_novo()
 
-    if df_base.empty:
-        st.error("""
-        ❌ **Não foi possível carregar os dados da Têmpera.**
-        
-        **Possíveis causas:**
-        1. A planilha está vazia ou sem dados
-        2. Limite de requisições ao Google Sheets atingido
-        3. Problemas de conexão com a internet
-        
-        **Soluções:**
-        1. Aguarde alguns minutos e clique em "Recarregar Dados da Planilha" no sidebar
-        2. Verifique se a planilha está acessível
-        3. Verifique sua conexão com a internet
-        """)
-        
-        # Botão para tentar novamente
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔄 Tentar Novamente", use_container_width=True):
-                forcar_recarregamento_tempera()
-                st.rerun()
+    if df.empty:
+        st.warning("⚠️ Não foi possível carregar os dados da Têmpera.")
         st.stop()
 
     # ======================
     # SIDEBAR FILTROS
     # ======================
     with st.sidebar:
-        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_purple']};margin:20px 0 10px;border-top:1px solid {THEME['border_bright']};padding-top:16px'>▸ Filtros · Têmpera</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style='font-family:JetBrains Mono,monospace;font-size:10px;
+            letter-spacing:.2em;text-transform:uppercase;
+            color:{THEME['accent_purple']};margin:20px 0 10px;
+            border-top:1px solid {THEME['border_bright']};padding-top:16px'>
+            ▸ Filtros · Têmpera
+        </div>
+        """, unsafe_allow_html=True)
         
         data_ini = st.date_input("Data inicial", value=None, key="tempera_data_ini")
         data_fim = st.date_input("Data final", value=None, key="tempera_data_fim")
         
-        if 'TURNO_TEMP' in df_base.columns:
-            turnos_disp = ["(Todos)"] + sorted([str(t) for t in df_base['TURNO_TEMP'].dropna().unique()])
+        if 'TURNO' in df.columns:
+            turnos_disp = ["(Todos)"] + sorted([str(t) for t in df['TURNO'].dropna().unique() if str(t).strip() and str(t).strip() != 'nan'])
             turno = st.selectbox("Turno", options=turnos_disp, key="tempera_turno")
         else:
             turno = "(Todos)"
         
-        if 'PRODUTO' in df_base.columns:
-            produtos_disp = ["(Todos)"] + sorted([str(p) for p in df_base['PRODUTO'].dropna().unique()])
-            produto = st.selectbox("Produto", options=produtos_disp, key="tempera_produto")
+        if 'FIFO' in df.columns:
+            fifos_disp = ["(Todos)"] + sorted([str(f) for f in df['FIFO'].dropna().unique() if str(f).strip() and str(f).strip() != 'nan'])
+            fifo = st.selectbox("FIFO", options=fifos_disp, key="tempera_fifo")
         else:
-            produto = "(Todos)"
+            fifo = "(Todos)"
         
-        excluir_criticos = st.checkbox("Excluir registros críticos", value=False, key="tempera_excluir_criticos")
         qtd = st.number_input("Linhas na tabela", min_value=0, max_value=5000, value=20, step=10, key="tempera_qtd")
         
         st.markdown("---")
         
-        # Botão para forçar recarregamento
-        if st.button("🔄 Recarregar Dados da Planilha", key="btn_recarregar_tempera", use_container_width=True):
-            if forcar_recarregamento_tempera():
-                st.success("✅ Cache limpo! Recarregando dados da planilha...")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao limpar cache")
-        
-        # Informações do cache
-        if os.path.exists(CACHE_FILE_TEMPERA):
-            try:
-                tamanho = os.path.getsize(CACHE_FILE_TEMPERA) / 1024
-                st.caption(f"💾 Cache: {tamanho:.1f} KB")
-            except:
-                pass
+        if st.button("🔄 Recarregar Dados", key="btn_recarregar_tempera", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
-    # ── Aplicar filtros ──
-    df = df_base.copy()
+    # ======================
+    # APLICAR FILTROS
+    # ======================
+    df_filtrado = df.copy()
     
     if data_ini:
-        df = df[df['DATA'] >= pd.to_datetime(data_ini)]
+        df_filtrado = df_filtrado[df_filtrado['DATA'] >= pd.to_datetime(data_ini)]
     if data_fim:
-        df = df[df['DATA'] <= pd.to_datetime(data_fim)]
-    if turno != "(Todos)" and 'TURNO_TEMP' in df.columns:
-        df = df[df['TURNO_TEMP'].astype(str).str.upper() == turno.upper()]
-    if produto != "(Todos)" and 'PRODUTO' in df.columns:
-        df = df[df['PRODUTO'].astype(str) == produto]
-    
-    if excluir_criticos and 'IS_CRITICO' in df.columns:
-        df = df[~df['IS_CRITICO']].copy()
+        df_filtrado = df_filtrado[df_filtrado['DATA'] <= pd.to_datetime(data_fim)]
+    if turno != "(Todos)" and 'TURNO' in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado['TURNO'].astype(str).str.upper() == turno.upper()]
+    if fifo != "(Todos)" and 'FIFO' in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado['FIFO'].astype(str) == fifo]
 
-    if df.empty:
-        st.warning("Nenhum dado encontrado com os filtros selecionados.")
+    if df_filtrado.empty:
+        st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
         st.stop()
 
-    # ── Função para média ignorando zeros ──
+    # ======================
+    # CALCULAR INDICADORES
+    # ======================
+    total_pecas = int(df_filtrado['TOTAL_PECAS'].sum())
+    total_refugado = int(df_filtrado['REFUGADO'].sum())
+    total_aprovado = int(df_filtrado['AP_TEMPERA'].sum())
+    total_meta = int(df_filtrado['META_TEMPERA'].sum()) if 'META_TEMPERA' in df_filtrado.columns else total_pecas
+    
+    # TRS Líquido = (APROVADO / META) * 100
+    trs_liquido = (total_aprovado / total_meta * 100) if total_meta > 0 else 0
+    
+    # Horas de parada
+    total_manut_horas = df_filtrado['MANU_TEMPERA'].sum() if 'MANU_TEMPERA' in df_filtrado.columns else 0
+    total_parada_horas = df_filtrado['PARADA_TEMPERA'].sum() if 'PARADA_TEMPERA' in df_filtrado.columns else 0
+
+    # ======================
+    # NOVOS KPIS - 7 CARDS
+    # ======================
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+
+    with col1:
+        render_kpi_card(
+            "Total Peças",
+            f"{total_pecas:,}".replace(",", "."),
+            THEME['accent_cyan'],
+            "📦"
+        )
+
+    with col2:
+        render_kpi_card(
+            "Peças Refugadas",
+            f"{total_refugado:,}".replace(",", "."),
+            THEME['accent_red'],
+            "❌"
+        )
+
+    with col3:
+        render_kpi_card(
+            "Peças Aprovadas",
+            f"{total_aprovado:,}".replace(",", "."),
+            THEME['accent_lime'],
+            "✅"
+        )
+
+    with col4:
+        render_kpi_card(
+            "Meta Líquida",
+            f"{total_meta:,}".replace(",", "."),
+            THEME['accent_purple'],
+            "🎯"
+        )
+
+    with col5:
+        cor_trs = THEME['accent_lime'] if trs_liquido >= 85 else THEME['accent_orange'] if trs_liquido >= 70 else THEME['accent_red']
+        render_kpi_card(
+            "TRS Líquido",
+            f"{trs_liquido:.1f}%",
+            cor_trs,
+            "📊"
+        )
+
+    with col6:
+        render_kpi_card(
+            "Parada Manutenção",
+            horas_para_str(total_manut_horas),
+            THEME['accent_orange'],
+            "🔧"
+        )
+
+    with col7:
+        render_kpi_card(
+            "Parada Têmpera",
+            horas_para_str(total_parada_horas),
+            THEME['accent_red'],
+            "⏱️"
+        )
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ======================
+    # TABELA DE PRODUÇÃO COM COLUNAS ESPECÍFICAS
+    # ======================
+    render_section_header("📋 Produção - Têmpera", "▸", THEME['accent_purple'])
+
+    if not df_filtrado.empty:
+        # Preparar dados para exibição
+        df_exibicao = df_filtrado.copy()
+        
+        # Formatar datas
+        if 'DATA' in df_exibicao.columns:
+            df_exibicao['DATA'] = pd.to_datetime(df_exibicao['DATA']).dt.strftime('%d/%m/%Y')
+        
+        if 'D_TEMPERA' in df_exibicao.columns:
+            df_exibicao['D_TEMPERA'] = pd.to_datetime(df_exibicao['D_TEMPERA']).dt.strftime('%d/%m/%Y')
+        
+        # Formatar TRS
+        if 'TRS_TEMPERA' in df_exibicao.columns:
+            df_exibicao['TRS_TEMPERA'] = df_exibicao['TRS_TEMPERA'].apply(lambda x: f"{x:.1f}%" if x > 0 else "0%")
+        
+        # Formatar horas
+        if 'MANU_TEMPERA' in df_exibicao.columns:
+            df_exibicao['MANU_TEMPERA'] = df_exibicao['MANU_TEMPERA'].apply(horas_para_str)
+        
+        if 'PARADA_TEMPERA' in df_exibicao.columns:
+            df_exibicao['PARADA_TEMPERA'] = df_exibicao['PARADA_TEMPERA'].apply(horas_para_str)
+        
+        # Formatar números
+        for col in ['TOTAL_PECAS', 'AP_TEMPERA', 'REFUGADO', 'META_TEMPERA']:
+            if col in df_exibicao.columns:
+                df_exibicao[col] = df_exibicao[col].apply(lambda x: f"{int(x):,}".replace(",", "."))
+        
+        # Selecionar colunas para exibição
+        colunas_tabela = [
+            'FIFO', 'DATA', 'TURNO', 'D_TEMPERA', 'TOTAL_PECAS', 
+            'REFUGADO', 'AP_TEMPERA', 'META_TEMPERA', 'TRS_TEMPERA',
+            'MANU_TEMPERA', 'PARADA_TEMPERA'
+        ]
+        
+        colunas_existentes = [col for col in colunas_tabela if col in df_exibicao.columns]
+        
+        # Renomear colunas para exibição
+        renomear_colunas = {
+            'FIFO': 'FIFO',
+            'DATA': 'PRODUÇÃO',
+            'TURNO': 'TURNO',
+            'D_TEMPERA': 'DATA TÊMPERA',
+            'TOTAL_PECAS': 'TOTAL',
+            'REFUGADO': 'REFUGADO',
+            'AP_TEMPERA': 'APROVADAS',
+            'META_TEMPERA': 'META LÍQUIDA',
+            'TRS_TEMPERA': 'TRS LÍQUIDO',
+            'MANU_TEMPERA': 'PARADA MANUTENÇÃO',
+            'PARADA_TEMPERA': 'PARADA TÊMPERA'
+        }
+        
+        df_display = df_exibicao[colunas_existentes].copy()
+        df_display = df_display.rename(columns=renomear_colunas)
+        
+        # Aplicar estilo à tabela
+        def style_tabela_tempera(row):
+            styles = [''] * len(row)
+            # Destacar TRS
+            try:
+                trs_str = row.get('TRS LÍQUIDO', '0%')
+                trs_val = float(trs_str.replace('%', ''))
+                if trs_val >= 85:
+                    idx_trs = list(row.index).index('TRS LÍQUIDO')
+                    styles[idx_trs] = 'color: #107C10; font-weight: bold; background-color: #d4edda;'
+                elif trs_val >= 70:
+                    idx_trs = list(row.index).index('TRS LÍQUIDO')
+                    styles[idx_trs] = 'color: #E86C2C; font-weight: bold; background-color: #fff3cd;'
+                else:
+                    idx_trs = list(row.index).index('TRS LÍQUIDO')
+                    styles[idx_trs] = 'color: #E81123; font-weight: bold; background-color: #f8d7da;'
+            except:
+                pass
+            return styles
+        
+        styled_df = df_display.style.apply(style_tabela_tempera, axis=1)
+        st.dataframe(styled_df, use_container_width=True, height=400)
+        
+        st.caption(f"📊 Total: {len(df_filtrado)} registros | Período: {data_ini.strftime('%d/%m/%Y') if data_ini else 'Início'} a {data_fim.strftime('%d/%m/%Y') if data_fim else 'Hoje'}")
+
+    else:
+        st.info("📭 Nenhum dado encontrado.")
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ======================
+    # TABELA ORIGINAL - REGISTROS DE TÊMPERA
+    # ======================
+    render_section_header("📋 Registros de Têmpera", "▸", THEME['accent_purple'])
+
+    with st.spinner("Carregando registros originais..."):
+        df_original = carregar_dados_tempera_original()
+
+    if not df_original.empty:
+        # Aplicar os mesmos filtros de data e turno
+        df_original_filtrado = df_original.copy()
+        
+        if data_ini and 'DATA' in df_original_filtrado.columns:
+            df_original_filtrado['DATA'] = df_original_filtrado['DATA'].apply(converter_data_br)
+            df_original_filtrado = df_original_filtrado.dropna(subset=['DATA'])
+            df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] >= pd.to_datetime(data_ini)]
+        
+        if data_fim and 'DATA' in df_original_filtrado.columns:
+            df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] <= pd.to_datetime(data_fim)]
+        
+        if turno != "(Todos)" and 'TURNO' in df_original_filtrado.columns:
+            df_original_filtrado = df_original_filtrado[df_original_filtrado['TURNO'].astype(str).str.upper() == turno.upper()]
+        
+        # Exibir a tabela original com as primeiras linhas
+        qtd_exibir = qtd if qtd > 0 else 20
+        st.dataframe(df_original_filtrado.head(qtd_exibir), use_container_width=True, height=400)
+        st.caption(f"📊 Exibindo {min(qtd_exibir, len(df_original_filtrado))} de {len(df_original_filtrado)} registros")
+    else:
+        st.info("📭 Nenhum registro encontrado na planilha original.")
+
+    # ======================
+    # SEÇÃO DE ESTATÍSTICAS ADICIONAIS (MANTIDA DO ORIGINAL)
+    # ======================
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # Função para média ignorando zeros
     def safe_mean(col):
         """Calcula média ignorando valores zero e NaN"""
-        if col in df.columns:
-            valores = df[col][(df[col] > 0) & (pd.notna(df[col]))]
+        if col in df_filtrado.columns:
+            valores = df_filtrado[col][(df_filtrado[col] > 0) & (pd.notna(df_filtrado[col]))]
             if len(valores) > 0:
                 return valores.mean()
         return 0
 
-    # ── KPIs (médias ignorando zeros) ──
-    total_registros = len(df)
-    total_pecas = total_registros * 40
-    total_aprovado = int(df['APROVADO'].sum())
-    total_defeitos = int(df['TOTAL_DEFEITOS'].sum())
-    trs_medio = (total_aprovado / total_pecas * 100) if total_pecas > 0 else 0
-    
+    # Temperaturas do forno (se existirem na planilha)
     temp_sup = safe_mean('SUPERIOR')
     temp_meio = safe_mean('MEIO')
     temp_inf = safe_mean('INFERIOR')
@@ -4403,566 +4481,298 @@ elif aba_selecionada == 'TÊMPERA':
     humidade = safe_mean('C4')
     pressao_ar = safe_mean('A e B')
 
-    # ── Page header ──
-    render_page_header(
-        "TÊMPERA",
-        f"Industrial · {total_registros:,} registros · Atualizado {get_horario_brasilia()}",
-        THEME['accent_purple']
-    )
+    # Exibir temperaturas apenas se houver dados
+    if temp_sup > 0 or temp_meio > 0 or temp_inf > 0:
+        st.markdown("### 🔥 Temperaturas do Forno")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            render_kpi_card("Temp. Superior", f"{temp_sup:.0f}°C" if temp_sup > 0 else "N/A", THEME['accent_orange'])
+        with c2:
+            render_kpi_card("Temp. Meio", f"{temp_meio:.0f}°C" if temp_meio > 0 else "N/A", THEME['accent_orange'])
+        with c3:
+            render_kpi_card("Temp. Inferior", f"{temp_inf:.0f}°C" if temp_inf > 0 else "N/A", THEME['accent_orange'])
 
-    # KPIs principais
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        render_kpi_card("Total Peças", f"{total_pecas:,}".replace(",","."), THEME['accent_cyan'])
-    with c2:
-        render_kpi_card("Aprovadas", f"{total_aprovado:,}".replace(",","."), THEME['accent_lime'])
-    with c3:
-        render_kpi_card("Defeitos", f"{total_defeitos:,}".replace(",","."), THEME['accent_red'])
-    with c4:
-        trs_color = THEME['accent_lime'] if trs_medio >= 80 else THEME['accent_orange'] if trs_medio >= 70 else THEME['accent_red']
-        render_kpi_card("TRS Médio", f"{trs_medio:.1f}%", trs_color)
-
-    # Temperaturas Forno (médias ignorando zeros)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        render_kpi_card("Temp. Superior", f"{temp_sup:.0f}°C" if temp_sup > 0 else "N/A", THEME['accent_orange'])
-    with c2:
-        render_kpi_card("Temp. Meio", f"{temp_meio:.0f}°C" if temp_meio > 0 else "N/A", THEME['accent_orange'])
-    with c3:
-        render_kpi_card("Temp. Inferior", f"{temp_inf:.0f}°C" if temp_inf > 0 else "N/A", THEME['accent_orange'])
-
-    # Processo - Médias (ignorando zeros)
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;color:{THEME['accent_purple']}';>▸ PROCESSO - MÉDIAS DO PERÍODO (ignorando zeros)</div>", unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        render_kpi_card("Temp. Entrada (A1)", f"{temp_entrada:.0f}°C" if temp_entrada > 0 else "N/A", THEME['accent_cyan'])
-    with c2:
-        render_kpi_card("Tempo (C2)", f"{tempo_c2:.0f}s" if tempo_c2 > 0 else "N/A", THEME['accent_lime'])
-    with c3:
-        render_kpi_card("Humidade (C4)", f"{humidade:.1f}%" if humidade > 0 else "N/A", THEME['accent_orange'])
-    with c4:
-        render_kpi_card("Pressão Ar (A e B)", f"{pressao_ar:.1f}" if pressao_ar > 0 else "N/A", THEME['accent_purple'])
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;color:{THEME['accent_purple']}';>▸ PROCESSO - MÉDIAS DO PERÍODO (ignorando zeros)</div>", unsafe_allow_html=True)
+        
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            render_kpi_card("Temp. Entrada (A1)", f"{temp_entrada:.0f}°C" if temp_entrada > 0 else "N/A", THEME['accent_cyan'])
+        with c2:
+            render_kpi_card("Tempo (C2)", f"{tempo_c2:.0f}s" if tempo_c2 > 0 else "N/A", THEME['accent_lime'])
+        with c3:
+            render_kpi_card("Humidade (C4)", f"{humidade:.1f}%" if humidade > 0 else "N/A", THEME['accent_orange'])
+        with c4:
+            render_kpi_card("Pressão Ar (A e B)", f"{pressao_ar:.1f}" if pressao_ar > 0 else "N/A", THEME['accent_purple'])
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # ── Tabela ──
-    render_section_header("Registros de Têmpera", "▸", THEME['accent_purple'])
-    
-    df_display = df.sort_values(by="DATA", ascending=False).head(qtd if qtd > 0 else 100).copy()
-    df_display['DATA'] = pd.to_datetime(df_display['DATA']).dt.strftime('%d/%m/%Y')
-    df_display['TRS (%)'] = df_display['TRS (%)'].round(1).astype(str) + '%'
-    
-    colunas = ['DATA', 'TURNO_TEMP', 'PRODUTO', 'GANCHEIRA', 'APROVADO', 'TOTAL_DEFEITOS', 'TRS (%)']
-    colunas = [c for c in colunas if c in df_display.columns]
-    
-    st.dataframe(df_display[colunas], use_container_width=True, height=400)
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # ── Gráfico TRS Diário ──
+    # ======================
+    # GRÁFICO TRS DIÁRIO (MANTIDO DO ORIGINAL)
+    # ======================
     render_section_header("Evolução Diária do TRS", "▸", THEME['accent_purple'])
     
-    resumo_dia = df.groupby(df['DATA'].dt.date).agg({'APROVADO': 'sum'}).reset_index()
-    resumo_dia['DATA'] = pd.to_datetime(resumo_dia['DATA'])
-    counts = df.groupby(df['DATA'].dt.date).size().values
-    resumo_dia['TRS (%)'] = (resumo_dia['APROVADO'] / (counts * 40) * 100)
-    resumo_dia = resumo_dia.sort_values('DATA')
-    
-    if not resumo_dia.empty:
-        fig, ax = plt.subplots(figsize=(12, 4), facecolor=THEME['bg_card'])
-        apply_chart_style(ax, fig, "TRS Diário", ylabel="TRS (%)", accent=THEME['accent_purple'])
-        ax.fill_between(resumo_dia['DATA'], 0, resumo_dia['TRS (%)'], alpha=0.12, color=THEME['accent_purple'])
-        ax.plot(resumo_dia['DATA'], resumo_dia['TRS (%)'], marker='o', markersize=5, linewidth=2, color=THEME['accent_purple'])
-        ax.axhline(y=80, color=THEME['accent_red'], linestyle=':', linewidth=1.5, label='Meta 80%')
-        ax.legend(loc='upper right', fontsize=9)
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=8)
-        fig.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
+    if not df_filtrado.empty and 'DATA' in df_filtrado.columns and 'TRS_TEMPERA' in df_filtrado.columns:
+        # Agrupar por data
+        df_diario = df_filtrado.groupby(df_filtrado['DATA'].dt.date).agg({
+            'TRS_TEMPERA': 'mean',
+            'AP_TEMPERA': 'sum',
+            'REFUGADO': 'sum',
+            'TOTAL_PECAS': 'sum'
+        }).reset_index()
+        
+        df_diario['DATA'] = pd.to_datetime(df_diario['DATA'])
+        df_diario = df_diario.sort_values('DATA')
+        
+        if not df_diario.empty:
+            fig, ax = plt.subplots(figsize=(12, 4), facecolor=THEME['bg_card'])
+            apply_chart_style(ax, fig, "TRS Líquido Diário", ylabel="TRS (%)", accent=THEME['accent_purple'])
+            
+            ax.fill_between(df_diario['DATA'], 0, df_diario['TRS_TEMPERA'], alpha=0.12, color=THEME['accent_purple'])
+            ax.plot(df_diario['DATA'], df_diario['TRS_TEMPERA'], marker='o', markersize=5, linewidth=2, color=THEME['accent_purple'])
+            ax.axhline(y=85, color=THEME['accent_red'], linestyle=':', linewidth=1.5, label='Meta 85%')
+            ax.legend(loc='upper right', fontsize=9)
+            
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=8)
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
 
-    # ── PADRÃO DE EXCELÊNCIA (Média das TOP 15) ──
+    # ======================
+    # SEÇÃO: PADRÃO DE EXCELÊNCIA (MANTIDA DO ORIGINAL)
+    # ======================
     st.markdown("<hr>", unsafe_allow_html=True)
     render_section_header("🏆 PADRÃO DE EXCELÊNCIA (Média Top 15)", "▸", THEME['accent_purple'])
     
     TOP_N = 15
     
-    # Filtra produções válidas (com dados de pressão, se disponível)
-    if 'A e B' in df.columns:
-        df_validos = df[df['A e B'] > 0].copy()
-    else:
-        df_validos = df.copy()
-    
-    if len(df_validos) >= TOP_N:
-        # Seleciona as TOP N produções com base no maior número de peças aprovadas
-        df_top = df_validos.nlargest(TOP_N, ['APROVADO', 'TRS (%)'])
+    # Filtra produções válidas
+    if 'AP_TEMPERA' in df_filtrado.columns and 'TOTAL_PECAS' in df_filtrado.columns:
+        df_validos = df_filtrado[df_filtrado['TOTAL_PECAS'] > 0].copy()
         
-        # Calcula as médias
-        media_aprovadas = df_top['APROVADO'].mean()
-        media_trs = df_top['TRS (%)'].mean()
-        media_defeitos = df_top['TOTAL_DEFEITOS'].mean()
-        
-        # Médias dos parâmetros de processo
-        media_temp_sup = df_top['SUPERIOR'].mean()
-        media_temp_meio = df_top['MEIO'].mean()
-        media_temp_inf = df_top['INFERIOR'].mean()
-        media_temp_entrada = df_top['A1'].mean()
-        media_tempo_c2 = df_top['C2'].mean()
-        media_humidade = df_top['C4'].mean()
-        media_pressao_ar = df_top['A e B'].mean()
-        
-        # Desvio padrão para noção de estabilidade
-        std_trs = df_top['TRS (%)'].std()
-        criticas_top = df_top['IS_CRITICO'].sum()
-        
-        st.markdown(f"""
-        <div style="background: {THEME['bg_card2']}; padding: 20px; border-radius: 10px; border-left: 4px solid {THEME['accent_lime']};">
-            <h4 style="margin:0 0 5px 0; color:{THEME['accent_lime']};">🎯 Referência de Excelência</h4>
-            <p style="margin:0 0 15px 0; font-size:12px; color:{THEME['text_muted']};">Média calculada com base nas {TOP_N} melhores produções do período</p>
-        """, unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("📊 TRS Médio (Top 15)", f"{media_trs:.1f}%", f"±{std_trs:.1f}%" if std_trs > 0 else "estável")
-        with col2:
-            st.metric("✅ Aprovadas (Média)", f"{media_aprovadas:.1f}/40")
-        with col3:
-            st.metric("❌ Defeitos (Média)", f"{media_defeitos:.1f}")
-        with col4:
-            st.metric("⚠️ Produções Críticas", f"{criticas_top}/{TOP_N}")
-        
-        st.markdown("<hr style='margin:15px 0; opacity:0.3;'>", unsafe_allow_html=True)
-        
-        st.markdown("#### 🔥 Temperaturas do Forno (Média)")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Superior", f"{media_temp_sup:.0f}°C" if pd.notna(media_temp_sup) else "N/A")
-        with col2:
-            st.metric("Meio", f"{media_temp_meio:.0f}°C" if pd.notna(media_temp_meio) else "N/A")
-        with col3:
-            st.metric("Inferior", f"{media_temp_inf:.0f}°C" if pd.notna(media_temp_inf) else "N/A")
-        
-        st.markdown("#### 📍 Principais Indicadores (Média)")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Temp. Entrada (A1)", f"{media_temp_entrada:.0f}°C" if pd.notna(media_temp_entrada) else "N/A")
-        with col2:
-            st.metric("Tempo (C2)", f"{media_tempo_c2:.0f}s" if pd.notna(media_tempo_c2) else "N/A")
-        with col3:
-            st.metric("Humidade (C4)", f"{media_humidade:.1f}%" if pd.notna(media_humidade) else "N/A")
-        with col4:
-            st.metric("Pressão Ar (A e B)", f"{media_pressao_ar:.1f}" if pd.notna(media_pressao_ar) else "N/A")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Expander com detalhes das Top 15
-        with st.expander(f"🔍 Ver detalhes das {TOP_N} melhores produções"):
-            st.markdown(f"**As {TOP_N} produções que definem o padrão de excelência:**")
-            df_top_display = df_top[['DATA', 'TURNO_TEMP', 'PRODUTO', 'GANCHEIRA', 'APROVADO', 'TRS (%)', 'TOTAL_DEFEITOS']].copy()
-            df_top_display['DATA'] = pd.to_datetime(df_top_display['DATA']).dt.strftime('%d/%m/%Y')
-            df_top_display['TRS (%)'] = df_top_display['TRS (%)'].round(1).astype(str) + '%'
-            st.dataframe(df_top_display, use_container_width=True, height=300)
+        if len(df_validos) >= TOP_N:
+            df_top = df_validos.nlargest(TOP_N, ['AP_TEMPERA', 'TRS_TEMPERA'])
             
-            st.markdown("**📊 Estatísticas das Top 15 vs. Média Geral:**")
-            media_geral_trs = (df_validos['APROVADO'].sum() / (len(df_validos) * 40) * 100) if len(df_validos) > 0 else 0
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Média Geral TRS", f"{media_geral_trs:.1f}%")
-            with col2:
-                ganho = media_trs - media_geral_trs
-                st.metric("Ganho Potencial", f"+{ganho:.1f}%", delta_color="normal")
-                
-    elif len(df_validos) > 0:
-        st.warning(f"Dados insuficientes para calcular a média das {TOP_N} melhores produções. Apenas {len(df_validos)} registros encontrados. Exibindo a melhor produção individual:")
-        
-        # Fallback: mostra a melhor produção individual
-        idx_melhor = df_validos['APROVADO'].idxmax()
-        melhor = df_validos.loc[idx_melhor]
-        
-        st.markdown(f"""
-        <div style="background: {THEME['bg_card2']}; padding: 20px; border-radius: 10px; border-left: 4px solid {THEME['accent_lime']};">
-            <h4 style="margin:0 0 15px 0; color:{THEME['accent_lime']};">🎯 Melhor Resultado Individual</h4>
-        """, unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            data_str = pd.to_datetime(melhor['DATA']).strftime('%d/%m/%Y') if pd.notna(melhor['DATA']) else 'N/A'
-            st.metric("📅 Data", data_str)
-        with col2:
-            st.metric("⏰ Turno", str(melhor.get('TURNO_TEMP', 'N/A')))
-        with col3:
-            st.metric("📦 Produto", str(melhor.get('PRODUTO', 'N/A'))[:15])
-        with col4:
-            st.metric("🔧 Gancheira", str(melhor.get('GANCHEIRA', 'N/A')))
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("✅ Aprovadas", f"{int(melhor['APROVADO'])}/40")
-        with col2:
-            st.metric("📊 TRS", f"{melhor['TRS (%)']:.1f}%")
-        with col3:
-            st.metric("❌ Defeitos", int(melhor['TOTAL_DEFEITOS']))
-        with col4:
-            criticos = "Sim" if melhor.get('IS_CRITICO', False) else "Não"
-            st.metric("⚠️ Crítico", criticos)
-        
-        st.markdown("<hr style='margin:15px 0; opacity:0.3;'>", unsafe_allow_html=True)
-        
-        st.markdown("#### 🔥 Temperaturas do Forno")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            val = melhor.get('SUPERIOR', 0)
-            st.metric("Superior", f"{val:.0f}°C" if pd.notna(val) and val > 0 else "N/A")
-        with col2:
-            val = melhor.get('MEIO', 0)
-            st.metric("Meio", f"{val:.0f}°C" if pd.notna(val) and val > 0 else "N/A")
-        with col3:
-            val = melhor.get('INFERIOR', 0)
-            st.metric("Inferior", f"{val:.0f}°C" if pd.notna(val) and val > 0 else "N/A")
-        
-        st.markdown("#### 📍 Principais Indicadores")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            val = melhor.get('A1', 0)
-            st.metric("Temp. Entrada (A1)", f"{val:.0f}°C" if pd.notna(val) and val > 0 else "N/A")
-        with col2:
-            val = melhor.get('C2', 0)
-            st.metric("Tempo (C2)", f"{val:.0f}s" if pd.notna(val) and val > 0 else "N/A")
-        with col3:
-            val = melhor.get('C4', 0)
-            st.metric("Humidade (C4)", f"{val:.1f}%" if pd.notna(val) and val > 0 else "N/A")
-        with col4:
-            val = melhor.get('A e B', 0)
-            st.metric("Pressão Ar (A e B)", f"{val:.1f}" if pd.notna(val) and val > 0 else "N/A")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.info("Nenhum registro válido encontrado (Pressão Ar > 0).")
-
-    # ── Ranking de Gancheiras (Pior → Melhor) ──
-    st.markdown("<hr>", unsafe_allow_html=True)
-    render_section_header("🏭 Ranking de Gancheiras (Pior → Melhor)", "▸", THEME['accent_purple'])
-    
-    if not df.empty and 'GANCHEIRA' in df.columns:
-        ranking_gancheiras = []
-        for gancheira in df['GANCHEIRA'].dropna().unique():
-            df_g = df[df['GANCHEIRA'] == gancheira]
-            total_registros_g = len(df_g)
-            total_aprovado_g = int(df_g['APROVADO'].sum())
-            total_defeitos_g = int(df_g['TOTAL_DEFEITOS'].sum())
-            total_pecas_g = total_registros_g * 40
-            trs_g = (total_aprovado_g / total_pecas_g * 100) if total_pecas_g > 0 else 0
-            
-            defeitos_gancheira = {}
-            for codigo, nome in MAPEAMENTO_DEFEITOS.items():
-                if codigo in CODIGOS_DEFEITO_REAIS:
-                    nome_clean = nome.upper().replace(' ', '_').replace('Ç', 'C').replace('Ã', 'A').replace('Á', 'A').replace('Ó', 'O')
-                    col = f'QTD_{nome_clean}'
-                    if col in df_g.columns:
-                        qtd = int(df_g[col].sum())
-                        if qtd > 0:
-                            defeitos_gancheira[nome] = qtd
-            
-            media_defeitos = total_defeitos_g / total_registros_g if total_registros_g > 0 else 0
-            det_str = ' | '.join([f"{k}: {v}" for k, v in defeitos_gancheira.items()]) if defeitos_gancheira else "-"
-            
-            ranking_gancheiras.append({
-                'Pos': 0,
-                'Gancheira': str(gancheira),
-                'Reg': total_registros_g,
-                'Defeitos': total_defeitos_g,
-                'Média': media_defeitos,
-                'TRS_num': trs_g,
-                'TRS': f"{trs_g:.1f}%",
-                'Detalhamento': det_str
-            })
-        
-        df_ranking = pd.DataFrame(ranking_gancheiras)
-        df_ranking = df_ranking.sort_values('Defeitos', ascending=False)
-        df_ranking['Pos'] = range(1, len(df_ranking) + 1)
-        
-        if not df_ranking.empty:
-            piores = df_ranking.head(3)
-            st.warning(f"⚠️ **Piores gancheiras:** {', '.join(piores['Gancheira'].tolist())}")
-            
-            df_tabela = df_ranking[['Pos', 'Gancheira', 'Reg', 'Defeitos', 'Média', 'TRS']].copy()
-            df_tabela['Média'] = df_tabela['Média'].round(1)
-            
-            def estilo_ranking(row):
-                styles = [''] * len(row)
-                pos = row['Pos']
-                if pos <= 3:
-                    styles[0] = 'color: #E81123; font-weight: bold;'
-                elif pos > len(df_ranking) - 3:
-                    styles[0] = 'color: #107C10; font-weight: bold;'
-                styles[3] = 'color: #E81123; font-weight: bold;'
-                try:
-                    trs_val = float(row['TRS'].replace('%', ''))
-                    if trs_val >= 80:
-                        styles[5] = 'color: #107C10; font-weight: bold;'
-                    elif trs_val >= 70:
-                        styles[5] = 'color: #E86C2C; font-weight: bold;'
-                except:
-                    pass
-                return styles
-            
-            styled = df_tabela.style.apply(estilo_ranking, axis=1)
-            st.dataframe(styled, use_container_width=True, height=250)
-            
-            with st.expander("🔍 Detalhamento das 5 Piores Gancheiras", expanded=False):
-                for i, (_, row) in enumerate(df_ranking.head(5).iterrows(), 1):
-                    st.markdown(f"""
-                    **{i}º - Gancheira {row['Gancheira']}** | ❌ {row['Defeitos']} defeitos | TRS: {row['TRS']}  
-                    📋 {row['Detalhamento']}
-                    """)
-            
-            fig, ax = plt.subplots(figsize=(10, 3), facecolor=THEME['bg_card'])
-            apply_chart_style(ax, fig, "Top 10 Piores Gancheiras", accent=THEME['accent_purple'])
-            top10 = df_ranking.head(10)
-            colors = [THEME['accent_red'] if i < 3 else THEME['accent_orange'] for i in range(len(top10))]
-            ax.barh(range(len(top10)), top10['Defeitos'], color=colors, alpha=0.8)
-            ax.set_yticks(range(len(top10)))
-            ax.set_yticklabels(top10['Gancheira'])
-            ax.invert_yaxis()
-            ax.set_xlabel('Defeitos')
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig)
-        else:
-            st.info("Sem dados de gancheiras disponíveis.")
-    else:
-        st.info("Coluna GANCHEIRA não encontrada.")
-
-    # ── Análise de Posições da Pior Gancheira ──
-    st.markdown("<hr>", unsafe_allow_html=True)
-    render_section_header("🔧 Análise de Posições - Pior Gancheira", "▸", THEME['accent_purple'])
-    
-    if not df.empty and 'GANCHEIRA' in df.columns:
-        ranking = []
-        for g in df['GANCHEIRA'].dropna().unique():
-            df_g = df[df['GANCHEIRA'] == g]
-            ranking.append({'Gancheira': str(g), 'Defeitos': int(df_g['TOTAL_DEFEITOS'].sum()), 'Reg': len(df_g)})
-        
-        if ranking:
-            df_rank = pd.DataFrame(ranking).sort_values('Defeitos', ascending=False)
-            pior = df_rank.iloc[0]
+            # Calcular médias
+            media_aprovadas = df_top['AP_TEMPERA'].mean()
+            media_trs = df_top['TRS_TEMPERA'].mean()
+            media_defeitos = df_top['REFUGADO'].mean()
+            media_total = df_top['TOTAL_PECAS'].mean()
             
             st.markdown(f"""
-            <div style="background: {THEME['bg_card2']}; padding: 10px 15px; margin-bottom: 15px; border-left: 4px solid {THEME['accent_red']};">
-                <span style="font-weight: bold; color: {THEME['accent_red']};">🔴 PIOR GANCHEIRA: {pior['Gancheira']}</span> | 
-                {pior['Defeitos']} defeitos em {pior['Reg']} registros
-            </div>
+            <div style="background: {THEME['bg_card2']}; padding: 20px; border-radius: 10px; border-left: 4px solid {THEME['accent_lime']};">
+                <h4 style="margin:0 0 5px 0; color:{THEME['accent_lime']};">🎯 Referência de Excelência</h4>
+                <p style="margin:0 0 15px 0; font-size:12px; color:{THEME['text_muted']};">Média calculada com base nas {TOP_N} melhores produções do período</p>
             """, unsafe_allow_html=True)
             
-            df_pior = df[df['GANCHEIRA'] == pior['Gancheira']]
-            posicoes_dados = []
-            for col in df_base.columns:
-                try:
-                    num = int(str(col).strip())
-                    if 11 <= num <= 78 and col in df_pior.columns:
-                        contagem = {c: 0 for c in CODIGOS_DEFEITO_REAIS}
-                        total = 0
-                        for val in df_pior[col].dropna():
-                            try:
-                                cod = int(float(str(val).strip()))
-                                if cod in CODIGOS_DEFEITO_REAIS:
-                                    contagem[cod] += 1
-                                    total += 1
-                            except:
-                                pass
-                        if total > 0:
-                            principal_cod = max(contagem, key=contagem.get)
-                            principal_nome = MAPEAMENTO_DEFEITOS.get(principal_cod, '?')
-                            posicoes_dados.append({
-                                'Posição': num,
-                                'Defeitos': total,
-                                'Principal': f"{principal_nome[:20]} ({contagem[principal_cod]})"
-                            })
-                except:
-                    pass
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📊 TRS Médio (Top 15)", f"{media_trs:.1f}%")
+            with col2:
+                st.metric("✅ Aprovadas (Média)", f"{media_aprovadas:.1f}")
+            with col3:
+                st.metric("❌ Defeitos (Média)", f"{media_defeitos:.1f}")
+            with col4:
+                st.metric("📦 Total Peças (Média)", f"{media_total:.1f}")
             
-            if posicoes_dados:
-                df_pos = pd.DataFrame(posicoes_dados).sort_values('Defeitos', ascending=False)
-                total_def = df_pos['Defeitos'].sum()
-                df_pos['%'] = (df_pos['Defeitos'] / total_def * 100).round(1)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Expander com detalhes
+            with st.expander(f"🔍 Ver detalhes das {TOP_N} melhores produções"):
+                df_top_display = df_top[['FIFO', 'DATA', 'TURNO', 'AP_TEMPERA', 'REFUGADO', 'TOTAL_PECAS', 'TRS_TEMPERA']].copy()
+                df_top_display['DATA'] = pd.to_datetime(df_top_display['DATA']).dt.strftime('%d/%m/%Y')
+                df_top_display['TRS_TEMPERA'] = df_top_display['TRS_TEMPERA'].round(1).astype(str) + '%'
+                st.dataframe(df_top_display, use_container_width=True, height=300)
                 
-                st.metric("Posições afetadas", len(df_pos))
-                
-                df_tabela_pos = df_pos[['Posição', 'Defeitos', '%', 'Principal']].head(15).copy()
-                df_tabela_pos['%'] = df_tabela_pos['%'].astype(str) + '%'
-                
-                def estilo_pos(row):
-                    styles = [''] * len(row)
-                    defeitos = row['Defeitos']
-                    if defeitos > 5:
-                        styles[1] = 'color: #E81123; font-weight: bold;'
-                    elif defeitos > 2:
-                        styles[1] = 'color: #E86C2C; font-weight: bold;'
-                    return styles
-                
-                styled_pos = df_tabela_pos.style.apply(estilo_pos, axis=1)
-                st.dataframe(styled_pos, use_container_width=True, height=300)
-                
-                criticas = df_pos[df_pos['Defeitos'] > 5]['Posição'].tolist()
-                alerta = df_pos[(df_pos['Defeitos'] >= 2) & (df_pos['Defeitos'] <= 5)]['Posição'].tolist()
-                
-                if criticas:
-                    st.error(f"🚨 **Críticas (>5):** {', '.join(map(str, criticas))}")
-                if alerta:
-                    st.warning(f"⚠️ **Alerta (2-5):** {', '.join(map(str, alerta))}")
-                if not criticas and not alerta:
-                    st.success("✅ Nenhuma posição crítica ou em alerta")
-                
-                if len(df_pos) > 0:
-                    fig, ax = plt.subplots(figsize=(10, 3), facecolor=THEME['bg_card'])
-                    apply_chart_style(ax, fig, f"Posições com defeitos - Gancheira {pior['Gancheira']}", accent=THEME['accent_red'])
-                    top = df_pos.head(20)
-                    colors = [THEME['accent_red'] if d > 5 else THEME['accent_orange'] if d > 2 else THEME['accent_yellow'] for d in top['Defeitos']]
-                    ax.barh(range(len(top)), top['Defeitos'], color=colors, alpha=0.8)
-                    ax.set_yticks(range(len(top)))
-                    ax.set_yticklabels(top['Posição'].astype(str))
-                    ax.invert_yaxis()
-                    ax.set_xlabel('Defeitos')
-                    fig.tight_layout()
-                    st.pyplot(fig)
-                    plt.close(fig)
-            else:
-                st.info(f"Nenhum defeito nas posições da gancheira {pior['Gancheira']}.")
+                # Estatísticas comparativas
+                media_geral_trs = df_validos['TRS_TEMPERA'].mean() if 'TRS_TEMPERA' in df_validos.columns else 0
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Média Geral TRS", f"{media_geral_trs:.1f}%")
+                with col2:
+                    ganho = media_trs - media_geral_trs
+                    st.metric("Ganho Potencial", f"+{ganho:.1f}%", delta_color="normal")
+                    
+        elif len(df_validos) > 0:
+            st.warning(f"Dados insuficientes para calcular a média das {TOP_N} melhores produções. Apenas {len(df_validos)} registros encontrados.")
         else:
-            st.info("Sem dados de gancheiras.")
-    else:
-        st.info("Coluna GANCHEIRA não encontrada.")
+            st.info("Nenhum registro válido encontrado.")
 
-    # ── Comparativo por Turnos ──
+    # ======================
+    # RANKING DE FIFO (MANTIDO DO ORIGINAL)
+    # ======================
+    st.markdown("<hr>", unsafe_allow_html=True)
+    render_section_header("🏭 Ranking por FIFO (Pior → Melhor)", "▸", THEME['accent_purple'])
+    
+    if not df_filtrado.empty and 'FIFO' in df_filtrado.columns:
+        ranking_fifo = []
+        for fifo_val in df_filtrado['FIFO'].dropna().unique():
+            df_fifo = df_filtrado[df_filtrado['FIFO'] == fifo_val]
+            
+            if len(df_fifo) > 0:
+                total_registros = len(df_fifo)
+                total_aprovado = int(df_fifo['AP_TEMPERA'].sum())
+                total_defeitos = int(df_fifo['REFUGADO'].sum())
+                total_pecas = int(df_fifo['TOTAL_PECAS'].sum())
+                trs_medio = df_fifo['TRS_TEMPERA'].mean() if 'TRS_TEMPERA' in df_fifo.columns else 0
+                
+                ranking_fifo.append({
+                    'FIFO': str(fifo_val),
+                    'Registros': total_registros,
+                    'Total Peças': total_pecas,
+                    'Defeitos': total_defeitos,
+                    'Aprovadas': total_aprovado,
+                    'TRS Médio': trs_medio
+                })
+        
+        if ranking_fifo:
+            df_ranking = pd.DataFrame(ranking_fifo)
+            df_ranking = df_ranking.sort_values('TRS Médio', ascending=True)
+            df_ranking['Posição'] = range(1, len(df_ranking) + 1)
+            
+            st.dataframe(df_ranking[['Posição', 'FIFO', 'Registros', 'Total Peças', 'Defeitos', 'Aprovadas', 'TRS Médio']], 
+                        use_container_width=True, height=300)
+            
+            # Destacar os melhores e piores
+            if len(df_ranking) > 1:
+                melhor = df_ranking.iloc[-1]
+                pior = df_ranking.iloc[0]
+                st.info(f"🏆 **Melhor FIFO:** {melhor['FIFO']} (TRS: {melhor['TRS Médio']:.1f}%) | ⚠️ **Pior FIFO:** {pior['FIFO']} (TRS: {pior['TRS Médio']:.1f}%)")
+        else:
+            st.info("Sem dados de FIFO disponíveis.")
+    else:
+        st.info("Coluna FIFO não encontrada.")
+
+    # ======================
+    # COMPARATIVO POR TURNO (MANTIDO DO ORIGINAL)
+    # ======================
     st.markdown("<hr>", unsafe_allow_html=True)
     render_section_header("📊 Comparativo por Turno", "▸", THEME['accent_purple'])
     
-    if not df.empty and 'TURNO_TEMP' in df.columns:
-        turnos = df['TURNO_TEMP'].dropna().unique()
+    if not df_filtrado.empty and 'TURNO' in df_filtrado.columns:
+        turnos = df_filtrado['TURNO'].dropna().unique()
         
         if len(turnos) > 0:
             dados_turnos = []
             for t in turnos:
-                df_t = df[df['TURNO_TEMP'] == t]
-                total_gancheiras = len(df_t)
-                total_aprovado = int(df_t['APROVADO'].sum())
-                total_defeitos = int(df_t['TOTAL_DEFEITOS'].sum())
-                trs_medio_t = (total_aprovado / (total_gancheiras * 40) * 100) if total_gancheiras > 0 else 0
+                df_t = df_filtrado[df_filtrado['TURNO'] == t]
                 
-                dados_turnos.append({
-                    'Turno': str(t),
-                    'Gancheiras': total_gancheiras,
-                    'Aprovados': total_aprovado,
-                    'Defeitos': total_defeitos,
-                    'TRS_num': trs_medio_t,
-                    'TRS': f"{trs_medio_t:.1f}%"
-                })
+                if len(df_t) > 0:
+                    total_registros = len(df_t)
+                    total_aprovado = int(df_t['AP_TEMPERA'].sum())
+                    total_defeitos = int(df_t['REFUGADO'].sum())
+                    total_pecas = int(df_t['TOTAL_PECAS'].sum())
+                    trs_medio = df_t['TRS_TEMPERA'].mean() if 'TRS_TEMPERA' in df_t.columns else 0
+                    
+                    dados_turnos.append({
+                        'Turno': str(t),
+                        'Registros': total_registros,
+                        'Total Peças': total_pecas,
+                        'Defeitos': total_defeitos,
+                        'Aprovadas': total_aprovado,
+                        'TRS Médio': trs_medio
+                    })
             
-            df_turnos = pd.DataFrame(dados_turnos)
-            df_turnos = df_turnos.sort_values('TRS_num', ascending=False)
-            
-            df_tabela_turno = df_turnos[['Turno', 'Gancheiras', 'Aprovados', 'Defeitos', 'TRS']].copy()
-            
-            def estilo_turno(row):
-                styles = [''] * len(row)
-                try:
-                    trs_val = float(row['TRS'].replace('%', ''))
-                    if trs_val >= 80:
-                        styles[4] = 'color: #107C10; font-weight: bold;'
-                    elif trs_val >= 70:
-                        styles[4] = 'color: #E86C2C; font-weight: bold;'
-                    else:
-                        styles[4] = 'color: #E81123; font-weight: bold;'
-                except:
-                    pass
-                styles[2] = 'color: #107C10;'
-                styles[3] = 'color: #E81123;'
-                return styles
-            
-            styled_turno = df_tabela_turno.style.apply(estilo_turno, axis=1)
-            st.dataframe(styled_turno, use_container_width=True, height=150)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig, ax = plt.subplots(figsize=(5, 3.5), facecolor=THEME['bg_card'])
-                apply_chart_style(ax, fig, "Aprovados vs Defeitos", accent=THEME['accent_purple'])
-                x = range(len(df_turnos))
-                width = 0.35
-                bars1 = ax.bar([i - width/2 for i in x], df_turnos['Aprovados'], width, label='Aprovados', color=THEME['accent_lime'], alpha=0.8)
-                bars2 = ax.bar([i + width/2 for i in x], df_turnos['Defeitos'], width, label='Defeitos', color=THEME['accent_red'], alpha=0.8)
-                ax.set_xticks(x)
-                ax.set_xticklabels(df_turnos['Turno'], fontsize=9)
+            if dados_turnos:
+                df_turnos = pd.DataFrame(dados_turnos)
+                df_turnos = df_turnos.sort_values('TRS Médio', ascending=False)
+                
+                st.dataframe(df_turnos[['Turno', 'Registros', 'Total Peças', 'Defeitos', 'Aprovadas', 'TRS Médio']], 
+                            use_container_width=True, height=150)
+                
+                # Gráfico de barras
+                fig, ax = plt.subplots(figsize=(8, 4), facecolor=THEME['bg_card'])
+                apply_chart_style(ax, fig, "TRS Médio por Turno", ylabel="TRS (%)", accent=THEME['accent_purple'])
+                
+                cores_turno = {'MANHÃ': THEME['accent_cyan'], 'TARDE': THEME['accent_orange'], 'NOITE': THEME['accent_lime']}
+                bar_colors = [cores_turno.get(str(t).upper(), THEME['accent_purple']) for t in df_turnos['Turno']]
+                
+                bars = ax.bar(range(len(df_turnos)), df_turnos['TRS Médio'], color=bar_colors, alpha=0.88, 
+                             edgecolor=THEME['bg_card'], linewidth=1.5, width=0.55)
+                ax.axhline(y=85, color=THEME['accent_red'], linestyle='--', alpha=0.5, linewidth=1.5, label='Meta 85%')
+                
+                for i, (_, row) in enumerate(df_turnos.iterrows()):
+                    ax.text(i, row['TRS Médio'] + 1, f"{row['TRS Médio']:.1f}%", ha='center', va='bottom', 
+                            fontweight='bold', fontsize=9, color=THEME['text_primary'])
+                
+                ax.set_xticks(range(len(df_turnos)))
+                ax.set_xticklabels(df_turnos['Turno'], fontsize=10)
+                ax.set_ylim(0, 105)
                 ax.legend(loc='upper right', fontsize=8)
-                for bar in bars1:
-                    h = bar.get_height()
-                    if h > 0:
-                        ax.text(bar.get_x() + bar.get_width()/2, h + 5, f'{int(h)}', ha='center', va='bottom', fontsize=7, color=THEME['accent_lime'])
-                for bar in bars2:
-                    h = bar.get_height()
-                    if h > 0:
-                        ax.text(bar.get_x() + bar.get_width()/2, h + 2, f'{int(h)}', ha='center', va='bottom', fontsize=7, color=THEME['accent_red'])
+                
                 fig.tight_layout()
                 st.pyplot(fig)
                 plt.close(fig)
-            
-            with col2:
-                fig2, ax2 = plt.subplots(figsize=(5, 3.5), facecolor=THEME['bg_card'])
-                apply_chart_style(ax2, fig2, "TRS por Turno", ylabel="TRS (%)", accent=THEME['accent_purple'])
-                cores_turno = {'M': THEME['accent_cyan'], 'T': THEME['accent_orange'], 'N': THEME['accent_lime']}
-                bar_colors = [cores_turno.get(str(t), THEME['accent_purple']) for t in df_turnos['Turno']]
-                bars = ax2.bar(range(len(df_turnos)), df_turnos['TRS_num'], color=bar_colors, alpha=0.88, edgecolor=THEME['bg_card'], linewidth=1.5, width=0.55)
-                ax2.axhline(y=80, color=THEME['accent_red'], linestyle='--', alpha=0.5, linewidth=1.5, label='Meta 80%')
-                for i, (_, row) in enumerate(df_turnos.iterrows()):
-                    ax2.text(i, row['TRS_num'] + 1, f"{row['TRS_num']:.1f}%", ha='center', va='bottom', fontweight='bold', fontsize=9, color=THEME['text_primary'])
-                ax2.set_xticks(range(len(df_turnos)))
-                ax2.set_xticklabels(df_turnos['Turno'], fontsize=10)
-                ax2.set_ylim(0, 105)
-                ax2.legend(loc='upper right', fontsize=8)
-                fig2.tight_layout()
-                st.pyplot(fig2)
-                plt.close(fig2)
-            
-            melhor_turno = df_turnos.iloc[0]
-            pior_turno = df_turnos.iloc[-1]
-            st.info(f"🏆 **Melhor turno:** {melhor_turno['Turno']} ({melhor_turno['TRS']}) | ⚠️ **Pior turno:** {pior_turno['Turno']} ({pior_turno['TRS']})")
+                
+                if len(df_turnos) > 1:
+                    melhor = df_turnos.iloc[0]
+                    pior = df_turnos.iloc[-1]
+                    st.info(f"🏆 **Melhor turno:** {melhor['Turno']} ({melhor['TRS Médio']:.1f}%) | ⚠️ **Pior turno:** {pior['Turno']} ({pior['TRS Médio']:.1f}%)")
         else:
             st.info("Sem dados de turno disponíveis.")
     else:
-        st.info("Coluna TURNO_TEMP não encontrada.")
+        st.info("Coluna TURNO não encontrada.")
 
-    # ── Defeitos por Tipo ──
+    # ======================
+    # GRÁFICO DE DEFEITOS (MANTIDO DO ORIGINAL)
+    # ======================
     st.markdown("<hr>", unsafe_allow_html=True)
-    render_section_header("Defeitos por Tipo", "▸", THEME['accent_purple'])
+    render_section_header("📊 Distribuição de Defeitos", "▸", THEME['accent_purple'])
     
-    defeitos_totais = {}
-    for codigo, nome in MAPEAMENTO_DEFEITOS.items():
-        nome_clean = nome.upper().replace(' ', '_').replace('Ç', 'C').replace('Ã', 'A').replace('Á', 'A').replace('Ó', 'O')
-        col = f'QTD_{nome_clean}'
-        if col in df.columns:
-            total = int(df[col].sum())
+    # Calcular totais de defeitos por categoria
+    colunas_defeitos_existentes = [col for col in COLUNAS_DEFEITOS_TEMPERA if col in df_filtrado.columns]
+    
+    if colunas_defeitos_existentes:
+        defeitos_totais = {}
+        for col in colunas_defeitos_existentes:
+            total = int(df_filtrado[col].sum())
             if total > 0:
-                defeitos_totais[nome] = total
-    
-    if defeitos_totais:
-        df_def = pd.DataFrame(list(defeitos_totais.items()), columns=['Defeito', 'Qtd']).sort_values('Qtd', ascending=False)
+                # Limpar nome para exibição
+                nome_clean = col.replace(' T', '').strip()
+                defeitos_totais[nome_clean] = total
         
-        fig, ax = plt.subplots(figsize=(10, 3), facecolor=THEME['bg_card'])
-        apply_chart_style(ax, fig, "", accent=THEME['accent_purple'])
-        
-        colors = [THEME['accent_lime'] if 'Estourou' in d else THEME['accent_red'] for d in df_def['Defeito']]
-        bars = ax.bar(range(len(df_def)), df_def['Qtd'], color=colors, alpha=0.8)
-        ax.set_xticks(range(len(df_def)))
-        ax.set_xticklabels(df_def['Defeito'], rotation=30, ha='right', fontsize=8)
-        
-        for bar, v in zip(bars, df_def['Qtd']):
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, str(v), ha='center', fontsize=9)
-        
-        fig.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
+        if defeitos_totais:
+            df_defeitos = pd.DataFrame(list(defeitos_totais.items()), columns=['Defeito', 'Quantidade'])
+            df_defeitos = df_defeitos.sort_values('Quantidade', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(10, 4), facecolor=THEME['bg_card'])
+            apply_chart_style(ax, fig, "Defeitos por Categoria", ylabel="Quantidade", accent=THEME['accent_purple'])
+            
+            cores = [THEME['accent_red'] if i < 3 else THEME['accent_orange'] for i in range(len(df_defeitos))]
+            bars = ax.bar(range(len(df_defeitos)), df_defeitos['Quantidade'], color=cores, alpha=0.8, 
+                         edgecolor=THEME['bg_card'], linewidth=1.5)
+            
+            ax.set_xticks(range(len(df_defeitos)))
+            ax.set_xticklabels(df_defeitos['Defeito'], rotation=30, ha='right', fontsize=9)
+            
+            for bar, val in zip(bars, df_defeitos['Quantidade']):
+                if val > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                            f"{val:,}".replace(",", "."), ha='center', va='bottom', 
+                            fontsize=9, fontweight='bold')
+            
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+            
+            st.caption(f"📊 Total de defeitos: {int(sum(defeitos_totais.values())):,}".replace(",", "."))
+            
+            # Tabela detalhada
+            with st.expander("📋 Ver tabela detalhada de defeitos"):
+                df_defeitos['% do Total'] = (df_defeitos['Quantidade'] / sum(defeitos_totais.values()) * 100).round(1).astype(str) + '%'
+                st.dataframe(df_defeitos, use_container_width=True, hide_index=True)
+        else:
+            st.info("📭 Nenhum defeito registrado no período selecionado.")
     else:
-        st.info("Nenhum defeito registrado.")
+        st.info("📭 Colunas de defeitos não encontradas na planilha.")
+
+    st.markdown(f"""
+    <div style="text-align:right;padding:16px 0 8px;
+        font-family:'JetBrains Mono',monospace;font-size:10px;
+        color:{THEME['text_muted']};letter-spacing:.1em;">
+        TÊMPERA · {get_horario_brasilia()}
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==================================================================================================
 # AVISO DE REJEIÇÃO (AR)
