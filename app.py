@@ -4059,7 +4059,6 @@ elif aba_selecionada == 'TÊMPERA':
             return 0.0
             
         except Exception as e:
-            print(f"Erro ao converter tempo: {e} - Valor: {valor}")
             return 0.0
     
     # ======================
@@ -4165,10 +4164,8 @@ elif aba_selecionada == 'TÊMPERA':
                     df[col] = df[col].apply(converter_numero_br)
             
             # ===== CONVERTER COLUNAS DE TEMPO (MANU_TEMPERA e PARADA_TEMPERA) =====
-            # Estas colunas podem vir como HH:MM:SS ou como número decimal
             for col in ['MANU_TEMPERA', 'PARADA_TEMPERA']:
                 if col in df.columns:
-                    # Converter para horas decimais usando a função especial
                     df[col] = df[col].apply(tempo_para_horas_decimais)
                 else:
                     df[col] = 0.0
@@ -4178,7 +4175,6 @@ elif aba_selecionada == 'TÊMPERA':
                 if col in df.columns:
                     df[col] = df[col].apply(converter_numero_br)
                 else:
-                    # Se a coluna não existir, criar com zeros
                     df[col] = 0
             
             # ===== CALCULAR TOTAL REFUGADO =====
@@ -4206,11 +4202,11 @@ elif aba_selecionada == 'TÊMPERA':
             if 'DATA' in df.columns:
                 df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
             
-            # ===== CONVERTER HORAS PARA STRING USANDO A FUNÇÃO CORRIGIDA =====
+            # ===== CONVERTER HORAS PARA STRING =====
             df['MANU_TEMPERA_STR'] = df['MANU_TEMPERA'].apply(horas_decimais_para_str)
             df['PARADA_TEMPERA_STR'] = df['PARADA_TEMPERA'].apply(horas_decimais_para_str)
             
-            # ===== ORDENAR POR DATA =====
+            # ===== ORDENAR POR DATA DO MAIS RECENTE PARA O MAIS ANTIGO =====
             if 'DATA' in df.columns:
                 df = df.sort_values('DATA', ascending=False)
             
@@ -4295,6 +4291,10 @@ elif aba_selecionada == 'TÊMPERA':
         elif faixa_trs == "Crítico (<50%)":
             df = df[df['TRS_LIQUIDO'] < 50]
     
+    # ===== ORDENAR DO MAIS RECENTE PARA O MAIS ANTIGO APÓS FILTROS =====
+    if 'DATA' in df.columns and not df.empty:
+        df = df.sort_values('DATA', ascending=False)
+    
     if df.empty:
         st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
         st.stop()
@@ -4306,7 +4306,7 @@ elif aba_selecionada == 'TÊMPERA':
     total_meta = int(df['META_LIQUIDA'].sum()) if 'META_LIQUIDA' in df.columns else 0
     trs_medio = df['TRS_LIQUIDO'].mean() if 'TRS_LIQUIDO' in df.columns else 0
     
-    # ===== CALCULAR PARADAS USANDO A FUNÇÃO CORRIGIDA =====
+    # ===== CALCULAR PARADAS =====
     total_manut_str = somar_horas_e_converter(df['MANU_TEMPERA'] if 'MANU_TEMPERA' in df.columns else pd.Series([0]))
     total_parada_str = somar_horas_e_converter(df['PARADA_TEMPERA'] if 'PARADA_TEMPERA' in df.columns else pd.Series([0]))
     
@@ -4377,10 +4377,10 @@ elif aba_selecionada == 'TÊMPERA':
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # ===== TABELA DE PRODUÇÃO DA TÊMPERA =====
+    # ===== TABELA DE PRODUÇÃO DA TÊMPERA (ORDENADA DO MAIS RECENTE PARA O MAIS ANTIGO) =====
     render_section_header("📋 Produção da Têmpera", "▸", THEME['accent_purple'])
     
-    # Preparar dados para a tabela
+    # Preparar dados para a tabela - já ordenados pelo carregamento
     df_display = df.copy()
     
     # Formatar datas
@@ -4398,7 +4398,7 @@ elif aba_selecionada == 'TÊMPERA':
     if 'TRS_LIQUIDO' in df_display.columns:
         df_display['TRS_LIQUIDO_STR'] = df_display['TRS_LIQUIDO'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "0%")
     
-    # Garantir colunas de tempo com a formatação correta
+    # Garantir colunas de tempo
     if 'MANU_TEMPERA_STR' not in df_display.columns:
         df_display['MANU_TEMPERA_STR'] = df_display['MANU_TEMPERA'].apply(horas_decimais_para_str)
     if 'PARADA_TEMPERA_STR' not in df_display.columns:
@@ -4453,21 +4453,29 @@ elif aba_selecionada == 'TÊMPERA':
         return styles
     
     if not df_exibicao.empty:
+        # Aplicar limite de linhas se especificado
+        if qtd > 0:
+            df_exibicao = df_exibicao.head(qtd)
+        
         styled_df = df_exibicao.style.apply(estilo_tabela_tempera, axis=1)
         st.dataframe(styled_df, use_container_width=True, height=400, hide_index=True)
         
-        qtd_mostrar = qtd if qtd > 0 else len(df_exibicao)
-        st.caption(f"📊 Exibindo {min(qtd_mostrar, len(df_exibicao))} de {len(df_exibicao)} registros")
+        st.caption(f"📊 Exibindo {len(df_exibicao)} de {len(df_display)} registros (ordenados do mais recente para o mais antigo)")
     else:
         st.info("📭 Nenhum dado disponível para exibição")
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # ===== TABELA REGISTROS DE TÊMPERA (ORIGINAL) =====
+    # ===== TABELA REGISTROS DE TÊMPERA (ORDENADA DO MAIS RECENTE PARA O MAIS ANTIGO) =====
     render_section_header("📋 Registros de Têmpera", "▸", THEME['accent_purple'])
     
     if not df.empty:
-        df_temp_display = df.sort_values(by="DATA", ascending=False).head(qtd if qtd > 0 else 100).copy()
+        # Já está ordenado pelo carregamento, mas garantimos a ordenação
+        df_temp_display = df.sort_values(by="DATA", ascending=False).copy()
+        
+        if qtd > 0:
+            df_temp_display = df_temp_display.head(qtd)
+        
         df_temp_display['DATA'] = pd.to_datetime(df_temp_display['DATA']).dt.strftime('%d/%m/%Y')
         
         colunas_temp = ['DATA', 'TURNO', 'REFERÊNCIA', 'AP_TEMPERA', 'REFUGADO_TOTAL', 'TRS_LIQUIDO']
@@ -4499,6 +4507,7 @@ elif aba_selecionada == 'TÊMPERA':
                 df_exibicao_temp[col] = df_exibicao_temp[col].apply(lambda x: f"{int(x):,}".replace(",", ".") if pd.notna(x) else "0")
         
         st.dataframe(df_exibicao_temp, use_container_width=True, height=300, hide_index=True)
+        st.caption(f"📊 Exibindo {len(df_exibicao_temp)} registros (do mais recente para o mais antigo)")
     else:
         st.info("📭 Nenhum registro de têmpera disponível")
     
@@ -4507,6 +4516,7 @@ elif aba_selecionada == 'TÊMPERA':
     render_section_header("📈 Evolução Diária do TRS Líquido", "▸", THEME['accent_purple'])
     
     if not df.empty and 'TRS_LIQUIDO' in df.columns and 'DATA' in df.columns:
+        # Ordenar para o gráfico (do mais antigo para o mais recente para visualização)
         resumo_dia = df.groupby(df['DATA'].dt.date).agg({
             'TRS_LIQUIDO': 'mean',
             'AP_TEMPERA': 'sum',
@@ -4514,7 +4524,7 @@ elif aba_selecionada == 'TÊMPERA':
             'TOTAL_PECAS': 'sum'
         }).reset_index()
         resumo_dia['DATA'] = pd.to_datetime(resumo_dia['DATA'])
-        resumo_dia = resumo_dia.sort_values('DATA')
+        resumo_dia = resumo_dia.sort_values('DATA', ascending=True)  # Crescente para o gráfico
         
         if not resumo_dia.empty:
             fig, ax = plt.subplots(figsize=(12, 4), facecolor=THEME['bg_card'])
@@ -4633,6 +4643,7 @@ elif aba_selecionada == 'TÊMPERA':
         TÊMPERA · {get_horario_brasilia()}
     </div>
     """, unsafe_allow_html=True)
+    
 # ==================================================================================================
 # AVISO DE REJEIÇÃO (AR)
 # ==================================================================================================
