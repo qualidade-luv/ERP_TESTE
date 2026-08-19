@@ -4013,6 +4013,36 @@ elif aba_selecionada == 'TÊMPERA':
     ]
     
     # ======================
+    # FUNÇÃO PARA CONVERTER TRS CORRETAMENTE
+    # ======================
+    def converter_trs(valor):
+        """
+        Converte o valor do TRS para porcentagem correta.
+        - Se o valor for > 1, considera que já está em porcentagem (ex: 92)
+        - Se o valor for < 1, considera que está em decimal (ex: 0.92) e multiplica por 100
+        - Se o valor for entre 1 e 100, mantém como está
+        """
+        if pd.isna(valor) or valor is None:
+            return 0.0
+        
+        try:
+            valor = float(valor)
+        except:
+            return 0.0
+        
+        if valor <= 0:
+            return 0.0
+        elif valor < 1:
+            # Valor está em decimal (0.92 = 92%)
+            return valor * 100
+        elif valor < 100:
+            # Valor já está em porcentagem (92 = 92%)
+            return valor
+        else:
+            # Valor > 100, pode ser porcentagem com mais de 100%
+            return valor
+    
+    # ======================
     # FUNÇÃO PARA CONVERTER TEMPO EM FORMATO HH:MM:SS PARA HORAS DECIMAIS
     # ======================
     def tempo_para_horas_decimais(valor):
@@ -4156,12 +4186,18 @@ elif aba_selecionada == 'TÊMPERA':
             # ===== CONVERTER COLUNAS NUMÉRICAS =====
             colunas_numericas = [
                 'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
-                'TRS_TEMPERA', 'AUD_TEMPERA'
+                'AUD_TEMPERA'
             ]
             
             for col in colunas_numericas:
                 if col in df.columns:
                     df[col] = df[col].apply(converter_numero_br)
+            
+            # ===== CONVERTER TRS_TEMPERA COM A FUNÇÃO ESPECIAL =====
+            if 'TRS_TEMPERA' in df.columns:
+                df['TRS_TEMPERA'] = df['TRS_TEMPERA'].apply(converter_trs)
+            else:
+                df['TRS_TEMPERA'] = 0.0
             
             # ===== CONVERTER COLUNAS DE TEMPO (MANU_TEMPERA e PARADA_TEMPERA) =====
             for col in ['MANU_TEMPERA', 'PARADA_TEMPERA']:
@@ -4192,11 +4228,8 @@ elif aba_selecionada == 'TÊMPERA':
             else:
                 df['META_LIQUIDA'] = 0
             
-            # ===== GARANTIR TRS =====
-            if 'TRS_TEMPERA' in df.columns:
-                df['TRS_LIQUIDO'] = df['TRS_TEMPERA']
-            else:
-                df['TRS_LIQUIDO'] = 0
+            # ===== GARANTIR TRS (já convertido) =====
+            df['TRS_LIQUIDO'] = df['TRS_TEMPERA']
             
             # ===== ADICIONAR ANO_MES PARA AGRUPAÇÃO =====
             if 'DATA' in df.columns:
@@ -4394,7 +4427,7 @@ elif aba_selecionada == 'TÊMPERA':
         if col in df_display.columns:
             df_display[col] = df_display[col].apply(lambda x: f"{int(x):,}".replace(",", ".") if pd.notna(x) else "0")
     
-    # Formatar TRS
+    # Formatar TRS - agora com a conversão correta
     if 'TRS_LIQUIDO' in df_display.columns:
         df_display['TRS_LIQUIDO_STR'] = df_display['TRS_LIQUIDO'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "0%")
     
