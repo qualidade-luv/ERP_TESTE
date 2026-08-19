@@ -3992,7 +3992,7 @@ elif aba_selecionada == 'SOPRO':
 
 
 # ==================================================================================================
-# TÊMPERA - VERSÃO COMPLETA COM NOVOS CARDS E TABELA
+# TÊMPERA - VERSÃO COMPLETA COM CORREÇÃO DO MAPEAMENTO DE COLUNAS
 # ==================================================================================================
 elif aba_selecionada == 'TÊMPERA':
     render_page_header(
@@ -4008,7 +4008,7 @@ elif aba_selecionada == 'TÊMPERA':
     ABA_TEMPERA = 'TRS_TEMPERA'
 
     # ======================
-    # COLUNAS DE DEFEITOS DA TÊMPERA
+    # COLUNAS DE DEFEITOS DA TÊMPERA - NOMES EXATOS DA PLANILHA
     # ======================
     COLUNAS_DEFEITOS_TEMPERA = [
         'EMPENADA / OVALIZADA T',
@@ -4033,14 +4033,13 @@ elif aba_selecionada == 'TÊMPERA':
         return f"{horas_int:02d}:{minutos:02d}"
 
     # ======================
-    # FUNÇÃO DE CARREGAMENTO DE DADOS - NOVA VERSÃO
+    # FUNÇÃO DE CARREGAMENTO DE DADOS - CORRIGIDA
     # ======================
     @retry_on_quota()
     @st.cache_data(ttl=1200)
     def carregar_dados_tempera_novo():
         """
         Carrega os dados da planilha TRS_TEMPERA com as colunas específicas
-        para os novos cards e tabela
         """
         try:
             client = get_gspread_client()
@@ -4068,51 +4067,53 @@ elif aba_selecionada == 'TÊMPERA':
             # Criar DataFrame com os dados brutos
             df = pd.DataFrame(valores, columns=cabecalho)
             
-            # Limpar nomes das colunas
+            # Limpar nomes das colunas (remover espaços extras)
             df.columns = df.columns.str.strip()
             
-            # Mapear colunas existentes para os nomes padronizados
-            mapa_colunas = {}
-            for col in df.columns:
-                col_clean = str(col).strip().upper()
-                
-                if col_clean == 'FIFO':
-                    mapa_colunas[col] = 'FIFO'
-                elif col_clean == 'DATA':
-                    mapa_colunas[col] = 'DATA'
-                elif col_clean == 'TURNO':
-                    mapa_colunas[col] = 'TURNO'
-                elif col_clean == 'D_TEMPERA':
-                    mapa_colunas[col] = 'D_TEMPERA'
-                elif col_clean == 'AP_TEMPERA':
-                    mapa_colunas[col] = 'AP_TEMPERA'
-                elif col_clean == 'HORAS_TEMPERA':
-                    mapa_colunas[col] = 'HORAS_TEMPERA'
-                elif col_clean == 'META_TEMPERA':
-                    mapa_colunas[col] = 'META_TEMPERA'
-                elif col_clean == 'TRS_TEMPERA':
-                    mapa_colunas[col] = 'TRS_TEMPERA'
-                elif col_clean == 'AUD_TEMPERA':
-                    mapa_colunas[col] = 'AUD_TEMPERA'
-                elif col_clean == 'MANU_TEMPERA':
-                    mapa_colunas[col] = 'MANU_TEMPERA'
-                elif col_clean == 'PARADA_TEMPERA':
-                    mapa_colunas[col] = 'PARADA_TEMPERA'
+            # Debug: mostrar colunas encontradas
+            print("Colunas encontradas:", list(df.columns))
             
-            # Aplicar renomeação
-            if mapa_colunas:
-                df = df.rename(columns=mapa_colunas)
+            # Mapear colunas - USANDO OS NOMES EXATOS DA PLANILHA
+            # As colunas já estão com os nomes corretos, só precisamos garantir que existem
             
             # Verificar se temos as colunas mínimas
-            colunas_minimas = ['FIFO', 'DATA', 'AP_TEMPERA']
-            colunas_faltando = [c for c in colunas_minimas if c not in df.columns]
+            colunas_necessarias = ['FIFO', 'DATA', 'AP_TEMPERA']
+            colunas_faltando = [c for c in colunas_necessarias if c not in df.columns]
             
             if colunas_faltando:
                 st.warning(f"⚠️ Colunas não encontradas: {', '.join(colunas_faltando)}")
-                # Tentar continuar com as colunas disponíveis
-                for col in colunas_minimas:
-                    if col not in df.columns:
-                        df[col] = 0
+                # Tentar encontrar colunas com nomes semelhantes
+                for col in df.columns:
+                    col_clean = col.strip().upper()
+                    if 'FIFO' in col_clean:
+                        df = df.rename(columns={col: 'FIFO'})
+                    elif col_clean == 'DATA' or 'DATA' in col_clean:
+                        df = df.rename(columns={col: 'DATA'})
+                    elif 'AP_TEMPERA' in col_clean or 'AP_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'AP_TEMPERA'})
+                    elif 'D_TEMPERA' in col_clean or 'D_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'D_TEMPERA'})
+                    elif 'META_TEMPERA' in col_clean or 'META_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'META_TEMPERA'})
+                    elif 'TRS_TEMPERA' in col_clean or 'TRS_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'TRS_TEMPERA'})
+                    elif 'MANU_TEMPERA' in col_clean or 'MANU_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'MANU_TEMPERA'})
+                    elif 'PARADA_TEMPERA' in col_clean or 'PARADA_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'PARADA_TEMPERA'})
+                    elif 'HORAS_TEMPERA' in col_clean or 'HORAS_TEMP' in col_clean:
+                        df = df.rename(columns={col: 'HORAS_TEMPERA'})
+                    elif 'TURNO' in col_clean:
+                        df = df.rename(columns={col: 'TURNO'})
+            
+            # Verificar novamente após tentativa de correção
+            colunas_necessarias = ['DATA', 'AP_TEMPERA']
+            colunas_faltando = [c for c in colunas_necessarias if c not in df.columns]
+            
+            if colunas_faltando:
+                st.error(f"❌ Colunas obrigatórias não encontradas: {', '.join(colunas_faltando)}")
+                st.write("Colunas disponíveis:", list(df.columns))
+                return pd.DataFrame()
             
             # ===== CONVERTER DATAS =====
             if 'DATA' in df.columns:
@@ -4140,6 +4141,7 @@ elif aba_selecionada == 'TÊMPERA':
                 df['REFUGADO'] = df[colunas_defeitos_existentes].sum(axis=1)
             else:
                 df['REFUGADO'] = 0
+                st.warning("⚠️ Nenhuma coluna de defeitos encontrada. REFUGADO será 0.")
             
             # ===== CALCULAR TOTAL DE PEÇAS =====
             df['TOTAL_PECAS'] = df['AP_TEMPERA'] + df['REFUGADO']
@@ -4150,7 +4152,8 @@ elif aba_selecionada == 'TÊMPERA':
             
             # ===== GARANTIR TRS =====
             if 'TRS_TEMPERA' not in df.columns:
-                df['TRS_TEMPERA'] = 0
+                # Calcular TRS se não existir
+                df['TRS_TEMPERA'] = (df['AP_TEMPERA'] / df['META_TEMPERA'] * 100).fillna(0)
             
             # ===== REMOVER LINHAS SEM DADOS =====
             df = df[df['AP_TEMPERA'] > 0]
@@ -4163,6 +4166,8 @@ elif aba_selecionada == 'TÊMPERA':
 
         except Exception as e:
             st.error(f"❌ Erro ao carregar dados: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
 
     # ======================
@@ -4173,7 +4178,6 @@ elif aba_selecionada == 'TÊMPERA':
     def carregar_dados_tempera_original():
         """
         Carrega os dados da planilha TRS_TEMPERA - VERSÃO ORIGINAL
-        para manter compatibilidade com a tabela "Registros de Têmpera"
         """
         try:
             client = get_gspread_client()
