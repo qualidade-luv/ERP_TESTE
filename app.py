@@ -4013,14 +4013,61 @@ elif aba_selecionada == 'TÊMPERA':
     ]
     
     # ======================
-    # FUNÇÃO CORRIGIDA PARA CONVERTER HORAS DECIMAIS PARA HH:MM
+    # FUNÇÃO PARA CONVERTER TEMPO EM FORMATO HH:MM:SS PARA HORAS DECIMAIS
     # ======================
-    def horas_para_str(horas):
+    def tempo_para_horas_decimais(valor):
         """
-        Converte horas (em formato decimal ou minutos) para string HH:MM
-        - Se o valor for < 24, considera como horas decimais
-        - Se o valor for >= 24, considera como minutos (divide por 60)
-        - Se o valor for NaN ou None, retorna "00:00"
+        Converte um valor de tempo no formato HH:MM:SS ou HH:MM para horas decimais
+        Retorna 0 se não for possível converter
+        """
+        if pd.isna(valor) or valor is None:
+            return 0.0
+        
+        try:
+            # Se for string, tenta converter
+            if isinstance(valor, str):
+                valor_str = valor.strip()
+                
+                # Verifica se está no formato HH:MM:SS
+                if ':' in valor_str:
+                    partes = valor_str.split(':')
+                    if len(partes) == 3:  # HH:MM:SS
+                        horas = int(partes[0])
+                        minutos = int(partes[1])
+                        segundos = int(partes[2])
+                        return horas + (minutos / 60) + (segundos / 3600)
+                    elif len(partes) == 2:  # HH:MM
+                        horas = int(partes[0])
+                        minutos = int(partes[1])
+                        return horas + (minutos / 60)
+                
+                # Tenta converter para float
+                try:
+                    return float(valor_str)
+                except:
+                    return 0.0
+            
+            # Se já for número, retorna como está
+            if isinstance(valor, (int, float)):
+                # Se o número for muito grande (> 100), pode ser minutos ou segundos
+                if valor > 1000:
+                    return valor / 3600  # Segundos para horas
+                elif valor > 100:
+                    return valor / 60    # Minutos para horas
+                return float(valor)
+            
+            return 0.0
+            
+        except Exception as e:
+            print(f"Erro ao converter tempo: {e} - Valor: {valor}")
+            return 0.0
+    
+    # ======================
+    # FUNÇÃO PARA CONVERTER HORAS DECIMAIS PARA HH:MM
+    # ======================
+    def horas_decimais_para_str(horas):
+        """
+        Converte horas decimais para string no formato HH:MM
         """
         if pd.isna(horas) or horas is None:
             return "00:00"
@@ -4033,21 +4080,37 @@ elif aba_selecionada == 'TÊMPERA':
         if horas <= 0:
             return "00:00"
         
-        # Se o valor for muito grande (> 1000), provavelmente está em minutos
-        # ou é um valor que precisa ser dividido
-        if horas > 1000:
-            # Verifica se parece ser minutos (valor > 1000 geralmente é minutos)
-            horas = horas / 60  # Converte minutos para horas
-        
-        # Se ainda for muito grande (> 100), pode ser segundos
-        if horas > 100:
-            horas = horas / 3600  # Converte segundos para horas
-        
-        # Agora temos horas decimais
         horas_int = int(horas)
         minutos = int((horas - horas_int) * 60)
         
         # Garantir que minutos não ultrapassem 59
+        if minutos >= 60:
+            horas_int += minutos // 60
+            minutos = minutos % 60
+        
+        return f"{horas_int:02d}:{minutos:02d}"
+    
+    # ======================
+    # FUNÇÃO PARA SOMAR HORAS E CONVERTER PARA STRING
+    # ======================
+    def somar_horas_e_converter(series):
+        """
+        Soma os valores de horas (em horas decimais) e converte para HH:MM
+        """
+        total = 0.0
+        for val in series:
+            if pd.notna(val):
+                try:
+                    total += float(val)
+                except:
+                    pass
+        
+        if total <= 0:
+            return "00:00"
+        
+        horas_int = int(total)
+        minutos = int((total - horas_int) * 60)
+        
         if minutos >= 60:
             horas_int += minutos // 60
             minutos = minutos % 60
@@ -4094,12 +4157,21 @@ elif aba_selecionada == 'TÊMPERA':
             # ===== CONVERTER COLUNAS NUMÉRICAS =====
             colunas_numericas = [
                 'AP_TEMPERA', 'HORAS_TEMPERA', 'META_TEMPERA', 
-                'TRS_TEMPERA', 'AUD_TEMPERA', 'MANU_TEMPERA', 'PARADA_TEMPERA'
+                'TRS_TEMPERA', 'AUD_TEMPERA'
             ]
             
             for col in colunas_numericas:
                 if col in df.columns:
                     df[col] = df[col].apply(converter_numero_br)
+            
+            # ===== CONVERTER COLUNAS DE TEMPO (MANU_TEMPERA e PARADA_TEMPERA) =====
+            # Estas colunas podem vir como HH:MM:SS ou como número decimal
+            for col in ['MANU_TEMPERA', 'PARADA_TEMPERA']:
+                if col in df.columns:
+                    # Converter para horas decimais usando a função especial
+                    df[col] = df[col].apply(tempo_para_horas_decimais)
+                else:
+                    df[col] = 0.0
             
             # ===== CONVERTER COLUNAS DE DEFEITOS =====
             for col in COLUNAS_DEFEITOS_TEMPERA:
@@ -4135,16 +4207,8 @@ elif aba_selecionada == 'TÊMPERA':
                 df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
             
             # ===== CONVERTER HORAS PARA STRING USANDO A FUNÇÃO CORRIGIDA =====
-            df['MANU_TEMPERA_STR'] = df['MANU_TEMPERA'].apply(horas_para_str)
-            df['PARADA_TEMPERA_STR'] = df['PARADA_TEMPERA'].apply(horas_para_str)
-            
-            # Também manter os valores numéricos para soma
-            df['MANU_TEMPERA_NUM'] = df['MANU_TEMPERA'].apply(
-                lambda x: float(x) if pd.notna(x) else 0
-            )
-            df['PARADA_TEMPERA_NUM'] = df['PARADA_TEMPERA'].apply(
-                lambda x: float(x) if pd.notna(x) else 0
-            )
+            df['MANU_TEMPERA_STR'] = df['MANU_TEMPERA'].apply(horas_decimais_para_str)
+            df['PARADA_TEMPERA_STR'] = df['PARADA_TEMPERA'].apply(horas_decimais_para_str)
             
             # ===== ORDENAR POR DATA =====
             if 'DATA' in df.columns:
@@ -4157,39 +4221,6 @@ elif aba_selecionada == 'TÊMPERA':
             import traceback
             traceback.print_exc()
             return pd.DataFrame()
-    
-    # ======================
-    # FUNÇÃO PARA SOMAR HORAS E CONVERTER PARA STRING
-    # ======================
-    def somar_horas_e_converter(series):
-        """
-        Soma os valores de horas e converte para string HH:MM
-        """
-        total = 0
-        for val in series:
-            if pd.notna(val):
-                try:
-                    total += float(val)
-                except:
-                    pass
-        
-        # Se o total for muito grande (> 1000), pode estar em minutos
-        if total > 1000:
-            total = total / 60
-        
-        # Se ainda for muito grande (> 100), pode estar em segundos
-        if total > 100:
-            total = total / 3600
-        
-        # Converter para HH:MM
-        horas_int = int(total)
-        minutos = int((total - horas_int) * 60)
-        
-        if minutos >= 60:
-            horas_int += minutos // 60
-            minutos = minutos % 60
-        
-        return f"{horas_int:02d}:{minutos:02d}"
     
     # ======================
     # CARREGAR DADOS
@@ -4276,8 +4307,8 @@ elif aba_selecionada == 'TÊMPERA':
     trs_medio = df['TRS_LIQUIDO'].mean() if 'TRS_LIQUIDO' in df.columns else 0
     
     # ===== CALCULAR PARADAS USANDO A FUNÇÃO CORRIGIDA =====
-    total_manut_str = somar_horas_e_converter(df['MANU_TEMPERA_NUM'] if 'MANU_TEMPERA_NUM' in df.columns else df['MANU_TEMPERA'])
-    total_parada_str = somar_horas_e_converter(df['PARADA_TEMPERA_NUM'] if 'PARADA_TEMPERA_NUM' in df.columns else df['PARADA_TEMPERA'])
+    total_manut_str = somar_horas_e_converter(df['MANU_TEMPERA'] if 'MANU_TEMPERA' in df.columns else pd.Series([0]))
+    total_parada_str = somar_horas_e_converter(df['PARADA_TEMPERA'] if 'PARADA_TEMPERA' in df.columns else pd.Series([0]))
     
     # ===== PAGE HEADER =====
     render_page_header("TÊMPERA", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_purple'])
@@ -4369,9 +4400,9 @@ elif aba_selecionada == 'TÊMPERA':
     
     # Garantir colunas de tempo com a formatação correta
     if 'MANU_TEMPERA_STR' not in df_display.columns:
-        df_display['MANU_TEMPERA_STR'] = df_display['MANU_TEMPERA'].apply(horas_para_str)
+        df_display['MANU_TEMPERA_STR'] = df_display['MANU_TEMPERA'].apply(horas_decimais_para_str)
     if 'PARADA_TEMPERA_STR' not in df_display.columns:
-        df_display['PARADA_TEMPERA_STR'] = df_display['PARADA_TEMPERA'].apply(horas_para_str)
+        df_display['PARADA_TEMPERA_STR'] = df_display['PARADA_TEMPERA'].apply(horas_decimais_para_str)
     
     # Colunas para exibição na tabela principal
     colunas_tabela = [
@@ -4602,7 +4633,6 @@ elif aba_selecionada == 'TÊMPERA':
         TÊMPERA · {get_horario_brasilia()}
     </div>
     """, unsafe_allow_html=True)
-
 # ==================================================================================================
 # AVISO DE REJEIÇÃO (AR)
 # ==================================================================================================
