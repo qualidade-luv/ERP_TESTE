@@ -4989,121 +4989,291 @@ elif aba_selecionada == 'TÊMPERA':
             else:
                 st.info("📭 Sem dados de gancheiras disponíveis.")
         
-        # ── ANÁLISE DE POSIÇÕES DA PIOR GANCHEIRA ──
-        st.markdown("<hr>", unsafe_allow_html=True)
-        render_section_header("🔧 Análise de Posições - Pior Gancheira", "▸", THEME['accent_purple'])
+        # ── ANÁLISE DE POSIÇÕES (COM FILTROS POR GANCHEIRA E DEFEITO) ──
+st.markdown("<hr>", unsafe_allow_html=True)
+render_section_header("🔧 Análise de Posições - Gancheira", "▸", THEME['accent_purple'])
+
+if not df_original.empty and 'GANCHEIRA' in df_original.columns:
+    # Filtrar dados originais pela data selecionada
+    df_original_filtrado = df_original.copy()
+    if data_ini:
+        df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] >= pd.to_datetime(data_ini)]
+    if data_fim:
+        df_original_filtrado = df_original_filtrado[df_original_filtrado['DATA'] <= pd.to_datetime(data_fim)]
+    if turno != "(Todos)" and 'TURNO_TEMP' in df_original_filtrado.columns:
+        df_original_filtrado = df_original_filtrado[df_original_filtrado['TURNO_TEMP'].astype(str).str.upper() == turno.upper()]
+    
+    # Filtrar apenas registros com GANCHEIRA preenchida
+    df_com_gancheira = df_original_filtrado[df_original_filtrado['GANCHEIRA'].notna() & (df_original_filtrado['GANCHEIRA'].astype(str).str.strip() != '')]
+    
+    if not df_com_gancheira.empty:
+        # ===== FILTROS =====
+        col_filtro1, col_filtro2 = st.columns(2)
         
-        # Identificar a pior gancheira do período
-        df_com_gancheira = df_original_filtrado[df_original_filtrado['GANCHEIRA'].notna() & (df_original_filtrado['GANCHEIRA'].astype(str).str.strip() != '')]
+        with col_filtro1:
+            # Lista de gancheiras disponíveis
+            gancheiras_lista = sorted([str(g) for g in df_com_gancheira['GANCHEIRA'].unique()])
+            gancheira_selecionada = st.selectbox(
+                "🎯 Selecione a Gancheira para Análise",
+                options=["(Pior Gancheira)"] + gancheiras_lista,
+                key="gancheira_analise_select"
+            )
         
-        if not df_com_gancheira.empty:
+        with col_filtro2:
+            # Tipos de defeito disponíveis para filtro
+            opcoes_defeitos = ["(Todos os Defeitos)"] + list(MAPEAMENTO_DEFEITOS.values())
+            defeito_selecionado = st.selectbox(
+                "🔍 Filtrar por Tipo de Defeito",
+                options=opcoes_defeitos,
+                key="defeito_analise_select"
+            )
+        
+        # ===== DETERMINAR QUAL GANCHEIRA ANALISAR =====
+        if gancheira_selecionada == "(Pior Gancheira)":
+            # Calcular a pior gancheira (maior número de defeitos)
             ranking_pior = []
             for g in df_com_gancheira['GANCHEIRA'].unique():
                 df_g = df_com_gancheira[df_com_gancheira['GANCHEIRA'] == g]
-                ranking_pior.append({'Gancheira': str(g), 'Defeitos': int(df_g['TOTAL_DEFEITOS'].sum()), 'Reg': len(df_g)})
+                ranking_pior.append({
+                    'Gancheira': str(g), 
+                    'Defeitos': int(df_g['TOTAL_DEFEITOS'].sum()), 
+                    'Reg': len(df_g)
+                })
             
             if ranking_pior:
                 df_rank_pior = pd.DataFrame(ranking_pior).sort_values('Defeitos', ascending=False)
                 pior = df_rank_pior.iloc[0]
+                gancheira_analise = pior['Gancheira']
                 
                 st.markdown(f"""
                 <div style="background: {THEME['bg_card2']}; padding: 10px 15px; margin-bottom: 15px; border-left: 4px solid {THEME['accent_red']};">
-                    <span style="font-weight: bold; color: {THEME['accent_red']};">🔴 PIOR GANCHEIRA: {pior['Gancheira']}</span> | 
+                    <span style="font-weight: bold; color: {THEME['accent_red']};">🔴 PIOR GANCHEIRA: {gancheira_analise}</span> | 
                     {pior['Defeitos']} defeitos em {pior['Reg']} registros
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Análise de posições da pior gancheira
-                df_pior = df_com_gancheira[df_com_gancheira['GANCHEIRA'] == pior['Gancheira']]
-                
-                # Verificar se há colunas de posição (colunas numéricas)
-                posicoes_dados = []
-                for col in df_pior.columns:
-                    try:
-                        num = int(str(col).strip())
-                        if 11 <= num <= 78 and col in df_pior.columns:
-                            # Contar defeitos por posição
-                            contagem = {c: 0 for c in CODIGOS_DEFEITO_REAIS}
-                            total = 0
-                            for val in df_pior[col].dropna():
-                                try:
-                                    cod = int(float(str(val).strip()))
-                                    if cod in CODIGOS_DEFEITO_REAIS:
+            else:
+                gancheira_analise = gancheiras_lista[0] if gancheiras_lista else None
+        else:
+            gancheira_analise = gancheira_selecionada
+            # Mostrar estatísticas da gancheira selecionada
+            df_g_sel = df_com_gancheira[df_com_gancheira['GANCHEIRA'] == gancheira_analise]
+            total_def_sel = int(df_g_sel['TOTAL_DEFEITOS'].sum())
+            total_reg_sel = len(df_g_sel)
+            st.markdown(f"""
+            <div style="background: {THEME['bg_card2']}; padding: 10px 15px; margin-bottom: 15px; border-left: 4px solid {THEME['accent_cyan']};">
+                <span style="font-weight: bold; color: {THEME['accent_cyan']};">🎯 GANCHEIRA SELECIONADA: {gancheira_analise}</span> | 
+                {total_def_sel} defeitos em {total_reg_sel} registros
+            </div>
+            """, unsafe_allow_html=True)
+        
+        if gancheira_analise:
+            # ===== FILTRAR DADOS DA GANCHEIRA SELECIONADA =====
+            df_pior = df_com_gancheira[df_com_gancheira['GANCHEIRA'] == gancheira_analise]
+            
+            # ===== APLICAR FILTRO POR DEFEITO =====
+            # Mapear nome do defeito para código
+            codigo_defeito_selecionado = None
+            if defeito_selecionado != "(Todos os Defeitos)":
+                for codigo, nome in MAPEAMENTO_DEFEITOS.items():
+                    if nome == defeito_selecionado:
+                        codigo_defeito_selecionado = codigo
+                        break
+            
+            # ===== ANÁLISE DE POSIÇÕES =====
+            posicoes_dados = []
+            for col in df_pior.columns:
+                try:
+                    num = int(str(col).strip())
+                    if 11 <= num <= 78 and col in df_pior.columns:
+                        # Contar defeitos por posição
+                        contagem = {c: 0 for c in CODIGOS_DEFEITO_REAIS}
+                        total = 0
+                        
+                        for val in df_pior[col].dropna():
+                            try:
+                                cod = int(float(str(val).strip()))
+                                if cod in CODIGOS_DEFEITO_REAIS:
+                                    # Se filtro por defeito específico, conta apenas esse defeito
+                                    if codigo_defeito_selecionado is not None:
+                                        if cod == codigo_defeito_selecionado:
+                                            contagem[cod] += 1
+                                            total += 1
+                                    else:
                                         contagem[cod] += 1
                                         total += 1
-                                except:
-                                    pass
-                            if total > 0:
+                            except:
+                                pass
+                        
+                        if total > 0:
+                            # Encontrar o defeito principal
+                            if codigo_defeito_selecionado is not None:
+                                principal_nome = MAPEAMENTO_DEFEITOS.get(codigo_defeito_selecionado, '?')
+                                principal_qtd = contagem.get(codigo_defeito_selecionado, 0)
+                                principal_str = f"{principal_nome[:20]} ({principal_qtd})"
+                            else:
                                 principal_cod = max(contagem, key=contagem.get)
                                 principal_nome = MAPEAMENTO_DEFEITOS.get(principal_cod, '?')
-                                posicoes_dados.append({
-                                    'Posição': num,
-                                    'Defeitos': total,
-                                    'Principal': f"{principal_nome[:20]} ({contagem[principal_cod]})"
-                                })
-                    except:
-                        pass
+                                principal_str = f"{principal_nome[:20]} ({contagem[principal_cod]})"
+                            
+                            posicoes_dados.append({
+                                'Posição': num,
+                                'Defeitos': total,
+                                'Principal': principal_str,
+                                'Contagem': contagem.copy()
+                            })
+                except:
+                    pass
+            
+            if posicoes_dados:
+                df_pos = pd.DataFrame(posicoes_dados).sort_values('Defeitos', ascending=False)
+                total_def = df_pos['Defeitos'].sum()
+                df_pos['%'] = (df_pos['Defeitos'] / total_def * 100).round(1) if total_def > 0 else 0
                 
-                if posicoes_dados:
-                    df_pos = pd.DataFrame(posicoes_dados).sort_values('Defeitos', ascending=False)
-                    total_def = df_pos['Defeitos'].sum()
-                    df_pos['%'] = (df_pos['Defeitos'] / total_def * 100).round(1)
-                    
-                    st.metric("Posições afetadas", len(df_pos))
-                    
-                    df_tabela_pos = df_pos[['Posição', 'Defeitos', '%', 'Principal']].head(15).copy()
-                    df_tabela_pos['%'] = df_tabela_pos['%'].astype(str) + '%'
-                    
-                    def estilo_pos(row):
-                        styles = [''] * len(row)
-                        defeitos = row['Defeitos']
-                        if defeitos > 5:
-                            styles[1] = 'color: #E81123; font-weight: bold;'
-                        elif defeitos > 2:
-                            styles[1] = 'color: #E86C2C; font-weight: bold;'
-                        return styles
-                    
-                    styled_pos = df_tabela_pos.style.apply(estilo_pos, axis=1)
-                    st.dataframe(styled_pos, use_container_width=True, height=300)
-                    
-                    criticas = df_pos[df_pos['Defeitos'] > 5]['Posição'].tolist()
-                    alerta = df_pos[(df_pos['Defeitos'] >= 2) & (df_pos['Defeitos'] <= 5)]['Posição'].tolist()
-                    
+                # ===== CARDS RESUMO =====
+                col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+                with col_c1:
+                    st.metric("📊 Posições afetadas", len(df_pos))
+                with col_c2:
+                    st.metric("❌ Total Defeitos", f"{total_def:,}")
+                with col_c3:
+                    st.metric("📍 Posição Crítica", f"#{df_pos.iloc[0]['Posição']}" if not df_pos.empty else "-")
+                with col_c4:
+                    st.metric("🎯 Defeito Principal", df_pos.iloc[0]['Principal'][:20] if not df_pos.empty else "-")
+                
+                st.markdown("---")
+                
+                # ===== TABELA DE POSIÇÕES =====
+                df_tabela_pos = df_pos[['Posição', 'Defeitos', '%', 'Principal']].head(20).copy()
+                df_tabela_pos['%'] = df_tabela_pos['%'].astype(str) + '%'
+                
+                def estilo_pos(row):
+                    styles = [''] * len(row)
+                    defeitos = row['Defeitos']
+                    if defeitos > 5:
+                        styles[1] = 'color: #E81123; font-weight: bold; background-color: #f8d7da;'
+                    elif defeitos > 2:
+                        styles[1] = 'color: #E86C2C; font-weight: bold; background-color: #fff3cd;'
+                    else:
+                        styles[1] = 'color: #155724; background-color: #d4edda;'
+                    return styles
+                
+                styled_pos = df_tabela_pos.style.apply(estilo_pos, axis=1)
+                st.dataframe(styled_pos, use_container_width=True, height=350)
+                
+                # ===== ALERTAS CRÍTICOS =====
+                criticas = df_pos[df_pos['Defeitos'] > 5]['Posição'].tolist()
+                alerta = df_pos[(df_pos['Defeitos'] >= 2) & (df_pos['Defeitos'] <= 5)]['Posição'].tolist()
+                
+                col_a1, col_a2 = st.columns(2)
+                with col_a1:
                     if criticas:
                         st.error(f"🚨 **Críticas (>5):** {', '.join(map(str, criticas))}")
+                    else:
+                        st.success("✅ Nenhuma posição crítica")
+                with col_a2:
                     if alerta:
                         st.warning(f"⚠️ **Alerta (2-5):** {', '.join(map(str, alerta))}")
-                    if not criticas and not alerta:
-                        st.success("✅ Nenhuma posição crítica ou em alerta")
+                    else:
+                        st.success("✅ Nenhuma posição em alerta")
+                
+                # ===== GRÁFICO DE BARRAS =====
+                if len(df_pos) > 0:
+                    st.markdown("#### 📊 Distribuição de Defeitos por Posição")
                     
-                    if len(df_pos) > 0:
-                        fig, ax = plt.subplots(figsize=(10, 4), facecolor=THEME['bg_card'])
-                        apply_chart_style(ax, fig, f"Posições com defeitos - Gancheira {pior['Gancheira']}", accent=THEME['accent_red'])
-                        top = df_pos.head(20)
-                        colors = [THEME['accent_red'] if d > 5 else THEME['accent_orange'] if d > 2 else THEME['accent_yellow'] for d in top['Defeitos']]
-                        bars = ax.barh(range(len(top)), top['Defeitos'], color=colors, alpha=0.8)
-                        ax.set_yticks(range(len(top)))
-                        ax.set_yticklabels(top['Posição'].astype(str), fontsize=9)
-                        ax.invert_yaxis()
-                        ax.set_xlabel('Defeitos', fontsize=10)
+                    fig, ax = plt.subplots(figsize=(12, 5), facecolor=THEME['bg_card'])
+                    apply_chart_style(ax, fig, f"Posições com defeitos - Gancheira {gancheira_analise}", 
+                                     xlabel="Posição", ylabel="Quantidade de Defeitos", 
+                                     accent=THEME['accent_red'])
+                    
+                    top = df_pos.head(25)
+                    
+                    # Definir cores baseadas na quantidade de defeitos
+                    colors = []
+                    for d in top['Defeitos']:
+                        if d > 5:
+                            colors.append(THEME['accent_red'])
+                        elif d > 2:
+                            colors.append(THEME['accent_orange'])
+                        else:
+                            colors.append(THEME['accent_yellow'])
+                    
+                    bars = ax.bar(range(len(top)), top['Defeitos'], color=colors, alpha=0.8, edgecolor=THEME['bg_card'], linewidth=1.5)
+                    
+                    # Adicionar rótulos com os valores
+                    for i, (bar, val) in enumerate(zip(bars, top['Defeitos'])):
+                        if val > 0:
+                            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3, 
+                                   f"{val}", ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    
+                    ax.set_xticks(range(len(top)))
+                    ax.set_xticklabels(top['Posição'].astype(str), rotation=45, ha='right', fontsize=9)
+                    
+                    # Adicionar linha de alerta
+                    ax.axhline(y=5, color=THEME['accent_red'], linestyle='--', alpha=0.7, linewidth=1.5, label='Crítico (>5)')
+                    ax.axhline(y=2, color=THEME['accent_orange'], linestyle=':', alpha=0.7, linewidth=1.5, label='Alerta (2-5)')
+                    ax.legend(loc='upper right', fontsize=9)
+                    
+                    fig.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+                
+                # ===== DETALHAMENTO POR POSIÇÃO (EXPANDER) =====
+                with st.expander(f"🔍 Detalhamento completo das posições - Gancheira {gancheira_analise}", expanded=False):
+                    st.markdown("**Distribuição detalhada de defeitos por posição:**")
+                    
+                    # Criar tabela detalhada com todos os defeitos por posição
+                    dados_detalhados = []
+                    for item in df_pos.head(30).to_dict('records'):
+                        pos = item['Posição']
+                        total_def = item['Defeitos']
                         
-                        for bar, val in zip(bars, top['Defeitos']):
-                            if val > 0:
-                                ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2, 
-                                       f"{val}", va='center', fontsize=9, fontweight='bold')
+                        # Detalhar cada tipo de defeito
+                        detalhes = []
+                        if 'Contagem' in item:
+                            for cod, nome in MAPEAMENTO_DEFEITOS.items():
+                                if cod in item['Contagem'] and item['Contagem'][cod] > 0:
+                                    detalhes.append(f"{nome}: {item['Contagem'][cod]}")
                         
-                        fig.tight_layout()
-                        st.pyplot(fig)
-                        plt.close(fig)
-                else:
-                    st.info(f"🔍 Nenhum defeito nas posições da gancheira {pior['Gancheira']} para o período selecionado.")
+                        dados_detalhados.append({
+                            'Posição': pos,
+                            'Total Defeitos': total_def,
+                            'Detalhamento': ' | '.join(detalhes) if detalhes else '-'
+                        })
+                    
+                    df_detalhado = pd.DataFrame(dados_detalhados)
+                    st.dataframe(df_detalhado, use_container_width=True, height=300, hide_index=True)
+                    
+                    # Exportar dados
+                    csv = df_detalhado.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="📥 Baixar Dados (CSV)",
+                        data=csv,
+                        file_name=f"analise_posicoes_{gancheira_analise}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                
             else:
-                st.info("📭 Sem dados de gancheiras para análise de posições.")
+                st.info(f"🔍 Nenhum defeito nas posições da gancheira {gancheira_analise} para o período selecionado.")
+                
+                # Verificar se há dados de defeitos na planilha
+                st.markdown("---")
+                st.markdown("**📊 Estatísticas da Gancheira:**")
+                col_e1, col_e2 = st.columns(2)
+                with col_e1:
+                    st.metric("📋 Registros", len(df_pior))
+                with col_e2:
+                    total_defeitos = int(df_pior['TOTAL_DEFEITOS'].sum())
+                    st.metric("❌ Total Defeitos", total_defeitos)
+                
+                if total_defeitos > 0:
+                    st.info("💡 Os defeitos estão registrados, mas não foram encontrados nas posições (colunas 11-78). Verifique a estrutura da planilha.")
         else:
-            st.info("📭 Nenhum registro com gancheira cadastrada no período selecionado.")
-    
+            st.warning("⚠️ Nenhuma gancheira disponível para análise.")
     else:
-        st.info("📭 Dados da planilha TRS_TEMPERA não disponíveis para análise de gancheiras.")
+        st.info("📭 Nenhum registro com gancheira cadastrada no período selecionado.")
+else:
+    st.info("📭 Dados da planilha TRS_TEMPERA não disponíveis para análise de gancheiras.")
         
         # Mostrar ajuda para diagnosticar o problema
         with st.expander("🔍 Diagnóstico - Por que os dados da TRS_TEMPERA não estão disponíveis?"):
