@@ -4435,7 +4435,7 @@ elif aba_selecionada == 'TÊMPERA':
     # CARREGAR DADOS
     # ======================
     with st.spinner("Carregando dados da Têmpera..."):
-        df_industrial = carregar_datos_tempera_industrial()
+        df_industrial = carregar_dados_tempera_industrial()
         df_original = carregar_dados_tempera_original()
     
     if df_industrial.empty:
