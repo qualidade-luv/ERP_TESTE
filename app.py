@@ -2511,18 +2511,180 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin-bottom:8px'>▸ Setor</div>", unsafe_allow_html=True)
-    aba_selecionada = st.radio("", list(ABAS.keys()), label_visibility="collapsed")
-    st.session_state.aba_selecionada = aba_selecionada
-    
-    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
+    # ===== NOVA ESTRUTURA DE NAVEGAÇÃO EM ÁRVORE =====
+    st.markdown(f"""
+    <style>
+    /* Estilos para a sidebar em árvore */
+    .nav-group-label {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: {THEME['accent_cyan']};
+        padding: 12px 0 4px 8px;
+        border-bottom: 1px solid {THEME['border']};
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }}
+    .nav-group-label .icon {{
+        font-size: 14px;
+    }}
+    .nav-item {{
+        padding: 4px 8px 4px 28px;
+        font-family: 'Barlow', sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        color: {THEME['text_primary']};
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        margin: 1px 0;
+        border-left: 2px solid transparent;
+    }}
+    .nav-item:hover {{
+        background-color: rgba(0,120,212,0.06);
+        border-left-color: {THEME['accent_cyan']};
+    }}
+    .nav-item.active {{
+        background-color: rgba(0,120,212,0.12);
+        border-left-color: {THEME['accent_cyan']};
+        font-weight: 600;
+        color: {THEME['accent_cyan']};
+    }}
+    .nav-item .bullet {{
+        color: {THEME['text_muted']};
+        margin-right: 6px;
+        font-size: 10px;
+    }}
+    /* Estilo para o container do radio */
+    .nav-radio-container label {{
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+    .nav-radio-container .stRadio > div {{
+        gap: 0 !important;
+    }}
+    .nav-radio-container .stRadio label {{
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+    /* Esconder o bullet do radio padrão */
+    .nav-radio-container .stRadio label > div:first-child {{
+        display: none !important;
+    }}
+    .nav-radio-container .stRadio label > div:last-child {{
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Mapeamento dos itens para grupos
+    GRUPOS = {
+        "🏭 PRODUÇÃO": ["PRENSADOS", "SOPRO", "TÊMPERA"],
+        "📢 COMUNICAÇÃO": ["AVISO DE REJEIÇÃO", "REQUISIÇÃO MANUTENÇÃO", "FECHAMENTO TURNO"],
+        "🛠️ CONTROLES": ["MANUTENÇÃO PREVENTIVA", "FERRAMENTARIA", "CONTROLE DO FORNO"],
+        "📊 ADMINISTRATIVO": ["MAPEAMENTO DE HABILIDADES", "PRÊMIO PRENSADOS", "REPASSES DE PRODUÇÃO"]
+    }
+
+    # Criar lista plana de itens com seus grupos para referência
+    TODOS_ITENS = []
+    for grupo, itens in GRUPOS.items():
+        for item in itens:
+            TODOS_ITENS.append(item)
+
+    # Determinar qual item está ativo
+    aba_atual = st.session_state.get("aba_selecionada", "PRENSADOS")
+    if aba_atual not in TODOS_ITENS:
+        aba_atual = "PRENSADOS"
+
+    # Criar o radio com todos os itens, mas esconder os labels padrão
+    # Usamos um container para controlar o layout
+    with st.container():
+        # Radio invisível para controle do estado
+        selected = st.radio(
+            "Navegação",
+            options=TODOS_ITENS,
+            index=TODOS_ITENS.index(aba_atual) if aba_atual in TODOS_ITENS else 0,
+            label_visibility="collapsed",
+            key="nav_radio_tree"
+        )
+        st.session_state.aba_selecionada = selected
+
+        # Renderizar a estrutura visual com CSS
+        html_grupos = ""
+        for grupo, itens in GRUPOS.items():
+            html_grupos += f'<div class="nav-group-label"><span class="icon">{grupo.split()[0]}</span> {grupo.split()[1]}</div>'
+            for item in itens:
+                is_active = "active" if item == selected else ""
+                # Ícone para cada item
+                icones = {
+                    "PRENSADOS": "🔩",
+                    "SOPRO": "💨",
+                    "TÊMPERA": "🔥",
+                    "AVISO DE REJEIÇÃO": "📋",
+                    "REQUISIÇÃO MANUTENÇÃO": "🔧",
+                    "FECHAMENTO TURNO": "📅",
+                    "MANUTENÇÃO PREVENTIVA": "🛡️",
+                    "FERRAMENTARIA": "🛠️",
+                    "CONTROLE DO FORNO": "🌡️",
+                    "MAPEAMENTO DE HABILIDADES": "📊",
+                    "PRÊMIO PRENSADOS": "🏆",
+                    "REPASSES DE PRODUÇÃO": "🔄"
+                }
+                icone = icones.get(item, "•")
+                html_grupos += f'''
+                <div class="nav-item {is_active}" data-value="{item}">
+                    <span class="bullet">{icone}</span> {item}
+                </div>
+                '''
+
+        # Injetar o HTML para exibição visual
+        st.markdown(f'<div class="nav-radio-container">{html_grupos}</div>', unsafe_allow_html=True)
+
+        # JavaScript para sincronizar o clique visual com o radio
+        st.markdown("""
+        <script>
+        (function() {
+            // Aguarda o DOM carregar
+            setTimeout(function() {
+                const items = document.querySelectorAll('.nav-item');
+                const radio = document.querySelector('input[type="radio"][name="nav_radio_tree"]');
+                
+                if (!radio) return;
+                
+                items.forEach(function(item) {
+                    item.addEventListener('click', function() {
+                        const value = this.getAttribute('data-value');
+                        // Encontrar o radio correspondente
+                        const radios = document.querySelectorAll('input[type="radio"][name="nav_radio_tree"]');
+                        radios.forEach(function(r) {
+                            if (r.value === value) {
+                                r.checked = true;
+                                // Disparar evento de mudança
+                                const event = new Event('change', { bubbles: true });
+                                r.dispatchEvent(event);
+                            }
+                        });
+                    });
+                });
+            }, 500);
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+
     st.markdown("---")
-    
-    # Informações do usuário
+
+    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
     usuario_logado = st.session_state.get('usuario', 'Usuário')
     nivel_logado = st.session_state.get('nivel', '0')
     setor_logado = st.session_state.get('setor', '')
-    
+
     col_info, col_btn = st.columns([3, 1])
     with col_info:
         st.markdown(f"""
@@ -2532,21 +2694,19 @@ with st.sidebar:
             🏢 {setor_logado}
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col_btn:
         if st.button("🚪", help="Sair do sistema", key="btn_logout", use_container_width=True):
             fazer_logout()
-    
+
     # ===== BOTÃO PARA LIMPAR CACHE E RECARREGAR =====
     st.markdown("---")
-    
-    # Exibir horário da última atualização
+
     if "ultima_atualizacao_cache" not in st.session_state:
         st.session_state.ultima_atualizacao_cache = datetime.now()
-    
+
     st.caption(f"🔄 Última atualização: {st.session_state.ultima_atualizacao_cache.strftime('%H:%M:%S')}")
-    
-    # Botão de limpar cache
+
     if st.button("🔄 Limpar Cache e Recarregar", use_container_width=True, type="primary"):
         with st.spinner("🧹 Limpando cache e recarregando dados..."):
             sucesso, mensagem = limpar_cache_e_recarregar()
@@ -2557,8 +2717,7 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error(mensagem)
-    
-    # Botão adicional para recarregar apenas os dados (sem limpar cache completo)
+
     if st.button("📊 Recarregar Dados Apenas", use_container_width=True):
         with st.spinner("🔄 Recarregando dados..."):
             st.cache_data.clear()
@@ -2566,8 +2725,7 @@ with st.sidebar:
             st.success("✅ Dados recarregados!")
             time.sleep(0.3)
             st.rerun()
-    
-    # ===== INFORMAÇÕES DO SISTEMA =====
+
     st.markdown("---")
     st.caption(f"""
     <div style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: {THEME['text_muted']}; text-align: center;">
