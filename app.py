@@ -2511,18 +2511,72 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin-bottom:8px'>▸ Setor</div>", unsafe_allow_html=True)
-    aba_selecionada = st.radio("", list(ABAS.keys()), label_visibility="collapsed")
-    st.session_state.aba_selecionada = aba_selecionada
+    # ===== NAVEGAÇÃO COM CATEGORIAS - VERSÃO SIMPLES =====
+    # Definir todos os itens na ordem desejada
+    TODOS_ITENS = [
+        "PRENSADOS", "SOPRO", "TÊMPERA",
+        "AVISO DE REJEIÇÃO", "REQUISIÇÃO MANUTENÇÃO", "FECHAMENTO TURNO",
+        "MANUTENÇÃO PREVENTIVA", "FERRAMENTARIA", "CONTROLE DO FORNO",
+        "MAPEAMENTO DE HABILIDADES", "PRÊMIO PRENSADOS", "REPASSES DE PRODUÇÃO"
+    ]
+
+    # Verificar estado atual
+    if "aba_selecionada" not in st.session_state:
+        st.session_state.aba_selecionada = "PRENSADOS"
     
-    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
+    aba_atual = st.session_state.aba_selecionada
+    if aba_atual not in TODOS_ITENS:
+        aba_atual = "PRENSADOS"
+        st.session_state.aba_selecionada = "PRENSADOS"
+
+    # CSS para adicionar espaçamento e títulos
+    st.markdown(f"""
+    <style>
+    /* Estilo para os títulos das categorias */
+    .sidebar-titulo {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: {THEME['accent_cyan']};
+        padding: 12px 0 4px 8px;
+        border-bottom: 1px solid {THEME['border']};
+        margin: 8px 0 4px 0;
+        display: block;
+    }}
+    /* Esconder o label do radio */
+    .stRadio > label {{
+        display: none !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Mostrar títulos e o radio
+    st.markdown('<div class="sidebar-titulo">🏭 PRODUÇÃO</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-titulo">📢 COMUNICAÇÃO</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-titulo">🛠️ CONTROLES</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-titulo">📊 ADMINISTRATIVO</div>', unsafe_allow_html=True)
+
+    # Radio com todos os itens (funcional)
+    selected = st.radio(
+        "Setor",
+        options=TODOS_ITENS,
+        index=TODOS_ITENS.index(aba_atual) if aba_atual in TODOS_ITENS else 0,
+        label_visibility="collapsed",
+        key="nav_radio_simples"
+    )
+    
+    # Atualizar session_state
+    st.session_state.aba_selecionada = selected
+
     st.markdown("---")
-    
-    # Informações do usuário
+
+    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
     usuario_logado = st.session_state.get('usuario', 'Usuário')
     nivel_logado = st.session_state.get('nivel', '0')
     setor_logado = st.session_state.get('setor', '')
-    
+
     col_info, col_btn = st.columns([3, 1])
     with col_info:
         st.markdown(f"""
@@ -2532,21 +2586,19 @@ with st.sidebar:
             🏢 {setor_logado}
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col_btn:
         if st.button("🚪", help="Sair do sistema", key="btn_logout", use_container_width=True):
             fazer_logout()
-    
+
     # ===== BOTÃO PARA LIMPAR CACHE E RECARREGAR =====
     st.markdown("---")
-    
-    # Exibir horário da última atualização
+
     if "ultima_atualizacao_cache" not in st.session_state:
         st.session_state.ultima_atualizacao_cache = datetime.now()
-    
+
     st.caption(f"🔄 Última atualização: {st.session_state.ultima_atualizacao_cache.strftime('%H:%M:%S')}")
-    
-    # Botão de limpar cache
+
     if st.button("🔄 Limpar Cache e Recarregar", use_container_width=True, type="primary"):
         with st.spinner("🧹 Limpando cache e recarregando dados..."):
             sucesso, mensagem = limpar_cache_e_recarregar()
@@ -2557,8 +2609,7 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error(mensagem)
-    
-    # Botão adicional para recarregar apenas os dados (sem limpar cache completo)
+
     if st.button("📊 Recarregar Dados Apenas", use_container_width=True):
         with st.spinner("🔄 Recarregando dados..."):
             st.cache_data.clear()
@@ -2566,8 +2617,7 @@ with st.sidebar:
             st.success("✅ Dados recarregados!")
             time.sleep(0.3)
             st.rerun()
-    
-    # ===== INFORMAÇÕES DO SISTEMA =====
+
     st.markdown("---")
     st.caption(f"""
     <div style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: {THEME['text_muted']}; text-align: center;">
