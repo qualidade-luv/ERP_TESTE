@@ -2598,22 +2598,28 @@ with st.sidebar:
         for item in itens:
             TODOS_ITENS.append(item)
 
-    # Determinar qual item está ativo
-    aba_atual = st.session_state.get("aba_selecionada", "PRENSADOS")
+    # Determinar qual item está ativo (usar session_state ou padrão)
+    if "aba_selecionada" not in st.session_state:
+        st.session_state.aba_selecionada = "PRENSADOS"
+    
+    aba_atual = st.session_state.aba_selecionada
     if aba_atual not in TODOS_ITENS:
         aba_atual = "PRENSADOS"
+        st.session_state.aba_selecionada = "PRENSADOS"
 
-    # Criar o radio com todos os itens, mas esconder os labels padrão
+    # Criar o radio com todos os itens
     # Usamos um container para controlar o layout
     with st.container():
-        # Radio invisível para controle do estado
+        # Radio para controle do estado - USANDO A MESMA CHAVE
         selected = st.radio(
             "Navegação",
             options=TODOS_ITENS,
             index=TODOS_ITENS.index(aba_atual) if aba_atual in TODOS_ITENS else 0,
             label_visibility="collapsed",
-            key="nav_radio_tree"
+            key="nav_radio_tree"  # Chave única para este radio
         )
+        
+        # ATUALIZA O SESSION_STATE COM O VALOR SELECIONADO
         st.session_state.aba_selecionada = selected
 
         # Renderizar a estrutura visual com CSS
