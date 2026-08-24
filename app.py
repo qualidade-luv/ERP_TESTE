@@ -2511,87 +2511,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # ===== NAVEGAÇÃO EM ÁRVORE COM ST.RADIO =====
-    st.markdown(f"""
-    <style>
-    /* Estilos para a sidebar em árvore com radio */
-    .tree-radio {{
-        margin: 0 !important;
-        padding: 0 !important;
-    }}
-    .tree-radio .stRadio > div {{
-        flex-direction: column !important;
-        gap: 0 !important;
-    }}
-    .tree-radio .stRadio label {{
-        padding: 4px 8px 4px 28px !important;
-        margin: 1px 0 !important;
-        font-family: 'Barlow', sans-serif !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-        color: {THEME['text_primary']} !important;
-        border-radius: 4px !important;
-        border-left: 2px solid transparent !important;
-        transition: all 0.15s ease !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-        width: 100% !important;
-    }}
-    .tree-radio .stRadio label:hover {{
-        background-color: rgba(0,120,212,0.06) !important;
-        border-left-color: {THEME['accent_cyan']} !important;
-    }}
-    .tree-radio .stRadio label[data-baseweb="radio"] {{
-        /* Esconder o bullet do radio */
-        padding-left: 0 !important;
-    }}
-    .tree-radio .stRadio label > div:first-child {{
-        display: none !important;
-    }}
-    .tree-radio .stRadio label > div:last-child {{
-        padding: 0 !important;
-        margin: 0 !important;
-        width: 100% !important;
-    }}
-    /* Grupo cabeçalho */
-    .nav-group-header {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-        color: {THEME['accent_cyan']};
-        padding: 12px 0 4px 8px;
-        border-bottom: 1px solid {THEME['border']};
-        margin: 8px 0 4px 0;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        user-select: none;
-    }}
-    .nav-group-header .icon {{
-        font-size: 14px;
-    }}
-    /* Item ativo - usar o estado do radio */
-    .tree-radio .stRadio label:has(input:checked) {{
-        background-color: rgba(0,120,212,0.12) !important;
-        border-left-color: {THEME['accent_cyan']} !important;
-        font-weight: 600 !important;
-        color: {THEME['accent_cyan']} !important;
-    }}
-    .tree-radio .stRadio label .bullet {{
-        font-size: 14px;
-        margin-right: 2px;
-    }}
-    /* Ajuste para o texto do label */
-    .tree-radio .stRadio label .label-text {{
-        flex: 1;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
+    # ===== NOVA ESTRUTURA DE NAVEGAÇÃO EM ÁRVORE =====
     # Definir grupos e itens
     GRUPOS = {
         "🏭 PRODUÇÃO": ["PRENSADOS", "SOPRO", "TÊMPERA"],
@@ -2631,92 +2551,113 @@ with st.sidebar:
         "REPASSES DE PRODUÇÃO": "🔄"
     }
 
-    # Renderizar grupos e itens com radio
-    # Usamos st.radio com options e format_func para customizar
-    st.markdown('<div class="tree-radio">', unsafe_allow_html=True)
-    
-    # Criar uma lista de opções com formato: "GRUPO|ITEM"
-    opcoes_formatadas = []
-    for grupo, itens in GRUPOS.items():
-        for item in itens:
-            opcoes_formatadas.append(f"{grupo}|{item}")
-    
-    # Radio com as opções
-    selected = st.radio(
-        "Navegação",
-        options=opcoes_formatadas,
-        index=opcoes_formatadas.index([f for f in opcoes_formatadas if f.split('|')[1] == aba_atual][0]) if any(f.split('|')[1] == aba_atual for f in opcoes_formatadas) else 0,
-        label_visibility="collapsed",
-        key="nav_radio_tree",
-        format_func=lambda x: x.split('|')[1]  # Mostrar apenas o nome do item
-    )
-    
-    # Atualizar session_state
-    st.session_state.aba_selecionada = selected.split('|')[1]
-    
-    # Fechar container
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Mostrar cabeçalhos dos grupos visualmente
-    st.markdown("""
+    # CSS para a sidebar em árvore
+    st.markdown(f"""
     <style>
-    /* Mostrar os cabeçalhos dos grupos */
-    .group-header-display {
+    /* Esconder o label do radio */
+    .stRadio > label {{
+        display: none !important;
+    }}
+    .stRadio > div {{
+        flex-direction: column !important;
+        gap: 0 !important;
+    }}
+    .stRadio > div > label {{
+        padding: 4px 8px 4px 28px !important;
+        margin: 1px 0 !important;
+        font-family: 'Barlow', sans-serif !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: {THEME['text_primary']} !important;
+        border-radius: 4px !important;
+        border-left: 2px solid transparent !important;
+        transition: all 0.15s ease !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        width: 100% !important;
+        min-height: 30px !important;
+    }}
+    .stRadio > div > label:hover {{
+        background-color: rgba(0,120,212,0.06) !important;
+        border-left-color: {THEME['accent_cyan']} !important;
+    }}
+    .stRadio > div > label > div:first-child {{
+        display: none !important;
+    }}
+    .stRadio > div > label > div:last-child {{
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }}
+    /* Item ativo */
+    .stRadio > div > label:has(input:checked) {{
+        background-color: rgba(0,120,212,0.12) !important;
+        border-left-color: {THEME['accent_cyan']} !important;
+        font-weight: 600 !important;
+        color: {THEME['accent_cyan']} !important;
+    }}
+    /* Cabeçalho do grupo - vamos usar markdown separado */
+    .nav-group-label {{
         font-family: 'JetBrains Mono', monospace;
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.15em;
         text-transform: uppercase;
-        color: #0078D4;
+        color: {THEME['accent_cyan']};
         padding: 12px 0 4px 8px;
-        border-bottom: 1px solid #D1D1D1;
+        border-bottom: 1px solid {THEME['border']};
         margin: 8px 0 4px 0;
         display: flex;
         align-items: center;
         gap: 6px;
         user-select: none;
-    }
-    .group-header-display .icon { font-size: 14px; }
+    }}
+    .nav-group-label .icon {{
+        font-size: 14px;
+    }}
+    /* Esconder o radio completamente */
+    .stRadio input[type="radio"] {{
+        position: absolute !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
-    # Renderizar cabeçalhos dos grupos (apenas para exibição visual)
+    # Criar um dicionário para mapear grupo -> índice inicial
+    grupo_index = {}
+    current_idx = 0
+    for grupo, itens in GRUPOS.items():
+        grupo_index[grupo] = current_idx
+        current_idx += len(itens)
+
+    # Radio com todos os itens
+    selected = st.radio(
+        "Navegação",
+        options=TODOS_ITENS,
+        index=TODOS_ITENS.index(aba_atual) if aba_atual in TODOS_ITENS else 0,
+        label_visibility="collapsed",
+        key="nav_radio_tree"
+    )
+    
+    # Atualizar session_state
+    st.session_state.aba_selecionada = selected
+
+    # Renderizar os cabeçalhos dos grupos visualmente
     for grupo, itens in GRUPOS.items():
         # Verificar se algum item do grupo está selecionado
-        is_active = any(item == st.session_state.aba_selecionada for item in itens)
+        is_active = any(item == selected for item in itens)
         cor = THEME['accent_cyan'] if is_active else THEME['text_muted']
+        
         st.markdown(f"""
-        <div class="group-header-display" style="color: {cor};">
+        <div class="nav-group-label" style="color: {cor};">
             <span class="icon">{grupo.split()[0]}</span> {grupo.split()[1]}
         </div>
         """, unsafe_allow_html=True)
-        
-        # Mostrar os itens do grupo com ícones
-        for item in itens:
-            is_active = (item == st.session_state.aba_selecionada)
-            icon = ICONES.get(item, "•")
-            # Usar st.write para exibir os itens visualmente
-            if is_active:
-                st.markdown(f"""
-                <div style="padding: 4px 8px 4px 28px; font-family: 'Barlow', sans-serif; font-size: 13px; 
-                            font-weight: 600; color: {THEME['accent_cyan']}; 
-                            background-color: rgba(0,120,212,0.12); 
-                            border-left: 2px solid {THEME['accent_cyan']}; 
-                            border-radius: 4px; margin: 1px 0;">
-                    <span style="margin-right: 6px;">{icon}</span> {item}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="padding: 4px 8px 4px 28px; font-family: 'Barlow', sans-serif; font-size: 13px; 
-                            font-weight: 500; color: {THEME['text_primary']}; 
-                            border-left: 2px solid transparent; 
-                            border-radius: 4px; margin: 1px 0; 
-                            cursor: pointer;"
-                     onclick="document.querySelector('input[type=radio][value=\"{item}\"]')?.click();">
-                    <span style="margin-right: 6px; opacity: 0.6;">{icon}</span> {item}
-                </div>
-                """, unsafe_allow_html=True)
+
+    # NOTA: O st.radio já renderiza todos os itens, então não precisamos renderizar novamente
 
     st.markdown("---")
 
