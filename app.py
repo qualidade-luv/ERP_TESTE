@@ -2511,18 +2511,162 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin-bottom:8px'>▸ Setor</div>", unsafe_allow_html=True)
-    aba_selecionada = st.radio("", list(ABAS.keys()), label_visibility="collapsed")
-    st.session_state.aba_selecionada = aba_selecionada
+    # ===== NOVA ESTRUTURA DE NAVEGAÇÃO POR CATEGORIAS =====
+    # Mapeamento de categorias
+    CATEGORIAS = {
+        "🏭 PRODUÇÃO": ["PRENSADOS", "SOPRO", "TÊMPERA"],
+        "📢 COMUNICAÇÃO": ["AVISO DE REJEIÇÃO", "REQUISIÇÃO MANUTENÇÃO", "FECHAMENTO TURNO"],
+        "🛠️ CONTROLES": ["MANUTENÇÃO PREVENTIVA", "FERRAMENTARIA", "CONTROLE DO FORNO"],
+        "📊 ADMINISTRATIVO": ["MAPEAMENTO DE HABILIDADES", "PRÊMIO PRENSADOS", "REPASSES DE PRODUÇÃO"]
+    }
+
+    # Lista plana de itens (mantém a ordem das categorias)
+    TODOS_ITENS = []
+    for categoria, itens in CATEGORIAS.items():
+        for item in itens:
+            TODOS_ITENS.append(item)
+
+    # Verificar estado atual
+    if "aba_selecionada" not in st.session_state:
+        st.session_state.aba_selecionada = "PRENSADOS"
     
-    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
+    aba_atual = st.session_state.aba_selecionada
+    if aba_atual not in TODOS_ITENS:
+        aba_atual = "PRENSADOS"
+        st.session_state.aba_selecionada = "PRENSADOS"
+
+    # CSS para estilizar a sidebar
+    st.markdown(f"""
+    <style>
+    /* Estilo para os cabeçalhos das categorias */
+    .sidebar-categoria {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: {THEME['accent_cyan']};
+        padding: 14px 0 4px 8px;
+        border-bottom: 1px solid {THEME['border']};
+        margin: 6px 0 4px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        user-select: none;
+    }}
+    .sidebar-categoria .icone {{
+        font-size: 14px;
+    }}
+    /* Esconder o label do radio */
+    .stRadio > label {{
+        display: none !important;
+    }}
+    .stRadio > div {{
+        flex-direction: column !important;
+        gap: 0 !important;
+    }}
+    .stRadio > div > label {{
+        padding: 3px 8px 3px 28px !important;
+        margin: 1px 0 !important;
+        font-family: 'Barlow', sans-serif !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: {THEME['text_primary']} !important;
+        border-radius: 4px !important;
+        border-left: 2px solid transparent !important;
+        transition: all 0.15s ease !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        width: 100% !important;
+        min-height: 28px !important;
+    }}
+    .stRadio > div > label:hover {{
+        background-color: rgba(0,120,212,0.06) !important;
+        border-left-color: {THEME['accent_cyan']} !important;
+    }}
+    .stRadio > div > label > div:first-child {{
+        display: none !important;
+    }}
+    .stRadio > div > label > div:last-child {{
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }}
+    .stRadio > div > label:has(input:checked) {{
+        background-color: rgba(0,120,212,0.12) !important;
+        border-left-color: {THEME['accent_cyan']} !important;
+        font-weight: 600 !important;
+        color: {THEME['accent_cyan']} !important;
+    }}
+    .stRadio input[type="radio"] {{
+        position: absolute !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }}
+    .item-icone {{
+        font-size: 14px;
+        margin-right: 2px;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Renderizar os cabeçalhos das categorias
+    for categoria, itens in CATEGORIAS.items():
+        # Verificar se algum item da categoria está ativo
+        is_active = any(item == aba_atual for item in itens)
+        cor = THEME['accent_cyan'] if is_active else THEME['text_muted']
+        
+        st.markdown(f"""
+        <div class="sidebar-categoria" style="color: {cor};">
+            <span class="icone">{categoria.split()[0]}</span> {categoria.split()[1]}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Radio com todos os itens (funcional)
+    ICONES = {
+        "PRENSADOS": "🔩",
+        "SOPRO": "💨",
+        "TÊMPERA": "🔥",
+        "AVISO DE REJEIÇÃO": "📋",
+        "REQUISIÇÃO MANUTENÇÃO": "🔧",
+        "FECHAMENTO TURNO": "📅",
+        "MANUTENÇÃO PREVENTIVA": "🛡️",
+        "FERRAMENTARIA": "🛠️",
+        "CONTROLE DO FORNO": "🌡️",
+        "MAPEAMENTO DE HABILIDADES": "📊",
+        "PRÊMIO PRENSADOS": "🏆",
+        "REPASSES DE PRODUÇÃO": "🔄"
+    }
+
+    # Criar opções com ícones
+    opcoes_com_icones = []
+    for item in TODOS_ITENS:
+        icone = ICONES.get(item, "•")
+        opcoes_com_icones.append(f"{icone} {item}")
+
+    # Radio principal
+    selected_index = TODOS_ITENS.index(aba_atual) if aba_atual in TODOS_ITENS else 0
+    selected_com_icone = st.radio(
+        "Navegação",
+        options=opcoes_com_icones,
+        index=selected_index,
+        label_visibility="collapsed",
+        key="nav_radio_tree"
+    )
+    
+    # Extrair o nome do item selecionado (remover o ícone)
+    selected_item = selected_com_icone.split(" ", 1)[1] if " " in selected_com_icone else selected_com_icone
+    st.session_state.aba_selecionada = selected_item
+
     st.markdown("---")
-    
-    # Informações do usuário
+
+    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
     usuario_logado = st.session_state.get('usuario', 'Usuário')
     nivel_logado = st.session_state.get('nivel', '0')
     setor_logado = st.session_state.get('setor', '')
-    
+
     col_info, col_btn = st.columns([3, 1])
     with col_info:
         st.markdown(f"""
@@ -2532,21 +2676,19 @@ with st.sidebar:
             🏢 {setor_logado}
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col_btn:
         if st.button("🚪", help="Sair do sistema", key="btn_logout", use_container_width=True):
             fazer_logout()
-    
+
     # ===== BOTÃO PARA LIMPAR CACHE E RECARREGAR =====
     st.markdown("---")
-    
-    # Exibir horário da última atualização
+
     if "ultima_atualizacao_cache" not in st.session_state:
         st.session_state.ultima_atualizacao_cache = datetime.now()
-    
+
     st.caption(f"🔄 Última atualização: {st.session_state.ultima_atualizacao_cache.strftime('%H:%M:%S')}")
-    
-    # Botão de limpar cache
+
     if st.button("🔄 Limpar Cache e Recarregar", use_container_width=True, type="primary"):
         with st.spinner("🧹 Limpando cache e recarregando dados..."):
             sucesso, mensagem = limpar_cache_e_recarregar()
@@ -2557,8 +2699,7 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error(mensagem)
-    
-    # Botão adicional para recarregar apenas os dados (sem limpar cache completo)
+
     if st.button("📊 Recarregar Dados Apenas", use_container_width=True):
         with st.spinner("🔄 Recarregando dados..."):
             st.cache_data.clear()
@@ -2566,8 +2707,7 @@ with st.sidebar:
             st.success("✅ Dados recarregados!")
             time.sleep(0.3)
             st.rerun()
-    
-    # ===== INFORMAÇÕES DO SISTEMA =====
+
     st.markdown("---")
     st.caption(f"""
     <div style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: {THEME['text_muted']}; text-align: center;">
