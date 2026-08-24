@@ -15718,6 +15718,1943 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         🔥 CONTROLE DO FORNO · {get_horario_brasilia()}
     </div>
     """, unsafe_allow_html=True)    
+# ==================================================================================================
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM ENTRADA E SAÍDA (VERSÃO CORRIGIDA)
+# ==================================================================================================
+elif aba_selecionada == 'ALMOXARIFADO':
+    render_page_header("ALMOXARIFADO", 
+                       f"Controle de Estoque · Atualizado {get_horario_brasilia()}", 
+                       THEME['accent_cyan'])
+    
+    # ======================
+    # CONFIGURAÇÃO DA PLANILHA
+    # ======================
+    ID_PLANILHA_ALMOXARIFADO = '1vbWzYuCXJOY1paZpQXSFomvN1Zj_xviK8UgR8Td4Tag'
+    ABA_BASE = 'BASE'
+    ABA_SAIDA = 'SAÍDA'
+    
+    # ======================
+    # INICIALIZAR SESSION STATE
+    # ======================
+    if 'almoxarifado_aba' not in st.session_state:
+        st.session_state.almoxarifado_aba = 'ESTOQUE'
+    
+    if 'almoxarifado_editando' not in st.session_state:
+        st.session_state.almoxarifado_editando = None
+    
+    if 'almoxarifado_excluindo' not in st.session_state:
+        st.session_state.almoxarifado_excluindo = None
+    
+    if 'almoxarifado_confirmar_saida' not in st.session_state:
+        st.session_state.almoxarifado_confirmar_saida = False
+    
+    if 'almoxarifado_dados_saida' not in st.session_state:
+        st.session_state.almoxarifado_dados_saida = {}
+    
+    if 'almoxarifado_termo_busca' not in st.session_state:
+        st.session_state.almoxarifado_termo_busca = ""
+    
+    # ======================
+    # FUNÇÃO PARA GERAR ID AUTOMÁTICO
+    # ======================
+    def gerar_id_produto(produtos_dict: List[Dict]) -> str:
+        """Gera um ID automático para o produto"""
+        if not produtos_dict:
+            return "PROD-001"
+        
+        ids = []
+        for p in produtos_dict:
+            if p.get('id', '').startswith("PROD-"):
+                try:
+                    num = int(p['id'].replace("PROD-", ""))
+                    ids.append(num)
+                except:
+                    pass
+        
+        if not ids:
+            return "PROD-001"
+        
+        proximo = max(ids) + 1
+        return f"PROD-{proximo:03d}"
+    
+    def gerar_id_saida(saidas_dict: List[Dict]) -> str:
+        """Gera um ID automático para a saída"""
+        if not saidas_dict:
+            return "SAI-001"
+        
+        ids = []
+        for s in saidas_dict:
+            if s.get('id', '').startswith("SAI-"):
+                try:
+                    num = int(s['id'].replace("SAI-", ""))
+                    ids.append(num)
+                except:
+                    pass
+        
+        if not ids:
+            return "SAI-001"
+        
+        proximo = max(ids) + 1
+        return f"SAI-{proximo:03d}"
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO (USANDO DICIONÁRIOS EM VEZ DE DATACLASS)
+    # ======================
+    @retry_on_quota()
+    @st.cache_data(ttl=300)
+    def carregar_produtos_estoque() -> List[Dict]:
+        """Carrega os produtos da aba BASE como lista de dicionários"""
+        produtos = []
+        try:
+            client = get_gspread_client()
+            if client is None:
+                st.error("❌ Erro ao conectar ao Google Sheets")
+                return produtos
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            
+            try:
+                sheet = spreadsheet.worksheet(ABA_BASE)
+            except Exception as e:
+                st.error(f"❌ Aba '{ABA_BASE}' não encontrada. Erro: {e}")
+                return produtos
+            
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return produtos
+            
+            # Mapear colunas pelo cabeçalho
+            cabecalho = todos_dados[0]
+            idx_id = None
+            idx_categoria = None
+            idx_produto = None
+            idx_ca = None
+            idx_base = None
+            idx_quantidade = None
+            
+            for i, col in enumerate(cabecalho):
+                col_clean = str(col).strip().upper()
+                if 'ID' in col_clean:
+                    idx_id = i
+                elif 'CATEGORIA' in col_clean:
+                    idx_categoria = i
+                elif 'PRODUTO' in col_clean:
+                    idx_produto = i
+                elif col_clean == 'CA':
+                    idx_ca = i
+                elif col_clean == 'BASE':
+                    idx_base = i
+                elif 'QUANTIDADE' in col_clean:
+                    idx_quantidade = i
+            
+            for row in todos_dados[1:]:
+                try:
+                    produto = {
+                        'id': row[idx_id].strip() if idx_id is not None and len(row) > idx_id else "",
+                        'categoria': row[idx_categoria].strip() if idx_categoria is not None and len(row) > idx_categoria else "",
+                        'produto': row[idx_produto].strip() if idx_produto is not None and len(row) > idx_produto else "",
+                        'ca': 0.0,
+                        'base': 0.0,
+                        'quantidade': 0.0
+                    }
+                    
+                    if idx_ca is not None and len(row) > idx_ca and row[idx_ca]:
+                        try:
+                            produto['ca'] = float(str(row[idx_ca]).replace(',', '.'))
+                        except:
+                            pass
+                    
+                    if idx_base is not None and len(row) > idx_base and row[idx_base]:
+                        try:
+                            produto['base'] = float(str(row[idx_base]).replace(',', '.'))
+                        except:
+                            pass
+                    
+                    if idx_quantidade is not None and len(row) > idx_quantidade and row[idx_quantidade]:
+                        try:
+                            produto['quantidade'] = float(str(row[idx_quantidade]).replace(',', '.'))
+                        except:
+                            pass
+                    
+                    if produto['id'] and produto['produto']:
+                        produtos.append(produto)
+                except Exception as e:
+                    continue
+            
+            return produtos
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar produtos: {str(e)}")
+            return produtos
+    
+    @retry_on_quota()
+    @st.cache_data(ttl=300)
+    def carregar_saidas() -> List[Dict]:
+        """Carrega os registros de saída da aba SAÍDA como lista de dicionários"""
+        saidas = []
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return saidas
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            
+            try:
+                sheet = spreadsheet.worksheet(ABA_SAIDA)
+            except:
+                # Criar a aba se não existir
+                sheet = spreadsheet.add_worksheet(title=ABA_SAIDA, rows=1000, cols=20)
+                cabecalho = ["ID", "DATA", "PRODUTO", "CATEGORIA", "COLABORADOR", "QUANTIDADE", "OBS", "RESPONSÁVEL"]
+                sheet.append_row(cabecalho)
+                return saidas
+            
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return saidas
+            
+            cabecalho = todos_dados[0]
+            idx_id = None
+            idx_data = None
+            idx_produto = None
+            idx_categoria = None
+            idx_colaborador = None
+            idx_quantidade = None
+            idx_obs = None
+            idx_responsavel = None
+            
+            for i, col in enumerate(cabecalho):
+                col_clean = str(col).strip().upper()
+                if 'ID' in col_clean:
+                    idx_id = i
+                elif 'DATA' in col_clean:
+                    idx_data = i
+                elif 'PRODUTO' in col_clean:
+                    idx_produto = i
+                elif 'CATEGORIA' in col_clean:
+                    idx_categoria = i
+                elif 'COLABORADOR' in col_clean:
+                    idx_colaborador = i
+                elif 'QUANTIDADE' in col_clean:
+                    idx_quantidade = i
+                elif 'OBS' in col_clean:
+                    idx_obs = i
+                elif 'RESPONSÁVEL' in col_clean:
+                    idx_responsavel = i
+            
+            for row in todos_dados[1:]:
+                try:
+                    saida = {
+                        'id': row[idx_id].strip() if idx_id is not None and len(row) > idx_id else "",
+                        'data': None,
+                        'produto': row[idx_produto].strip() if idx_produto is not None and len(row) > idx_produto else "",
+                        'categoria': row[idx_categoria].strip() if idx_categoria is not None and len(row) > idx_categoria else "",
+                        'colaborador': row[idx_colaborador].strip() if idx_colaborador is not None and len(row) > idx_colaborador else "",
+                        'quantidade': 0.0,
+                        'obs': row[idx_obs].strip() if idx_obs is not None and len(row) > idx_obs else "",
+                        'responsavel': row[idx_responsavel].strip() if idx_responsavel is not None and len(row) > idx_responsavel else ""
+                    }
+                    
+                    if idx_data is not None and len(row) > idx_data and row[idx_data]:
+                        try:
+                            saida['data'] = datetime.strptime(row[idx_data].strip(), "%d/%m/%Y")
+                        except:
+                            saida['data'] = converter_data_br(row[idx_data])
+                    
+                    if idx_quantidade is not None and len(row) > idx_quantidade and row[idx_quantidade]:
+                        try:
+                            saida['quantidade'] = float(str(row[idx_quantidade]).replace(',', '.'))
+                        except:
+                            pass
+                    
+                    if saida['id'] and saida['produto']:
+                        saidas.append(saida)
+                except:
+                    continue
+            
+            return saidas
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar saídas: {str(e)}")
+            return saidas
+    
+    # ======================
+    # FUNÇÕES CRUD - PRODUTOS
+    # ======================
+    def salvar_produto(produto_dict: Dict) -> tuple:
+        """Salva um novo produto na planilha"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            sheet = spreadsheet.worksheet(ABA_BASE)
+            
+            dados = [
+                produto_dict['id'],
+                produto_dict['categoria'],
+                produto_dict['produto'],
+                str(produto_dict['ca']).replace('.', ','),
+                str(produto_dict['base']).replace('.', ','),
+                str(produto_dict['quantidade']).replace('.', ',')
+            ]
+            
+            sheet.append_row(dados)
+            st.cache_data.clear()
+            return True, f"✅ Produto {produto_dict['produto']} salvo com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao salvar: {str(e)}"
+    
+    def atualizar_produto(produto_dict: Dict) -> tuple:
+        """Atualiza um produto existente"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            sheet = spreadsheet.worksheet(ABA_BASE)
+            
+            cell = sheet.find(produto_dict['id'], in_column=1)
+            if not cell:
+                return False, f"❌ Produto {produto_dict['id']} não encontrado"
+            
+            dados = [
+                produto_dict['id'],
+                produto_dict['categoria'],
+                produto_dict['produto'],
+                str(produto_dict['ca']).replace('.', ','),
+                str(produto_dict['base']).replace('.', ','),
+                str(produto_dict['quantidade']).replace('.', ',')
+            ]
+            
+            for col, valor in enumerate(dados, start=1):
+                sheet.update_cell(cell.row, col, valor)
+            
+            st.cache_data.clear()
+            return True, f"✅ Produto {produto_dict['produto']} atualizado com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao atualizar: {str(e)}"
+    
+    def excluir_produto(id_produto: str) -> tuple:
+        """Exclui um produto"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            sheet = spreadsheet.worksheet(ABA_BASE)
+            
+            cell = sheet.find(id_produto, in_column=1)
+            if not cell:
+                return False, f"❌ Produto {id_produto} não encontrado"
+            
+            sheet.delete_rows(cell.row)
+            st.cache_data.clear()
+            return True, f"✅ Produto {id_produto} excluído com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao excluir: {str(e)}"
+    
+    # ======================
+    # FUNÇÕES CRUD - SAÍDAS
+    # ======================
+    def salvar_saida(saida_dict: Dict) -> tuple:
+        """Salva uma nova saída e atualiza o estoque"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            sheet_saida = spreadsheet.worksheet(ABA_SAIDA)
+            
+            # Salvar saída
+            data_str = saida_dict['data'].strftime("%d/%m/%Y") if saida_dict.get('data') else ""
+            dados_saida = [
+                saida_dict['id'],
+                data_str,
+                saida_dict['produto'],
+                saida_dict['categoria'],
+                saida_dict['colaborador'],
+                str(saida_dict['quantidade']).replace('.', ','),
+                saida_dict.get('obs', ''),
+                saida_dict.get('responsavel', '')
+            ]
+            sheet_saida.append_row(dados_saida)
+            
+            # Atualizar estoque (diminuir quantidade)
+            sheet_base = spreadsheet.worksheet(ABA_BASE)
+            
+            # Encontrar o produto na BASE
+            cell = sheet_base.find(saida_dict['produto'], in_column=3)  # Coluna PRODUTO
+            if not cell:
+                return False, f"❌ Produto {saida_dict['produto']} não encontrado no estoque"
+            
+            # Ler a quantidade atual
+            qtd_cell = sheet_base.cell(cell.row, 6)  # Coluna QUANTIDADE
+            qtd_atual = 0
+            if qtd_cell.value:
+                try:
+                    qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
+                except:
+                    qtd_atual = 0
+            
+            nova_qtd = qtd_atual - saida_dict['quantidade']
+            
+            if nova_qtd < 0:
+                return False, f"❌ Estoque insuficiente! Disponível: {qtd_atual:.2f}, Solicitado: {saida_dict['quantidade']:.2f}"
+            
+            # Atualizar quantidade
+            sheet_base.update_cell(cell.row, 6, str(nova_qtd).replace('.', ','))
+            
+            st.cache_data.clear()
+            return True, f"✅ Saída {saida_dict['id']} registrada com sucesso! Novo estoque: {nova_qtd:.2f}"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao salvar saída: {str(e)}"
+    
+    def excluir_saida(id_saida: str) -> tuple:
+        """Exclui uma saída e restaura o estoque"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
+            sheet_saida = spreadsheet.worksheet(ABA_SAIDA)
+            
+            # Encontrar a saída
+            cell = sheet_saida.find(id_saida, in_column=1)
+            if not cell:
+                return False, f"❌ Saída {id_saida} não encontrada"
+            
+            # Ler os dados da saída
+            row = sheet_saida.row_values(cell.row)
+            produto = row[2] if len(row) > 2 else ""
+            quantidade_str = row[5] if len(row) > 5 else "0"
+            try:
+                quantidade = float(str(quantidade_str).replace(',', '.'))
+            except:
+                quantidade = 0
+            
+            # Restaurar estoque
+            sheet_base = spreadsheet.worksheet(ABA_BASE)
+            cell_prod = sheet_base.find(produto, in_column=3)
+            if cell_prod:
+                qtd_cell = sheet_base.cell(cell_prod.row, 6)
+                qtd_atual = 0
+                if qtd_cell.value:
+                    try:
+                        qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
+                    except:
+                        qtd_atual = 0
+                
+                nova_qtd = qtd_atual + quantidade
+                sheet_base.update_cell(cell_prod.row, 6, str(nova_qtd).replace('.', ','))
+            
+            # Excluir a saída
+            sheet_saida.delete_rows(cell.row)
+            
+            st.cache_data.clear()
+            return True, f"✅ Saída {id_saida} excluída e estoque restaurado!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao excluir saída: {str(e)}"
+    
+    # ======================
+    # FUNÇÃO PARA GERAR RELATÓRIO HTML
+    # ======================
+    def gerar_relatorio_almoxarifado(produtos_dict: List[Dict], saidas_dict: List[Dict], 
+                                     tipo: str = "COMPLETO") -> str:
+        """Gera relatório HTML do almoxarifado"""
+        
+        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        # Calcular totais
+        total_produtos = len(produtos_dict)
+        total_quantidade = sum(p.get('quantidade', 0) for p in produtos_dict)
+        total_saidas = len(saidas_dict)
+        total_saidas_qtd = sum(s.get('quantidade', 0) for s in saidas_dict)
+        
+        # Categorias
+        categorias = {}
+        for p in produtos_dict:
+            cat = p.get('categoria', 'Sem categoria')
+            if cat not in categorias:
+                categorias[cat] = 0
+            categorias[cat] += p.get('quantidade', 0)
+        
+        # Produtos com estoque baixo
+        estoque_baixo = [p for p in produtos_dict if 0 < p.get('quantidade', 0) < 5]
+        estoque_zero = [p for p in produtos_dict if p.get('quantidade', 0) <= 0]
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório Almoxarifado</title>
+            <style>
+                @page {{
+                    size: A4 portrait;
+                    margin: 15mm 15mm 15mm 15mm;
+                }}
+                body {{
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    background: white;
+                    font-size: 11px;
+                }}
+                .container {{
+                    max-width: 100%;
+                    margin: 0 auto;
+                    padding: 10px;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 20px 25px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    color: white;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 24px;
+                    font-weight: 700;
+                    letter-spacing: 0.1em;
+                    text-transform: uppercase;
+                }}
+                .header .subtitle {{
+                    font-size: 14px;
+                    color: #a0aec0;
+                    margin-top: 5px;
+                }}
+                .header .data {{
+                    font-size: 12px;
+                    color: #a0aec0;
+                    margin-top: 5px;
+                }}
+                .cards {{
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 12px;
+                    margin-bottom: 20px;
+                }}
+                .card {{
+                    background: #f8f9fc;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    border-left: 4px solid #0078D4;
+                    text-align: center;
+                }}
+                .card .label {{
+                    font-size: 10px;
+                    color: #666;
+                    text-transform: uppercase;
+                    font-weight: 600;
+                }}
+                .card .value {{
+                    font-size: 22px;
+                    font-weight: 700;
+                    color: #1a1a2e;
+                    margin-top: 4px;
+                }}
+                .card-green {{ border-left-color: #28a745; }}
+                .card-red {{ border-left-color: #dc3545; }}
+                .card-orange {{ border-left-color: #E86C2C; }}
+                .card-purple {{ border-left-color: #6B46C1; }}
+                
+                .section-title {{
+                    font-size: 16px;
+                    font-weight: 700;
+                    margin: 20px 0 10px 0;
+                    padding-bottom: 8px;
+                    border-bottom: 2px solid #e0e0e0;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 15px;
+                    font-size: 10px;
+                }}
+                table th {{
+                    background: #2c3e50;
+                    color: white;
+                    padding: 6px 8px;
+                    border: 1px solid #2c3e50;
+                    text-align: center;
+                    font-weight: 700;
+                }}
+                table td {{
+                    padding: 5px 8px;
+                    border: 1px solid #ddd;
+                    text-align: center;
+                }}
+                table tr:nth-child(even) {{
+                    background: #f8f9fc;
+                }}
+                .table-responsive {{
+                    overflow-x: auto;
+                }}
+                .footer {{
+                    margin-top: 20px;
+                    padding-top: 10px;
+                    border-top: 1px solid #e0e0e0;
+                    text-align: center;
+                    font-size: 9px;
+                    color: #999;
+                }}
+                .alert-box {{
+                    padding: 10px 15px;
+                    border-radius: 6px;
+                    margin: 10px 0;
+                }}
+                .alert-danger {{ background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }}
+                .alert-warning {{ background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }}
+                .alert-success {{ background: #d4edda; border-left: 4px solid #28a745; color: #155724; }}
+                
+                .status-baixo {{ color: #dc3545; font-weight: bold; }}
+                .status-zero {{ color: #dc3545; font-weight: bold; }}
+                .status-normal {{ color: #28a745; }}
+                .status-alto {{ color: #0078D4; }}
+                
+                @media print {{
+                    body {{ margin: 5mm; padding: 0; }}
+                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📦 RELATÓRIO ALMOXARIFADO</h1>
+                    <div class="subtitle">Controle de Estoque - Luvidarte</div>
+                    <div class="data">Gerado em: {data_atual}</div>
+                </div>
+                
+                <div class="cards">
+                    <div class="card">
+                        <div class="label">📦 Total Produtos</div>
+                        <div class="value">{total_produtos}</div>
+                    </div>
+                    <div class="card card-green">
+                        <div class="label">📊 Estoque Total</div>
+                        <div class="value">{total_quantidade:.2f}</div>
+                    </div>
+                    <div class="card card-orange">
+                        <div class="label">📤 Total Saídas</div>
+                        <div class="value">{total_saidas}</div>
+                    </div>
+                    <div class="card card-purple">
+                        <div class="label">📤 Qtd Saídas</div>
+                        <div class="value">{total_saidas_qtd:.2f}</div>
+                    </div>
+                </div>
+        """
+        
+        # Alertas de estoque
+        if estoque_zero:
+            html += f"""
+                <div class="alert-box alert-danger">
+                    <strong>🔴 ATENÇÃO - ESTOQUE ZERADO:</strong> {len(estoque_zero)} produto(s) com estoque zerado.
+                </div>
+            """
+        
+        if estoque_baixo:
+            html += f"""
+                <div class="alert-box alert-warning">
+                    <strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s) com estoque abaixo de 5 unidades.
+                </div>
+            """
+        
+        # Tabela de Produtos
+        html += f"""
+                <div class="section-title">📋 ESTOQUE ATUAL</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Categoria</th>
+                                <th>Produto</th>
+                                <th>CA</th>
+                                <th>BASE</th>
+                                <th>Quantidade</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """
+        
+        if produtos_dict:
+            for p in sorted(produtos_dict, key=lambda x: x.get('produto', '')):
+                qtd = p.get('quantidade', 0)
+                if qtd <= 0:
+                    status = '<span class="status-zero">🔴 ZERADO</span>'
+                elif qtd < 5:
+                    status = '<span class="status-baixo">🟡 BAIXO</span>'
+                elif qtd < 20:
+                    status = '<span class="status-normal">🟢 NORMAL</span>'
+                else:
+                    status = '<span class="status-alto">🔵 ALTO</span>'
+                
+                html += f"""
+                            <tr>
+                                <td>{p.get('id', '')}</td>
+                                <td>{p.get('categoria', '')}</td>
+                                <td>{p.get('produto', '')}</td>
+                                <td>{p.get('ca', 0):.2f}</td>
+                                <td>{p.get('base', 0):.2f}</td>
+                                <td><strong>{qtd:.2f}</strong></td>
+                                <td>{status}</td>
+                            </tr>
+                """
+        else:
+            html += """
+                            <tr>
+                                <td colspan="7" style="text-align:center; color:#999; padding:20px;">
+                                    Nenhum produto cadastrado.
+                                </td>
+                            </tr>
+            """
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+        """
+        
+        # Tabela de Saídas (últimas 50)
+        if saidas_dict:
+            html += f"""
+                <div class="section-title">📤 ÚLTIMAS SAÍDAS</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data</th>
+                                <th>Produto</th>
+                                <th>Categoria</th>
+                                <th>Colaborador</th>
+                                <th>Quantidade</th>
+                                <th>Responsável</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for s in sorted(saidas_dict, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:50]:
+                data_obj = s.get('data')
+                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
+                html += f"""
+                            <tr>
+                                <td>{s.get('id', '')}</td>
+                                <td>{data_str}</td>
+                                <td>{s.get('produto', '')}</td>
+                                <td>{s.get('categoria', '')}</td>
+                                <td>{s.get('colaborador', '')}</td>
+                                <td><strong>{s.get('quantidade', 0):.2f}</strong></td>
+                                <td>{s.get('responsavel', '')}</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        # Resumo por Categoria
+        if categorias:
+            html += f"""
+                <div class="section-title">📊 RESUMO POR CATEGORIA</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Categoria</th>
+                                <th>Quantidade em Estoque</th>
+                                <th>% do Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            total = sum(categorias.values())
+            for cat, qtd in sorted(categorias.items(), key=lambda x: x[1], reverse=True):
+                perc = (qtd / total * 100) if total > 0 else 0
+                html += f"""
+                            <tr>
+                                <td><strong>{cat}</strong></td>
+                                <td>{qtd:.2f}</td>
+                                <td>{perc:.1f}%</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        html += f"""
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    # ======================
+    # FUNÇÃO PARA GERAR RELATÓRIO DE SAÍDAS
+    # ======================
+    def gerar_relatorio_saidas_html(saidas_dict: List[Dict], data_ini=None, data_fim=None) -> str:
+        """Gera relatório HTML específico de saídas"""
+        
+        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        # Filtrar por data
+        saidas_filtradas = saidas_dict.copy()
+        if data_ini:
+            saidas_filtradas = [s for s in saidas_filtradas if s.get('data') and s['data'] >= data_ini]
+        if data_fim:
+            saidas_filtradas = [s for s in saidas_filtradas if s.get('data') and s['data'] <= data_fim]
+        
+        total_saidas = len(saidas_filtradas)
+        total_qtd = sum(s.get('quantidade', 0) for s in saidas_filtradas)
+        
+        # Agrupar por produto
+        produtos_saidas = {}
+        for s in saidas_filtradas:
+            prod = s.get('produto', '')
+            if prod not in produtos_saidas:
+                produtos_saidas[prod] = 0
+            produtos_saidas[prod] += s.get('quantidade', 0)
+        
+        top_produtos = sorted(produtos_saidas.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório de Saídas - Almoxarifado</title>
+            <style>
+                @page {{ size: A4 portrait; margin: 15mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 11px; }}
+                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
+                .header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 20px 25px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    color: white;
+                }}
+                .header h1 {{ margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 13px; color: #a0aec0; margin-top: 5px; }}
+                .header .data {{ font-size: 11px; color: #a0aec0; margin-top: 5px; }}
+                .cards {{
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 12px;
+                    margin-bottom: 20px;
+                }}
+                .card {{
+                    background: #f8f9fc;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    border-left: 4px solid #0078D4;
+                    text-align: center;
+                }}
+                .card .label {{ font-size: 10px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 22px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }}
+                .card-orange {{ border-left-color: #E86C2C; }}
+                .card-purple {{ border-left-color: #6B46C1; }}
+                
+                .section-title {{
+                    font-size: 16px;
+                    font-weight: 700;
+                    margin: 20px 0 10px 0;
+                    padding-bottom: 8px;
+                    border-bottom: 2px solid #e0e0e0;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 15px;
+                    font-size: 10px;
+                }}
+                table th {{
+                    background: #2c3e50;
+                    color: white;
+                    padding: 6px 8px;
+                    border: 1px solid #2c3e50;
+                    text-align: center;
+                    font-weight: 700;
+                }}
+                table td {{
+                    padding: 5px 8px;
+                    border: 1px solid #ddd;
+                    text-align: center;
+                }}
+                table tr:nth-child(even) {{ background: #f8f9fc; }}
+                .footer {{
+                    margin-top: 20px;
+                    padding-top: 10px;
+                    border-top: 1px solid #e0e0e0;
+                    text-align: center;
+                    font-size: 9px;
+                    color: #999;
+                }}
+                .filtros {{
+                    background: #f0f2f5;
+                    padding: 10px 15px;
+                    border-radius: 6px;
+                    margin-bottom: 15px;
+                    font-size: 11px;
+                }}
+                @media print {{
+                    body {{ margin: 5mm; padding: 0; }}
+                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📤 RELATÓRIO DE SAÍDAS</h1>
+                    <div class="subtitle">Almoxarifado - Luvidarte</div>
+                    <div class="data">Gerado em: {data_atual}</div>
+                </div>
+                
+                <div class="filtros">
+                    <strong>📅 Período:</strong>
+                    {f"De {data_ini.strftime('%d/%m/%Y') if data_ini else 'Início'}"}
+                    {f"até {data_fim.strftime('%d/%m/%Y') if data_fim else 'Hoje'}"}
+                    | <strong>Total de saídas:</strong> {total_saidas}
+                    | <strong>Quantidade total:</strong> {total_qtd:.2f}
+                </div>
+                
+                <div class="cards">
+                    <div class="card">
+                        <div class="label">📤 Total Saídas</div>
+                        <div class="value">{total_saidas}</div>
+                    </div>
+                    <div class="card card-orange">
+                        <div class="label">📦 Quantidade Total</div>
+                        <div class="value">{total_qtd:.2f}</div>
+                    </div>
+                    <div class="card card-purple">
+                        <div class="label">📊 Média por Saída</div>
+                        <div class="value">{f"{(total_qtd / total_saidas):.2f}" if total_saidas > 0 else "0.00"}</div>
+                    </div>
+                </div>
+        """
+        
+        # Top produtos mais retirados
+        if top_produtos:
+            html += f"""
+                <div class="section-title">📊 TOP PRODUTOS MAIS RETIRADOS</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Posição</th>
+                                <th>Produto</th>
+                                <th>Quantidade Total Retirada</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for i, (prod, qtd) in enumerate(top_produtos, 1):
+                html += f"""
+                            <tr>
+                                <td><strong>#{i}</strong></td>
+                                <td>{prod}</td>
+                                <td><strong>{qtd:.2f}</strong></td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        # Tabela de saídas detalhada
+        if saidas_filtradas:
+            html += f"""
+                <div class="section-title">📋 DETALHAMENTO DAS SAÍDAS</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data</th>
+                                <th>Produto</th>
+                                <th>Categoria</th>
+                                <th>Colaborador</th>
+                                <th>Quantidade</th>
+                                <th>Responsável</th>
+                                <th>Observação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for s in sorted(saidas_filtradas, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True):
+                data_obj = s.get('data')
+                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
+                obs = s.get('obs', '')[:50] + "..." if len(s.get('obs', '')) > 50 else s.get('obs', '')
+                html += f"""
+                            <tr>
+                                <td>{s.get('id', '')}</td>
+                                <td>{data_str}</td>
+                                <td>{s.get('produto', '')}</td>
+                                <td>{s.get('categoria', '')}</td>
+                                <td>{s.get('colaborador', '')}</td>
+                                <td><strong>{s.get('quantidade', 0):.2f}</strong></td>
+                                <td>{s.get('responsavel', '')}</td>
+                                <td style="font-size:9px; text-align:left;">{obs or '-'}</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        else:
+            html += """
+                <div style="text-align:center; padding:30px; color:#999;">
+                    Nenhuma saída registrada no período selecionado.
+                </div>
+            """
+        
+        html += f"""
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    # ======================
+    # FUNÇÃO PARA GERAR RELATÓRIO DE ENTRADAS
+    # ======================
+    def gerar_relatorio_entradas_html(produtos_dict: List[Dict]) -> str:
+        """Gera relatório HTML de entradas (produtos cadastrados)"""
+        
+        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        total_produtos = len(produtos_dict)
+        total_quantidade = sum(p.get('quantidade', 0) for p in produtos_dict)
+        
+        # Agrupar por categoria
+        categorias = {}
+        for p in produtos_dict:
+            cat = p.get('categoria', 'Sem categoria')
+            if cat not in categorias:
+                categorias[cat] = 0
+            categorias[cat] += p.get('quantidade', 0)
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório de Entradas - Almoxarifado</title>
+            <style>
+                @page {{ size: A4 portrait; margin: 15mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 11px; }}
+                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
+                .header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 20px 25px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    color: white;
+                }}
+                .header h1 {{ margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 13px; color: #a0aec0; margin-top: 5px; }}
+                .header .data {{ font-size: 11px; color: #a0aec0; margin-top: 5px; }}
+                .cards {{
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 12px;
+                    margin-bottom: 20px;
+                }}
+                .card {{
+                    background: #f8f9fc;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    border-left: 4px solid #0078D4;
+                    text-align: center;
+                }}
+                .card .label {{ font-size: 10px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 22px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }}
+                .card-green {{ border-left-color: #28a745; }}
+                .card-purple {{ border-left-color: #6B46C1; }}
+                
+                .section-title {{
+                    font-size: 16px;
+                    font-weight: 700;
+                    margin: 20px 0 10px 0;
+                    padding-bottom: 8px;
+                    border-bottom: 2px solid #e0e0e0;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 15px;
+                    font-size: 10px;
+                }}
+                table th {{
+                    background: #2c3e50;
+                    color: white;
+                    padding: 6px 8px;
+                    border: 1px solid #2c3e50;
+                    text-align: center;
+                    font-weight: 700;
+                }}
+                table td {{
+                    padding: 5px 8px;
+                    border: 1px solid #ddd;
+                    text-align: center;
+                }}
+                table tr:nth-child(even) {{ background: #f8f9fc; }}
+                .footer {{
+                    margin-top: 20px;
+                    padding-top: 10px;
+                    border-top: 1px solid #e0e0e0;
+                    text-align: center;
+                    font-size: 9px;
+                    color: #999;
+                }}
+                .status-baixo {{ color: #dc3545; font-weight: bold; }}
+                .status-zero {{ color: #dc3545; font-weight: bold; }}
+                .status-normal {{ color: #28a745; }}
+                .status-alto {{ color: #0078D4; }}
+                @media print {{
+                    body {{ margin: 5mm; padding: 0; }}
+                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📦 RELATÓRIO DE ENTRADAS</h1>
+                    <div class="subtitle">Produtos Cadastrados no Almoxarifado - Luvidarte</div>
+                    <div class="data">Gerado em: {data_atual}</div>
+                </div>
+                
+                <div class="cards">
+                    <div class="card">
+                        <div class="label">📦 Total Produtos</div>
+                        <div class="value">{total_produtos}</div>
+                    </div>
+                    <div class="card card-green">
+                        <div class="label">📊 Estoque Total</div>
+                        <div class="value">{total_quantidade:.2f}</div>
+                    </div>
+                    <div class="card card-purple">
+                        <div class="label">📋 Categorias</div>
+                        <div class="value">{len(categorias)}</div>
+                    </div>
+                </div>
+        """
+        
+        # Tabela de produtos
+        html += f"""
+                <div class="section-title">📋 LISTA DE PRODUTOS</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Categoria</th>
+                                <th>Produto</th>
+                                <th>CA</th>
+                                <th>BASE</th>
+                                <th>Quantidade</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """
+        
+        if produtos_dict:
+            for p in sorted(produtos_dict, key=lambda x: x.get('produto', '')):
+                qtd = p.get('quantidade', 0)
+                if qtd <= 0:
+                    status = '<span class="status-zero">🔴 ZERADO</span>'
+                elif qtd < 5:
+                    status = '<span class="status-baixo">🟡 BAIXO</span>'
+                elif qtd < 20:
+                    status = '<span class="status-normal">🟢 NORMAL</span>'
+                else:
+                    status = '<span class="status-alto">🔵 ALTO</span>'
+                
+                html += f"""
+                            <tr>
+                                <td>{p.get('id', '')}</td>
+                                <td>{p.get('categoria', '')}</td>
+                                <td>{p.get('produto', '')}</td>
+                                <td>{p.get('ca', 0):.2f}</td>
+                                <td>{p.get('base', 0):.2f}</td>
+                                <td><strong>{qtd:.2f}</strong></td>
+                                <td>{status}</td>
+                            </tr>
+                """
+        else:
+            html += """
+                            <tr>
+                                <td colspan="7" style="text-align:center; color:#999; padding:20px;">
+                                    Nenhum produto cadastrado.
+                                </td>
+                            </tr>
+            """
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+        """
+        
+        # Resumo por categoria
+        if categorias:
+            html += f"""
+                <div class="section-title">📊 RESUMO POR CATEGORIA</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Categoria</th>
+                                <th>Quantidade</th>
+                                <th>% do Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            total = sum(categorias.values())
+            for cat, qtd in sorted(categorias.items(), key=lambda x: x[1], reverse=True):
+                perc = (qtd / total * 100) if total > 0 else 0
+                html += f"""
+                            <tr>
+                                <td><strong>{cat}</strong></td>
+                                <td>{qtd:.2f}</td>
+                                <td>{perc:.1f}%</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        html += f"""
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    # ======================
+    # FUNÇÃO PARA BAIXAR RELATÓRIO
+    # ======================
+    def baixar_relatorio(html_content: str, nome_arquivo: str):
+        """Função para baixar relatório HTML"""
+        st.download_button(
+            label="📥 Baixar Relatório",
+            data=html_content,
+            file_name=nome_arquivo,
+            mime="text/html",
+            use_container_width=True,
+            type="primary"
+        )
+    
+    # ======================
+    # CARREGAR DADOS
+    # ======================
+    with st.spinner("🔄 Carregando dados do almoxarifado..."):
+        produtos = carregar_produtos_estoque()
+        saidas = carregar_saidas()
+    
+    # ======================
+    # NAVEGAÇÃO
+    # ======================
+    st.markdown("### 📊 Selecione a Visualização")
+    
+    col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
+    
+    with col_nav1:
+        if st.button("📦 Estoque", use_container_width=True,
+                     type="primary" if st.session_state.almoxarifado_aba == 'ESTOQUE' else "secondary"):
+            st.session_state.almoxarifado_aba = 'ESTOQUE'
+            st.rerun()
+    
+    with col_nav2:
+        if st.button("📤 Saídas", use_container_width=True,
+                     type="primary" if st.session_state.almoxarifado_aba == 'SAIDAS' else "secondary"):
+            st.session_state.almoxarifado_aba = 'SAIDAS'
+            st.rerun()
+    
+    with col_nav3:
+        if st.button("➕ Cadastrar", use_container_width=True,
+                     type="primary" if st.session_state.almoxarifado_aba == 'CADASTRAR' else "secondary"):
+            st.session_state.almoxarifado_aba = 'CADASTRAR'
+            st.rerun()
+    
+    with col_nav4:
+        if st.button("📊 Relatórios", use_container_width=True,
+                     type="primary" if st.session_state.almoxarifado_aba == 'RELATORIOS' else "secondary"):
+            st.session_state.almoxarifado_aba = 'RELATORIOS'
+            st.rerun()
+    
+    with col_nav5:
+        if st.button("🔄 Atualizar", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # ======================
+    # ABA: ESTOQUE
+    # ======================
+    if st.session_state.almoxarifado_aba == 'ESTOQUE':
+        st.markdown("### 📦 Estoque Atual")
+        
+        # Filtros
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            termo_busca = st.text_input(
+                "🔎 Buscar produto",
+                placeholder="Digite o nome do produto...",
+                key="busca_estoque",
+                value=st.session_state.almoxarifado_termo_busca
+            )
+            st.session_state.almoxarifado_termo_busca = termo_busca
+        
+        with col_f2:
+            categorias_lista = sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+            opcoes_cat = ["(Todas)"] + categorias_lista
+            filtro_categoria = st.selectbox("📂 Categoria", opcoes_cat, key="filtro_cat_estoque")
+        
+        with col_f3:
+            status_opcoes = ["(Todos)", "Estoque Baixo (<5)", "Zerado", "Normal", "Alto (>20)"]
+            filtro_status = st.selectbox("📊 Status", status_opcoes, key="filtro_status_estoque")
+        
+        # Aplicar filtros
+        produtos_filtrados = produtos.copy()
+        
+        if termo_busca:
+            termo_lower = termo_busca.lower()
+            produtos_filtrados = [p for p in produtos_filtrados if termo_lower in p.get('produto', '').lower()]
+        
+        if filtro_categoria != "(Todas)":
+            produtos_filtrados = [p for p in produtos_filtrados if p.get('categoria', '') == filtro_categoria]
+        
+        if filtro_status == "Estoque Baixo (<5)":
+            produtos_filtrados = [p for p in produtos_filtrados if 0 < p.get('quantidade', 0) < 5]
+        elif filtro_status == "Zerado":
+            produtos_filtrados = [p for p in produtos_filtrados if p.get('quantidade', 0) <= 0]
+        elif filtro_status == "Normal":
+            produtos_filtrados = [p for p in produtos_filtrados if 5 <= p.get('quantidade', 0) <= 20]
+        elif filtro_status == "Alto (>20)":
+            produtos_filtrados = [p for p in produtos_filtrados if p.get('quantidade', 0) > 20]
+        
+        # KPIs
+        total_produtos = len(produtos_filtrados)
+        total_qtd = sum(p.get('quantidade', 0) for p in produtos_filtrados)
+        qtd_zerado = len([p for p in produtos_filtrados if p.get('quantidade', 0) <= 0])
+        qtd_baixo = len([p for p in produtos_filtrados if 0 < p.get('quantidade', 0) < 5])
+        
+        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+        with col_k1:
+            st.metric("📦 Produtos", f"{total_produtos:,}")
+        with col_k2:
+            st.metric("📊 Estoque Total", f"{total_qtd:.2f}")
+        with col_k3:
+            st.metric("🔴 Zerados", f"{qtd_zerado:,}", delta_color="inverse")
+        with col_k4:
+            st.metric("🟡 Estoque Baixo", f"{qtd_baixo:,}", delta_color="inverse")
+        
+        st.markdown("---")
+        
+        # Tabela de produtos
+        if produtos_filtrados:
+            dados_tabela = []
+            for p in produtos_filtrados:
+                qtd = p.get('quantidade', 0)
+                if qtd <= 0:
+                    status = "🔴 ZERADO"
+                elif qtd < 5:
+                    status = "🟡 BAIXO"
+                elif qtd < 20:
+                    status = "🟢 NORMAL"
+                else:
+                    status = "🔵 ALTO"
+                
+                dados_tabela.append({
+                    "ID": p.get('id', ''),
+                    "Categoria": p.get('categoria', ''),
+                    "Produto": p.get('produto', ''),
+                    "CA": f"{p.get('ca', 0):.2f}",
+                    "BASE": f"{p.get('base', 0):.2f}",
+                    "Quantidade": f"{qtd:.2f}",
+                    "Status": status
+                })
+            
+            df_estoque = pd.DataFrame(dados_tabela)
+            
+            def style_status(row):
+                status = row['Status']
+                if "ZERADO" in status:
+                    return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
+                elif "BAIXO" in status:
+                    return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
+                elif "NORMAL" in status:
+                    return ['background-color: #d4edda; color: #155724;'] * len(row)
+                else:
+                    return ['background-color: #cce5ff; color: #004085;'] * len(row)
+            
+            styled_df = df_estoque.style.apply(style_status, axis=1)
+            st.dataframe(styled_df, use_container_width=True, height=500, hide_index=True)
+        else:
+            st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
+    
+    # ======================
+    # ABA: SAÍDAS
+    # ======================
+    elif st.session_state.almoxarifado_aba == 'SAIDAS':
+        st.markdown("### 📤 Registro de Saídas")
+        
+        # Botão para nova saída
+        if st.button("➕ Nova Saída", type="primary", use_container_width=True):
+            st.session_state.almoxarifado_confirmar_saida = True
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Formulário de nova saída
+        if st.session_state.almoxarifado_confirmar_saida:
+            st.markdown("### ✏️ Registrar Saída")
+            
+            # Lista de produtos para seleção
+            produtos_com_estoque = [p for p in produtos if p.get('quantidade', 0) > 0]
+            opcoes_produtos = [""] + sorted([p.get('produto', '') for p in produtos_com_estoque])
+            opcoes_categorias = sorted(set([p.get('categoria', '') for p in produtos]))
+            
+            with st.form("form_saida"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    produto_selecionado = st.selectbox(
+                        "Produto*",
+                        options=opcoes_produtos,
+                        key="saida_produto",
+                        help="Selecione o produto que será retirado"
+                    )
+                    
+                    # Buscar categoria automaticamente
+                    categoria_automatica = ""
+                    if produto_selecionado:
+                        for p in produtos:
+                            if p.get('produto', '') == produto_selecionado:
+                                categoria_automatica = p.get('categoria', '')
+                                break
+                    
+                    categoria_saida = st.text_input(
+                        "Categoria*",
+                        value=categoria_automatica,
+                        disabled=True,
+                        key="saida_categoria",
+                        help="A categoria é preenchida automaticamente"
+                    )
+                    
+                    colaborador = st.text_input(
+                        "Colaborador*",
+                        placeholder="Nome do colaborador que está retirando",
+                        key="saida_colaborador"
+                    )
+                
+                with col2:
+                    quantidade = st.number_input(
+                        "Quantidade*",
+                        min_value=0.01,
+                        step=0.5,
+                        value=1.0,
+                        key="saida_quantidade",
+                        help="Quantidade que está sendo retirada"
+                    )
+                    
+                    if produto_selecionado:
+                        for p in produtos:
+                            if p.get('produto', '') == produto_selecionado:
+                                st.caption(f"📦 Estoque disponível: {p.get('quantidade', 0):.2f}")
+                                if quantidade > p.get('quantidade', 0):
+                                    st.warning(f"⚠️ A quantidade solicitada ({quantidade:.2f}) excede o estoque disponível ({p.get('quantidade', 0):.2f})")
+                    
+                    responsavel = st.text_input(
+                        "Responsável*",
+                        value=st.session_state.get('usuario', ''),
+                        disabled=True,
+                        key="saida_responsavel",
+                        help="Preenchido automaticamente com o usuário logado"
+                    )
+                    
+                    obs_saida = st.text_area(
+                        "Observação",
+                        placeholder="Informações adicionais sobre a retirada...",
+                        key="saida_obs",
+                        height=80
+                    )
+                
+                st.markdown("---")
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    submitted = st.form_submit_button("💾 REGISTRAR SAÍDA", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if not produto_selecionado:
+                        st.error("❌ Selecione um produto!")
+                    elif not colaborador:
+                        st.error("❌ Informe o nome do colaborador!")
+                    elif quantidade <= 0:
+                        st.error("❌ A quantidade deve ser maior que zero!")
+                    else:
+                        # Verificar estoque
+                        estoque_atual = 0
+                        for p in produtos:
+                            if p.get('produto', '') == produto_selecionado:
+                                estoque_atual = p.get('quantidade', 0)
+                                break
+                        
+                        if quantidade > estoque_atual:
+                            st.error(f"❌ Estoque insuficiente! Disponível: {estoque_atual:.2f}")
+                        else:
+                            # Criar registro de saída
+                            nova_saida = {
+                                'id': gerar_id_saida(saidas),
+                                'data': datetime.now(),
+                                'produto': produto_selecionado,
+                                'categoria': categoria_automatica,
+                                'colaborador': colaborador,
+                                'quantidade': quantidade,
+                                'obs': obs_saida,
+                                'responsavel': st.session_state.get('usuario', '')
+                            }
+                            
+                            sucesso, msg = salvar_saida(nova_saida)
+                            if sucesso:
+                                st.success(msg)
+                                st.balloons()
+                                st.session_state.almoxarifado_confirmar_saida = False
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+            
+            if st.button("❌ Cancelar Saída", use_container_width=True):
+                st.session_state.almoxarifado_confirmar_saida = False
+                st.rerun()
+        
+        # Lista de saídas
+        st.markdown("---")
+        st.markdown("### 📋 Histórico de Saídas")
+        
+        # Filtros
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            opcoes_prod_saida = ["(Todos)"] + sorted(set([s.get('produto', '') for s in saidas if s.get('produto')]))
+            filtro_produto_saida = st.selectbox(
+                "🔎 Filtrar por Produto",
+                options=opcoes_prod_saida,
+                key="filtro_prod_saida"
+            )
+        with col_f2:
+            data_ini_saida = st.date_input("Data Inicial", value=None, key="data_ini_saida")
+        with col_f3:
+            data_fim_saida = st.date_input("Data Final", value=None, key="data_fim_saida")
+        
+        # Aplicar filtros
+        saidas_filtradas = saidas.copy()
+        if filtro_produto_saida != "(Todos)":
+            saidas_filtradas = [s for s in saidas_filtradas if s.get('produto', '') == filtro_produto_saida]
+        if data_ini_saida:
+            saidas_filtradas = [s for s in saidas_filtradas if s.get('data') and s['data'] >= data_ini_saida]
+        if data_fim_saida:
+            saidas_filtradas = [s for s in saidas_filtradas if s.get('data') and s['data'] <= data_fim_saida]
+        
+        # KPIs
+        total_saidas = len(saidas_filtradas)
+        total_qtd_saida = sum(s.get('quantidade', 0) for s in saidas_filtradas)
+        
+        col_k1, col_k2, col_k3 = st.columns(3)
+        with col_k1:
+            st.metric("📤 Total Saídas", f"{total_saidas:,}")
+        with col_k2:
+            st.metric("📦 Quantidade Total", f"{total_qtd_saida:.2f}")
+        with col_k3:
+            if total_saidas > 0:
+                media = total_qtd_saida / total_saidas
+                st.metric("📊 Média por Saída", f"{media:.2f}")
+            else:
+                st.metric("📊 Média por Saída", "0.00")
+        
+        st.markdown("---")
+        
+        # Tabela de saídas
+        if saidas_filtradas:
+            dados_saidas = []
+            for s in sorted(saidas_filtradas, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True):
+                data_obj = s.get('data')
+                dados_saidas.append({
+                    "ID": s.get('id', ''),
+                    "Data": data_obj.strftime("%d/%m/%Y") if data_obj else "-",
+                    "Produto": s.get('produto', ''),
+                    "Categoria": s.get('categoria', ''),
+                    "Colaborador": s.get('colaborador', ''),
+                    "Quantidade": f"{s.get('quantidade', 0):.2f}",
+                    "Obs": s.get('obs', '')[:30] + "..." if len(s.get('obs', '')) > 30 else s.get('obs', ''),
+                    "Responsável": s.get('responsavel', '')
+                })
+            
+            df_saidas = pd.DataFrame(dados_saidas)
+            st.dataframe(df_saidas, use_container_width=True, height=400, hide_index=True)
+        else:
+            st.info("📭 Nenhuma saída registrada.")
+    
+    # ======================
+    # ABA: CADASTRAR
+    # ======================
+    elif st.session_state.almoxarifado_aba == 'CADASTRAR':
+        st.markdown("### ➕ Cadastro de Produtos")
+        
+        # Tabs para Novo e Editar
+        tab_novo, tab_editar, tab_excluir = st.tabs(["➕ Novo Produto", "✏️ Editar Produto", "🗑️ Excluir Produto"])
+        
+        # ===== NOVO PRODUTO =====
+        with tab_novo:
+            with st.form("form_novo_produto"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # ID automático
+                    novo_id = gerar_id_produto(produtos)
+                    st.text_input("ID (automático)", value=novo_id, disabled=True, key="novo_id_display")
+                    
+                    categoria_nova = st.selectbox(
+                        "Categoria*",
+                        options=sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')])),
+                        key="nova_categoria"
+                    )
+                    
+                    produto_nome = st.text_input(
+                        "Produto*",
+                        placeholder="Nome do produto",
+                        key="novo_produto_nome"
+                    )
+                
+                with col2:
+                    ca_novo = st.number_input(
+                        "CA*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_ca",
+                        help="Capacidade do caixote"
+                    )
+                    
+                    base_novo = st.number_input(
+                        "BASE*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_base",
+                        help="Base de estoque"
+                    )
+                    
+                    quantidade_novo = st.number_input(
+                        "Quantidade Inicial*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_quantidade",
+                        help="Quantidade em estoque"
+                    )
+                
+                st.markdown("---")
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    submitted_novo = st.form_submit_button("💾 SALVAR PRODUTO", type="primary", use_container_width=True)
+                
+                if submitted_novo:
+                    if not produto_nome:
+                        st.error("❌ Informe o nome do produto!")
+                    elif not categoria_nova:
+                        st.error("❌ Informe a categoria!")
+                    else:
+                        # Verificar se produto já existe
+                        existe = any(p.get('produto', '').upper() == produto_nome.upper() for p in produtos)
+                        if existe:
+                            st.warning(f"⚠️ O produto '{produto_nome}' já está cadastrado!")
+                        else:
+                            novo_produto = {
+                                'id': novo_id,
+                                'categoria': categoria_nova,
+                                'produto': produto_nome,
+                                'ca': ca_novo,
+                                'base': base_novo,
+                                'quantidade': quantidade_novo
+                            }
+                            
+                            sucesso, msg = salvar_produto(novo_produto)
+                            if sucesso:
+                                st.success(msg)
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(msg)
+        
+        # ===== EDITAR PRODUTO =====
+        with tab_editar:
+            if produtos:
+                opcoes_produtos_edit = sorted([p.get('produto', '') for p in produtos])
+                
+                # Selector de produto
+                if st.session_state.almoxarifado_editando:
+                    current_prod = st.session_state.almoxarifado_editando.get('produto', '')
+                    idx_atual = opcoes_produtos_edit.index(current_prod) if current_prod in opcoes_produtos_edit else 0
+                    produto_selecionado_edit = st.selectbox(
+                        "Selecione o produto para editar",
+                        options=opcoes_produtos_edit,
+                        key="edit_produto_select",
+                        index=idx_atual
+                    )
+                else:
+                    produto_selecionado_edit = st.selectbox(
+                        "Selecione o produto para editar",
+                        options=opcoes_produtos_edit,
+                        key="edit_produto_select"
+                    )
+                
+                if produto_selecionado_edit:
+                    # Encontrar o produto
+                    produto_edit = next((p for p in produtos if p.get('produto', '') == produto_selecionado_edit), None)
+                    
+                    if produto_edit:
+                        # Se mudou o produto selecionado, atualizar session state
+                        if st.session_state.almoxarifado_editando is None or st.session_state.almoxarifado_editando.get('produto', '') != produto_edit.get('produto', ''):
+                            st.session_state.almoxarifado_editando = produto_edit
+                            st.rerun()
+                        
+                        with st.form("form_editar_produto"):
+                            st.info(f"📌 Editando: {produto_edit.get('id', '')} - {produto_edit.get('produto', '')}")
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.text_input("ID", value=produto_edit.get('id', ''), disabled=True, key="edit_id_display")
+                                
+                                cat_options = sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+                                cat_index = cat_options.index(produto_edit.get('categoria', '')) if produto_edit.get('categoria', '') in cat_options else 0
+                                categoria_edit = st.selectbox(
+                                    "Categoria*",
+                                    options=cat_options,
+                                    index=cat_index,
+                                    key="edit_categoria"
+                                )
+                                
+                                produto_nome_edit = st.text_input(
+                                    "Produto*",
+                                    value=produto_edit.get('produto', ''),
+                                    key="edit_produto_nome"
+                                )
+                            
+                            with col2:
+                                ca_edit = st.number_input(
+                                    "CA*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('ca', 0),
+                                    key="edit_ca"
+                                )
+                                
+                                base_edit = st.number_input(
+                                    "BASE*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('base', 0),
+                                    key="edit_base"
+                                )
+                                
+                                quantidade_edit = st.number_input(
+                                    "Quantidade*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('quantidade', 0),
+                                    key="edit_quantidade"
+                                )
+                            
+                            st.markdown("---")
+                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                            with col_btn2:
+                                submitted_edit = st.form_submit_button("💾 SALVAR ALTERAÇÕES", type="primary", use_container_width=True)
+                            
+                            if submitted_edit:
+                                if not produto_nome_edit:
+                                    st.error("❌ Informe o nome do produto!")
+                                else:
+                                    produto_atualizado = {
+                                        'id': produto_edit.get('id', ''),
+                                        'categoria': categoria_edit,
+                                        'produto': produto_nome_edit,
+                                        'ca': ca_edit,
+                                        'base': base_edit,
+                                        'quantidade': quantidade_edit
+                                    }
+                                    
+                                    sucesso, msg = atualizar_produto(produto_atualizado)
+                                    if sucesso:
+                                        st.success(msg)
+                                        st.session_state.almoxarifado_editando = None
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                        
+                        if st.button("❌ Cancelar Edição", use_container_width=True):
+                            st.session_state.almoxarifado_editando = None
+                            st.rerun()
+            else:
+                st.info("📭 Nenhum produto cadastrado para editar.")
+        
+        # ===== EXCLUIR PRODUTO =====
+        with tab_excluir:
+            if produtos:
+                opcoes_produtos_excluir = sorted([p.get('produto', '') for p in produtos])
+                
+                produto_selecionado_excluir = st.selectbox(
+                    "Selecione o produto para excluir",
+                    options=opcoes_produtos_excluir,
+                    key="excluir_produto_select"
+                )
+                
+                if produto_selecionado_excluir:
+                    produto_excluir = next((p for p in produtos if p.get('produto', '') == produto_selecionado_excluir), None)
+                    
+                    if produto_excluir:
+                        st.warning(f"⚠️ Você está prestes a excluir o produto: **{produto_excluir.get('produto', '')}** (ID: {produto_excluir.get('id', '')})")
+                        st.caption(f"Quantidade em estoque: {produto_excluir.get('quantidade', 0):.2f}")
+                        
+                        if produto_excluir.get('quantidade', 0) > 0:
+                            st.warning(f"⚠️ Este produto tem {produto_excluir.get('quantidade', 0):.2f} unidades em estoque. A exclusão removerá o cadastro, mas o histórico de saídas permanecerá.")
+                        
+                        confirmar_excluir = st.checkbox(f"✅ Confirmo que desejo EXCLUIR permanentemente o produto {produto_excluir.get('produto', '')}")
+                        
+                        if confirmar_excluir:
+                            if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True):
+                                sucesso, msg = excluir_produto(produto_excluir.get('id', ''))
+                                if sucesso:
+                                    st.success(msg)
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+            else:
+                st.info("📭 Nenhum produto cadastrado para excluir.")
+    
+    # ======================
+    # ABA: RELATÓRIOS
+    # ======================
+    elif st.session_state.almoxarifado_aba == 'RELATORIOS':
+        st.markdown("### 📊 Relatórios do Almoxarifado")
+        
+        tipo_relatorio = st.radio(
+            "Selecione o tipo de relatório:",
+            ["📦 Estoque Completo", "📤 Relatório de Saídas", "📥 Relatório de Entradas (Produtos)"],
+            horizontal=True,
+            key="tipo_relatorio_almox"
+        )
+        
+        st.markdown("---")
+        
+        # ===== RELATÓRIO COMPLETO =====
+        if tipo_relatorio == "📦 Estoque Completo":
+            st.markdown("#### 📦 Relatório Completo do Almoxarifado")
+            st.caption("Este relatório inclui: estoque atual, saídas recentes e resumo por categoria.")
+            
+            if st.button("📊 Gerar Relatório Completo", type="primary", use_container_width=True):
+                with st.spinner("Gerando relatório completo..."):
+                    html_content = gerar_relatorio_almoxarifado(produtos, saidas)
+                    baixar_relatorio(html_content, f"relatorio_almoxarifado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+        
+        # ===== RELATÓRIO DE SAÍDAS =====
+        elif tipo_relatorio == "📤 Relatório de Saídas":
+            st.markdown("#### 📤 Relatório de Saídas")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                data_ini_rel = st.date_input("Data Inicial", value=None, key="rel_data_ini")
+            with col2:
+                data_fim_rel = st.date_input("Data Final", value=None, key="rel_data_fim")
+            
+            if st.button("📊 Gerar Relatório de Saídas", type="primary", use_container_width=True):
+                with st.spinner("Gerando relatório de saídas..."):
+                    html_content = gerar_relatorio_saidas_html(saidas, data_ini_rel, data_fim_rel)
+                    baixar_relatorio(html_content, f"relatorio_saidas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+        
+        # ===== RELATÓRIO DE ENTRADAS =====
+        elif tipo_relatorio == "📥 Relatório de Entradas (Produtos)":
+            st.markdown("#### 📥 Relatório de Entradas - Produtos Cadastrados")
+            st.caption("Lista completa de todos os produtos cadastrados no almoxarifado.")
+            
+            if st.button("📊 Gerar Relatório de Entradas", type="primary", use_container_width=True):
+                with st.spinner("Gerando relatório de entradas..."):
+                    html_content = gerar_relatorio_entradas_html(produtos)
+                    baixar_relatorio(html_content, f"relatorio_entradas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+    
+    # ======================
+    # FOOTER
+    # ======================
+    st.markdown(f"""
+    <div style="text-align:right;padding:16px 0 8px;
+        font-family:'JetBrains Mono',monospace;font-size:10px;
+        color:{THEME['text_muted']};letter-spacing:.1em;">
+        📦 ALMOXARIFADO · {get_horario_brasilia()}
+    </div>
+    """, unsafe_allow_html=True)
     
 # ==================================================================================================
 # RENDERIZAR FAIXA DE ROLAGEM
