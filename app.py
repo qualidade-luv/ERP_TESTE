@@ -2511,96 +2511,18 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # ===== NAVEGAÇÃO COM CATEGORIAS =====
-    # Primeiro, definir as categorias com seus itens
-    CATEGORIAS = {
-        "🏭 PRODUÇÃO": ["PRENSADOS", "SOPRO", "TÊMPERA"],
-        "📢 COMUNICAÇÃO": ["AVISO DE REJEIÇÃO", "REQUISIÇÃO MANUTENÇÃO", "FECHAMENTO TURNO"],
-        "🛠️ CONTROLES": ["MANUTENÇÃO PREVENTIVA", "FERRAMENTARIA", "CONTROLE DO FORNO"],
-        "📊 ADMINISTRATIVO": ["MAPEAMENTO DE HABILIDADES", "PRÊMIO PRENSADOS", "REPASSES DE PRODUÇÃO"]
-    }
-
-    # Criar opções com formato "CATEGORIA | ITEM" para manter o agrupamento
-    opcoes = []
-    for categoria, itens in CATEGORIAS.items():
-        for item in itens:
-            opcoes.append(f"{categoria} | {item}")
-
-    # Verificar estado atual
-    if "aba_selecionada" not in st.session_state:
-        st.session_state.aba_selecionada = "PRENSADOS"
-
-    # Encontrar o índice da opção selecionada
-    selected_index = 0
-    for i, opt in enumerate(opcoes):
-        if opt.split(" | ")[1] == st.session_state.aba_selecionada:
-            selected_index = i
-            break
-
-    # Radio com as opções
-    selected = st.radio(
-        "Setor",
-        options=opcoes,
-        index=selected_index,
-        key="nav_radio"
-    )
-
-    # Extrair o item selecionado
-    st.session_state.aba_selecionada = selected.split(" | ")[1]
-
-    # Mostrar os cabeçalhos das categorias visualmente
+    st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin-bottom:8px'>▸ Setor</div>", unsafe_allow_html=True)
+    aba_selecionada = st.radio("", list(ABAS.keys()), label_visibility="collapsed")
+    st.session_state.aba_selecionada = aba_selecionada
+    
+    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
     st.markdown("---")
     
-    # Para melhor visualização, mostrar as categorias com seus itens
-    for categoria, itens in CATEGORIAS.items():
-        is_active = any(item == st.session_state.aba_selecionada for item in itens)
-        cor = THEME['accent_cyan'] if is_active else THEME['text_muted']
-        
-        st.markdown(f"""
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; 
-                    letter-spacing: 0.15em; text-transform: uppercase; 
-                    color: {cor}; padding: 8px 0 4px 8px; 
-                    border-bottom: 1px solid {THEME['border']}; margin: 4px 0;">
-            {categoria}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for item in itens:
-            is_item_active = (item == st.session_state.aba_selecionada)
-            icon = {
-                "PRENSADOS": "🔩", "SOPRO": "💨", "TÊMPERA": "🔥",
-                "AVISO DE REJEIÇÃO": "📋", "REQUISIÇÃO MANUTENÇÃO": "🔧", "FECHAMENTO TURNO": "📅",
-                "MANUTENÇÃO PREVENTIVA": "🛡️", "FERRAMENTARIA": "🛠️", "CONTROLE DO FORNO": "🌡️",
-                "MAPEAMENTO DE HABILIDADES": "📊", "PRÊMIO PRENSADOS": "🏆", "REPASSES DE PRODUÇÃO": "🔄"
-            }.get(item, "•")
-            
-            if is_item_active:
-                st.markdown(f"""
-                <div style="padding: 4px 8px 4px 28px; font-family: 'Barlow', sans-serif; font-size: 13px; 
-                            font-weight: 600; color: {THEME['accent_cyan']}; 
-                            background-color: rgba(0,120,212,0.12); 
-                            border-left: 2px solid {THEME['accent_cyan']}; 
-                            border-radius: 4px; margin: 2px 0;">
-                    {icon} {item}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="padding: 4px 8px 4px 28px; font-family: 'Barlow', sans-serif; font-size: 13px; 
-                            font-weight: 400; color: {THEME['text_primary']}; 
-                            border-left: 2px solid transparent; 
-                            border-radius: 4px; margin: 2px 0; opacity: 0.7;">
-                    {icon} {item}
-                </div>
-                """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # ===== INFORMAÇÕES DO USUÁRIO E LOGOUT =====
+    # Informações do usuário
     usuario_logado = st.session_state.get('usuario', 'Usuário')
     nivel_logado = st.session_state.get('nivel', '0')
     setor_logado = st.session_state.get('setor', '')
-
+    
     col_info, col_btn = st.columns([3, 1])
     with col_info:
         st.markdown(f"""
@@ -2610,19 +2532,21 @@ with st.sidebar:
             🏢 {setor_logado}
         </div>
         """, unsafe_allow_html=True)
-
+    
     with col_btn:
         if st.button("🚪", help="Sair do sistema", key="btn_logout", use_container_width=True):
             fazer_logout()
-
+    
     # ===== BOTÃO PARA LIMPAR CACHE E RECARREGAR =====
     st.markdown("---")
-
+    
+    # Exibir horário da última atualização
     if "ultima_atualizacao_cache" not in st.session_state:
         st.session_state.ultima_atualizacao_cache = datetime.now()
-
+    
     st.caption(f"🔄 Última atualização: {st.session_state.ultima_atualizacao_cache.strftime('%H:%M:%S')}")
-
+    
+    # Botão de limpar cache
     if st.button("🔄 Limpar Cache e Recarregar", use_container_width=True, type="primary"):
         with st.spinner("🧹 Limpando cache e recarregando dados..."):
             sucesso, mensagem = limpar_cache_e_recarregar()
@@ -2633,7 +2557,8 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error(mensagem)
-
+    
+    # Botão adicional para recarregar apenas os dados (sem limpar cache completo)
     if st.button("📊 Recarregar Dados Apenas", use_container_width=True):
         with st.spinner("🔄 Recarregando dados..."):
             st.cache_data.clear()
@@ -2641,7 +2566,8 @@ with st.sidebar:
             st.success("✅ Dados recarregados!")
             time.sleep(0.3)
             st.rerun()
-
+    
+    # ===== INFORMAÇÕES DO SISTEMA =====
     st.markdown("---")
     st.caption(f"""
     <div style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: {THEME['text_muted']}; text-align: center;">
