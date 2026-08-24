@@ -17273,8 +17273,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
             else:
                 st.info("📭 Nenhum produto cadastrado.")
     
-    # ======================
-    # ABA: RELATÓRIOS
+        # ======================
+    # ABA: RELATÓRIOS (COM FILTROS PARA AMBOS OS RELATÓRIOS)
     # ======================
     elif st.session_state.almoxarifado_aba == 'RELATORIOS':
         st.markdown("### 📊 Relatórios do Almoxarifado")
@@ -17288,14 +17288,134 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         st.markdown("---")
         
+        # ============================================================
+        # RELATÓRIO DE ESTOQUE COMPLETO COM FILTROS
+        # ============================================================
         if tipo_relatorio == "📦 Estoque Completo":
             st.markdown("#### 📦 Relatório Completo do Almoxarifado")
+            st.caption("Este relatório inclui: estoque atual, saídas recentes e resumo por categoria.")
             
-            if st.button("📊 Gerar Relatório Completo", type="primary", use_container_width=True):
-                with st.spinner("Gerando relatório..."):
-                    html_content = gerar_relatorio_almoxarifado(produtos, movimentacoes)
-                    baixar_relatorio(html_content, f"relatorio_almoxarifado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+            st.markdown("##### 🔍 Filtros do Relatório")
+            
+            col_f1, col_f2, col_f3 = st.columns(3)
+            
+            with col_f1:
+                # Filtro por Categoria
+                opcoes_cat_rel_estoque = ["(Todas)"] + sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+                filtro_cat_rel_estoque = st.selectbox(
+                    "📂 Categoria",
+                    options=opcoes_cat_rel_estoque,
+                    key="rel_filtro_cat_estoque"
+                )
+            
+            with col_f2:
+                # Filtro por Status
+                opcoes_status_rel = ["(Todos)", "ZERADO", "BAIXO", "NORMAL", "ALTO"]
+                filtro_status_rel = st.selectbox(
+                    "📊 Status",
+                    options=opcoes_status_rel,
+                    key="rel_filtro_status_estoque"
+                )
+            
+            with col_f3:
+                # Filtro por Produto
+                opcoes_prod_rel_estoque = ["(Todos)"] + sorted(set([p.get('produto', '') for p in produtos if p.get('produto')]))
+                filtro_prod_rel_estoque = st.selectbox(
+                    "📦 Produto",
+                    options=opcoes_prod_rel_estoque,
+                    key="rel_filtro_prod_estoque"
+                )
+            
+            st.markdown("---")
+            
+            # Aplicar filtros para prévia
+            produtos_preview = produtos.copy()
+            
+            if filtro_cat_rel_estoque != "(Todas)":
+                produtos_preview = [p for p in produtos_preview if p.get('categoria', '') == filtro_cat_rel_estoque]
+            
+            if filtro_prod_rel_estoque != "(Todos)":
+                produtos_preview = [p for p in produtos_preview if p.get('produto', '') == filtro_prod_rel_estoque]
+            
+            if filtro_status_rel != "(Todos)":
+                if filtro_status_rel == "ZERADO":
+                    produtos_preview = [p for p in produtos_preview if p.get('quantidade', 0) <= 0]
+                elif filtro_status_rel == "BAIXO":
+                    produtos_preview = [p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5]
+                elif filtro_status_rel == "NORMAL":
+                    produtos_preview = [p for p in produtos_preview if 5 <= p.get('quantidade', 0) <= 20]
+                elif filtro_status_rel == "ALTO":
+                    produtos_preview = [p for p in produtos_preview if p.get('quantidade', 0) > 20]
+            
+            # Cards de estatísticas do estoque filtrado
+            total_prod_preview = len(produtos_preview)
+            total_qtd_preview = sum(p.get('quantidade', 0) for p in produtos_preview)
+            zerados_preview = len([p for p in produtos_preview if p.get('quantidade', 0) <= 0])
+            baixos_preview = len([p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5])
+            
+            col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+            with col_k1:
+                st.metric("📦 Produtos", f"{total_prod_preview:,}")
+            with col_k2:
+                st.metric("📊 Estoque Total", f"{total_qtd_preview:.2f}")
+            with col_k3:
+                st.metric("🔴 Zerados", f"{zerados_preview:,}", delta_color="inverse")
+            with col_k4:
+                st.metric("🟡 Estoque Baixo", f"{baixos_preview:,}", delta_color="inverse")
+            
+            st.markdown("---")
+            
+            # Tabela de prévia do estoque
+            if produtos_preview:
+                dados_preview_estoque = []
+                for p in sorted(produtos_preview, key=lambda x: x.get('produto', '')):
+                    qtd = p.get('quantidade', 0)
+                    if qtd <= 0:
+                        status = "🔴 ZERADO"
+                    elif qtd < 5:
+                        status = "🟡 BAIXO"
+                    elif qtd < 20:
+                        status = "🟢 NORMAL"
+                    else:
+                        status = "🔵 ALTO"
+                    
+                    dados_preview_estoque.append({
+                        "ID": p.get('id', ''),
+                        "Categoria": p.get('categoria', ''),
+                        "Produto": p.get('produto', ''),
+                        "CA": f"{p.get('ca', 0):.2f}",
+                        "BASE": f"{p.get('base', 0):.2f}",
+                        "Quantidade": f"{qtd:.2f}",
+                        "Status": status
+                    })
+                
+                df_preview_estoque = pd.DataFrame(dados_preview_estoque)
+                
+                def style_estoque_preview(row):
+                    status = row['Status']
+                    if "ZERADO" in status:
+                        return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
+                    elif "BAIXO" in status:
+                        return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
+                    elif "NORMAL" in status:
+                        return ['background-color: #d4edda; color: #155724;'] * len(row)
+                    else:
+                        return ['background-color: #cce5ff; color: #004085;'] * len(row)
+                
+                styled_preview_estoque = df_preview_estoque.style.apply(style_estoque_preview, axis=1)
+                st.dataframe(styled_preview_estoque, use_container_width=True, height=300, hide_index=True)
+                st.caption(f"📊 Exibindo {len(produtos_preview)} de {len(produtos)} produtos")
+                
+                if st.button("📊 Gerar Relatório Completo com Filtros", type="primary", use_container_width=True):
+                    with st.spinner("Gerando relatório..."):
+                        html_content = gerar_relatorio_almoxarifado(produtos_preview, movimentacoes)
+                        baixar_relatorio(html_content, f"relatorio_almoxarifado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+            else:
+                st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
         
+        # ============================================================
+        # RELATÓRIO DE MOVIMENTAÇÕES COM FILTROS
+        # ============================================================
         elif tipo_relatorio == "📤 Relatório de Movimentações":
             st.markdown("#### 📤 Relatório de Movimentações")
             
@@ -17419,7 +17539,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 st.dataframe(styled_preview, use_container_width=True, height=300, hide_index=True)
                 st.caption(f"📊 Exibindo {min(len(mov_preview), 20)} de {len(mov_preview)} registros")
                 
-                if st.button("📊 Gerar Relatório Completo com Filtros", type="primary", use_container_width=True):
+                if st.button("📊 Gerar Relatório de Movimentações com Filtros", type="primary", use_container_width=True):
                     with st.spinner("Gerando relatório..."):
                         html_content = gerar_relatorio_movimentacoes_html(
                             movimentacoes, 
