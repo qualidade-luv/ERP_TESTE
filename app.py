@@ -15742,17 +15742,14 @@ elif aba_selecionada == 'ALMOXARIFADO':
     if 'almoxarifado_editando' not in st.session_state:
         st.session_state.almoxarifado_editando = None
     
-    if 'almoxarifado_excluindo' not in st.session_state:
-        st.session_state.almoxarifado_excluindo = None
-    
     if 'almoxarifado_confirmar_movimentacao' not in st.session_state:
         st.session_state.almoxarifado_confirmar_movimentacao = False
     
-    if 'almoxarifado_dados_movimentacao' not in st.session_state:
-        st.session_state.almoxarifado_dados_movimentacao = {}
-    
     if 'almoxarifado_termo_busca' not in st.session_state:
         st.session_state.almoxarifado_termo_busca = ""
+    
+    if 'almoxarifado_forcar_recarga' not in st.session_state:
+        st.session_state.almoxarifado_forcar_recarga = False
     
     # ======================
     # FUNÇÃO PARA GERAR ID AUTOMÁTICO
@@ -15796,6 +15793,65 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         proximo = max(ids) + 1
         return f"MOV-{proximo:03d}"
+    
+    # ======================
+    # FUNÇÃO PARA CALCULAR PREVISÃO DE DIAS
+    # ======================
+    def calcular_previsao_dias(produto: str, quantidade_atual: float, movimentacoes_dict: List[Dict]) -> str:
+        """
+        Calcula quantos dias o estoque atual vai durar com base nas saídas registradas.
+        Retorna uma string formatada.
+        """
+        if quantidade_atual <= 0:
+            return "🔴 ZERADO"
+        
+        # Filtrar apenas saídas deste produto
+        saidas_produto = [m for m in movimentacoes_dict 
+                         if m.get('produto', '') == produto 
+                         and m.get('tipo', '').upper() == 'SAÍDA'
+                         and m.get('data') is not None]
+        
+        if not saidas_produto:
+            return "-----"
+        
+        # Ordenar por data
+        saidas_produto = sorted(saidas_produto, key=lambda x: x.get('data'))
+        
+        # Calcular média diária de saída
+        data_inicio = saidas_produto[0].get('data')
+        data_fim = saidas_produto[-1].get('data')
+        
+        if data_inicio is None or data_fim is None or data_fim == data_inicio:
+            total_saidas = sum(m.get('quantidade', 0) for m in saidas_produto)
+            if total_saidas <= 0:
+                return "-----"
+            dias_estimados = quantidade_atual / total_saidas
+        else:
+            dias_periodo = (data_fim - data_inicio).days
+            if dias_periodo <= 0:
+                dias_periodo = 1
+            
+            total_saidas = sum(m.get('quantidade', 0) for m in saidas_produto)
+            
+            if total_saidas <= 0:
+                return "-----"
+            
+            media_diaria = total_saidas / dias_periodo
+            
+            if media_diaria <= 0:
+                return "-----"
+            
+            dias_estimados = quantidade_atual / media_diaria
+        
+        if dias_estimados < 1:
+            return f"⚠️ {dias_estimados * 24:.0f}h"
+        elif dias_estimados < 7:
+            return f"🟡 {dias_estimados:.0f} dias"
+        elif dias_estimados < 30:
+            return f"🟢 {dias_estimados:.0f} dias"
+        else:
+            meses = dias_estimados / 30
+            return f"🔵 {meses:.1f} meses"
     
     # ======================
     # FUNÇÕES DE CARREGAMENTO
@@ -15922,7 +15978,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             try:
                 sheet = spreadsheet.worksheet(ABA_MOVIMENTACAO)
-            except:
+            except Exception as e:
                 sheet = spreadsheet.add_worksheet(title=ABA_MOVIMENTACAO, rows=1000, cols=20)
                 cabecalho = ["ID", "DATA", "PRODUTO", "CATEGORIA", "COLABORADOR", "QUANTIDADE", "OBS", "RESPONSÁVEL", "TIPO"]
                 sheet.append_row(cabecalho)
@@ -15965,6 +16021,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 elif col_clean == 'TIPO':
                     idx_tipo = i
             
+            if idx_tipo is None:
+                for i, col in enumerate(cabecalho):
+                    col_clean = str(col).strip().upper()
+                    if 'TIPO' in col_clean:
+                        idx_tipo = i
+                        break
+            
             for row in todos_dados[1:]:
                 try:
                     if idx_id is not None and len(row) <= idx_id:
@@ -15987,7 +16050,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'quantidade': 0.0,
                         'obs': row[idx_obs].strip() if idx_obs is not None and len(row) > idx_obs and row[idx_obs] else "",
                         'responsavel': row[idx_responsavel].strip() if idx_responsavel is not None and len(row) > idx_responsavel and row[idx_responsavel] else "",
-                        'tipo': row[idx_tipo].strip() if idx_tipo is not None and len(row) > idx_tipo and row[idx_tipo] else "SAÍDA"
+                        'tipo': row[idx_tipo].strip().upper() if idx_tipo is not None and len(row) > idx_tipo and row[idx_tipo] else "SAÍDA"
                     }
                     
                     if idx_data is not None and len(row) > idx_data and row[idx_data]:
@@ -16205,7 +16268,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return False, f"❌ Erro ao excluir movimentação: {str(e)}"
     
     # ======================
-    # FUNÇÕES DE RELATÓRIOS
+    # FUNÇÃO GERAR RELATÓRIO ALMOXARIFADO COM PREVISÃO
     # ======================
     def gerar_relatorio_almoxarifado(produtos_dict: List[Dict], movimentacoes_dict: List[Dict]) -> str:
         data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -16232,66 +16295,73 @@ elif aba_selecionada == 'ALMOXARIFADO':
             <meta charset="UTF-8">
             <title>Relatório Almoxarifado</title>
             <style>
-                @page {{ size: A4 portrait; margin: 15mm; }}
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 11px; }}
+                @page {{ size: A4 landscape; margin: 10mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
                 .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
                 .header {{
                     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    padding: 20px 25px;
+                    padding: 15px 20px;
                     border-radius: 10px;
-                    margin-bottom: 20px;
+                    margin-bottom: 15px;
                     color: white;
                 }}
-                .header h1 {{ margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
-                .header .subtitle {{ font-size: 14px; color: #a0aec0; margin-top: 5px; }}
-                .header .data {{ font-size: 12px; color: #a0aec0; margin-top: 5px; }}
+                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
+                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
+                
                 .cards {{
                     display: grid;
-                    grid-template-columns: repeat(4, 1fr);
-                    gap: 12px;
-                    margin-bottom: 20px;
+                    grid-template-columns: repeat(5, 1fr);
+                    gap: 10px;
+                    margin-bottom: 15px;
                 }}
                 .card {{
                     background: #f8f9fc;
-                    padding: 12px 16px;
+                    padding: 10px 14px;
                     border-radius: 8px;
                     border-left: 4px solid #0078D4;
                     text-align: center;
                 }}
-                .card .label {{ font-size: 10px; color: #666; text-transform: uppercase; font-weight: 600; }}
-                .card .value {{ font-size: 22px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }}
+                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
+                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
                 .card-green {{ border-left-color: #28a745; }}
                 .card-red {{ border-left-color: #dc3545; }}
                 .card-orange {{ border-left-color: #E86C2C; }}
                 .card-purple {{ border-left-color: #6B46C1; }}
                 
-                .section-title {{ font-size: 16px; font-weight: 700; margin: 20px 0 10px 0; padding-bottom: 8px; border-bottom: 2px solid #e0e0e0; }}
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; }}
-                table th {{ background: #2c3e50; color: white; padding: 6px 8px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; }}
-                table td {{ padding: 5px 8px; border: 1px solid #ddd; text-align: center; }}
+                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
+                
+                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
+                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; white-space: nowrap; }}
+                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
                 table tr:nth-child(even) {{ background: #f8f9fc; }}
+                
                 .table-responsive {{ overflow-x: auto; }}
-                .footer {{ margin-top: 20px; padding-top: 10px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 9px; color: #999; }}
-                .alert-box {{ padding: 10px 15px; border-radius: 6px; margin: 10px 0; }}
+                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
+                
+                .alert-box {{ padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 10px; }}
                 .alert-danger {{ background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }}
                 .alert-warning {{ background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }}
                 
-                .status-baixo {{ color: #dc3545; font-weight: bold; }}
                 .status-zero {{ color: #dc3545; font-weight: bold; }}
+                .status-baixo {{ color: #dc3545; font-weight: bold; }}
                 .status-normal {{ color: #28a745; }}
                 .status-alto {{ color: #0078D4; }}
                 
-                .tipo-entrada {{ color: #28a745; font-weight: bold; }}
-                .tipo-saida {{ color: #dc3545; font-weight: bold; }}
-                .tipo-inventario {{ color: #6B46C1; font-weight: bold; }}
+                .previsao-zerado {{ color: #dc3545; font-weight: bold; }}
+                .previsao-urgencia {{ color: #dc3545; font-weight: bold; }}
+                .previsao-curto {{ color: #E86C2C; }}
+                .previsao-medio {{ color: #28a745; }}
+                .previsao-longo {{ color: #0078D4; }}
                 
-                .badge {{ display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 9px; font-weight: bold; }}
+                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
                 .badge-entrada {{ background: #d4edda; color: #155724; }}
                 .badge-saida {{ background: #f8d7da; color: #721c24; }}
                 .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
                 
                 @media print {{
-                    body {{ margin: 5mm; padding: 0; }}
+                    body {{ margin: 3mm; padding: 0; }}
                     .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
                     .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
                     table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
@@ -16302,7 +16372,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             <div class="container">
                 <div class="header">
                     <h1>📦 RELATÓRIO ALMOXARIFADO</h1>
-                    <div class="subtitle">Controle de Estoque - Luvidarte</div>
+                    <div class="subtitle">Controle de Estoque com Previsão de Consumo - Luvidarte</div>
                     <div class="data">Gerado em: {data_atual}</div>
                 </div>
                 
@@ -16311,25 +16381,39 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     <div class="card card-green"><div class="label">📊 Estoque Total</div><div class="value">{total_quantidade:.2f}</div></div>
                     <div class="card card-orange"><div class="label">📤 Total Movimentações</div><div class="value">{total_mov}</div></div>
                     <div class="card card-purple"><div class="label">📦 Qtd Movimentada</div><div class="value">{total_qtd_mov:.2f}</div></div>
+                    <div class="card card-red"><div class="label">🔴 Produtos Zerados</div><div class="value">{len(estoque_zero)}</div></div>
                 </div>
         """
         
         if estoque_zero:
-            html += f'<div class="alert-box alert-danger"><strong>🔴 ATENÇÃO - ESTOQUE ZERADO:</strong> {len(estoque_zero)} produto(s).</div>'
+            html += f'<div class="alert-box alert-danger"><strong>🔴 ATENÇÃO - ESTOQUE ZERADO:</strong> {len(estoque_zero)} produto(s) com estoque zerado.</div>'
         if estoque_baixo:
-            html += f'<div class="alert-box alert-warning"><strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s).</div>'
+            html += f'<div class="alert-box alert-warning"><strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s) com estoque abaixo de 5 unidades.</div>'
         
+        # Tabela de Produtos com PREVISÃO
         html += f"""
-                <div class="section-title">📋 ESTOQUE ATUAL</div>
+                <div class="section-title">📋 ESTOQUE ATUAL COM PREVISÃO DE CONSUMO</div>
                 <div class="table-responsive">
                     <table>
-                        <thead><tr><th>ID</th><th>Categoria</th><th>Produto</th><th>CA</th><th>BASE</th><th>Quantidade</th><th>Status</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Categoria</th>
+                                <th>Produto</th>
+                                <th>CA</th>
+                                <th>BASE</th>
+                                <th>Quantidade</th>
+                                <th>Status</th>
+                                <th>Previsão</th>
+                            </tr>
+                        </thead>
                         <tbody>
         """
         
         if produtos_dict:
             for p in sorted(produtos_dict, key=lambda x: x.get('produto', '')):
                 qtd = p.get('quantidade', 0)
+                
                 if qtd <= 0:
                     status = '<span class="status-zero">🔴 ZERADO</span>'
                 elif qtd < 5:
@@ -16339,19 +16423,41 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 else:
                     status = '<span class="status-alto">🔵 ALTO</span>'
                 
+                # Calcular previsão para este produto
+                previsao = calcular_previsao_dias(
+                    p.get('produto', ''), 
+                    qtd, 
+                    movimentacoes_dict
+                )
+                
+                # Definir classe CSS para previsão
+                if "ZERADO" in previsao:
+                    previsao_class = 'previsao-zerado'
+                elif "⚠️" in previsao or "horas" in previsao:
+                    previsao_class = 'previsao-urgencia'
+                elif "🟡" in previsao:
+                    previsao_class = 'previsao-curto'
+                elif "🟢" in previsao:
+                    previsao_class = 'previsao-medio'
+                elif "🔵" in previsao:
+                    previsao_class = 'previsao-longo'
+                else:
+                    previsao_class = ''
+                
                 html += f"""
                             <tr>
                                 <td>{p.get('id', '')}</td>
                                 <td>{p.get('categoria', '')}</td>
-                                <td>{p.get('produto', '')}</td>
+                                <td><strong>{p.get('produto', '')}</strong></td>
                                 <td>{p.get('ca', 0):.2f}</td>
                                 <td>{p.get('base', 0):.2f}</td>
                                 <td><strong>{qtd:.2f}</strong></td>
                                 <td>{status}</td>
+                                <td class="{previsao_class}">{previsao}</td>
                             </tr>
                 """
         else:
-            html += '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Nenhum produto cadastrado.</td></tr>'
+            html += '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Nenhum produto cadastrado.</td></tr>'
         
         html += """
                         </tbody>
@@ -16359,6 +16465,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 </div>
         """
         
+        # Movimentações recentes
         if movimentacoes_dict:
             html += f"""
                 <div class="section-title">📤 ÚLTIMAS MOVIMENTAÇÕES</div>
@@ -16373,7 +16480,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         <tbody>
             """
             
-            for m in sorted(movimentacoes_dict, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:50]:
+            for m in sorted(movimentacoes_dict, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:30]:
                 data_obj = m.get('data')
                 data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
                 tipo = m.get('tipo', 'SAÍDA')
@@ -16398,6 +16505,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 </div>
             """
         
+        # Resumo por Categoria
         if categorias:
             html += f"""
                 <div class="section-title">📊 RESUMO POR CATEGORIA</div>
@@ -16417,7 +16525,10 @@ elif aba_selecionada == 'ALMOXARIFADO':
             """
         
         html += f"""
-                <div class="footer">Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>{data_atual}</div>
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual} | Previsão baseada nas saídas registradas no histórico
+                </div>
             </div>
         </body>
         </html>
@@ -16425,6 +16536,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         return html
     
+    # ======================
+    # FUNÇÃO GERAR RELATÓRIO DE MOVIMENTAÇÕES
+    # ======================
     def gerar_relatorio_movimentacoes_html(movimentacoes_dict: List[Dict], 
                                             data_ini=None, 
                                             data_fim=None,
@@ -16486,58 +16600,58 @@ elif aba_selecionada == 'ALMOXARIFADO':
             <meta charset="UTF-8">
             <title>Relatório de Movimentações - Almoxarifado</title>
             <style>
-                @page {{ size: A4 portrait; margin: 15mm; }}
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 11px; }}
+                @page {{ size: A4 landscape; margin: 12mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
                 .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
                 .header {{
                     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    padding: 20px 25px;
+                    padding: 15px 20px;
                     border-radius: 10px;
-                    margin-bottom: 20px;
+                    margin-bottom: 15px;
                     color: white;
                 }}
-                .header h1 {{ margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
-                .header .subtitle {{ font-size: 13px; color: #a0aec0; margin-top: 5px; }}
-                .header .data {{ font-size: 11px; color: #a0aec0; margin-top: 5px; }}
+                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
+                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
                 
                 .cards {{
                     display: grid;
                     grid-template-columns: repeat(5, 1fr);
-                    gap: 12px;
-                    margin-bottom: 20px;
+                    gap: 10px;
+                    margin-bottom: 15px;
                 }}
                 .card {{
                     background: #f8f9fc;
-                    padding: 12px 16px;
+                    padding: 10px 14px;
                     border-radius: 8px;
                     border-left: 4px solid #0078D4;
                     text-align: center;
                 }}
-                .card .label {{ font-size: 10px; color: #666; text-transform: uppercase; font-weight: 600; }}
-                .card .value {{ font-size: 20px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }}
-                .card .sub-value {{ font-size: 11px; color: #888; margin-top: 2px; }}
+                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
+                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
                 .card-green {{ border-left-color: #28a745; }}
                 .card-red {{ border-left-color: #dc3545; }}
                 .card-purple {{ border-left-color: #6B46C1; }}
                 .card-orange {{ border-left-color: #E86C2C; }}
                 
-                .section-title {{ font-size: 16px; font-weight: 700; margin: 20px 0 10px 0; padding-bottom: 8px; border-bottom: 2px solid #e0e0e0; }}
+                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
                 
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; }}
-                table th {{ background: #2c3e50; color: white; padding: 6px 8px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; }}
-                table td {{ padding: 5px 8px; border: 1px solid #ddd; text-align: center; }}
+                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
+                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; white-space: nowrap; }}
+                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
                 table tr:nth-child(even) {{ background: #f8f9fc; }}
                 
-                .footer {{ margin-top: 20px; padding-top: 10px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 9px; color: #999; }}
-                .filtros {{ background: #f0f2f5; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; font-size: 11px; }}
+                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
+                .filtros {{ background: #f0f2f5; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 10px; }}
                 
-                .badge {{ display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 9px; font-weight: bold; }}
+                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
                 .badge-entrada {{ background: #d4edda; color: #155724; }}
                 .badge-saida {{ background: #f8d7da; color: #721c24; }}
                 .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
                 
                 @media print {{
-                    body {{ margin: 5mm; padding: 0; }}
+                    body {{ margin: 3mm; padding: 0; }}
                     .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
                     .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
                     table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
@@ -16560,29 +16674,29 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 
                 <div class="cards">
                     <div class="card card-orange">
-                        <div class="label">📤 Total Movimentações</div>
+                        <div class="label">📤 Total</div>
                         <div class="value">{total_mov}</div>
-                        <div class="sub-value">{total_qtd:.2f} unidades</div>
+                        <div class="sub">{total_qtd:.2f} un</div>
                     </div>
                     <div class="card card-green">
                         <div class="label">📥 Entradas</div>
                         <div class="value">{total_entradas}</div>
-                        <div class="sub-value">{qtd_entradas:.2f} unidades</div>
+                        <div class="sub">{qtd_entradas:.2f} un</div>
                     </div>
                     <div class="card card-red">
                         <div class="label">📤 Saídas</div>
                         <div class="value">{total_saidas}</div>
-                        <div class="sub-value">{qtd_saidas:.2f} unidades</div>
+                        <div class="sub">{qtd_saidas:.2f} un</div>
                     </div>
                     <div class="card card-purple">
                         <div class="label">📋 Inventários</div>
                         <div class="value">{total_inventarios}</div>
-                        <div class="sub-value">{qtd_inventarios:.2f} unidades</div>
+                        <div class="sub">{qtd_inventarios:.2f} un</div>
                     </div>
                     <div class="card">
-                        <div class="label">📊 Média por Mov.</div>
+                        <div class="label">📊 Média</div>
                         <div class="value">{f"{(total_qtd / total_mov):.2f}" if total_mov > 0 else "0.00"}</div>
-                        <div class="sub-value">unidades</div>
+                        <div class="sub">un/mov</div>
                     </div>
                 </div>
         """
@@ -16613,7 +16727,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
                 tipo = m.get('tipo', 'SAÍDA')
                 badge_class = f'badge-{tipo.lower()}'
-                obs = m.get('obs', '')[:50] + "..." if len(m.get('obs', '')) > 50 else m.get('obs', '')
+                obs = m.get('obs', '')[:40] + "..." if len(m.get('obs', '')) > 40 else m.get('obs', '')
                 
                 html += f"""
                             <tr>
@@ -16625,7 +16739,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                                 <td><strong>{m.get('quantidade', 0):.2f}</strong></td>
                                 <td><span class="badge {badge_class}">{tipo}</span></td>
                                 <td>{m.get('responsavel', '')}</td>
-                                <td style="font-size:9px; text-align:left;">{obs or '-'}</td>
+                                <td style="font-size:8px; text-align:left;">{obs or '-'}</td>
                             </tr>
                 """
             
@@ -16636,7 +16750,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             """
         else:
             html += """
-                <div style="text-align:center; padding:40px; color:#999; background:#f8f9fa; border-radius:8px;">
+                <div style="text-align:center; padding:30px; color:#999; background:#f8f9fa; border-radius:8px;">
                     📭 Nenhuma movimentação encontrada com os filtros selecionados.
                 </div>
             """
@@ -16783,6 +16897,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 else:
                     status = "🔵 ALTO"
                 
+                # Calcular previsão para exibição na tabela
+                previsao = calcular_previsao_dias(
+                    p.get('produto', ''), 
+                    qtd, 
+                    movimentacoes
+                )
+                
                 dados_tabela.append({
                     "ID": p.get('id', ''),
                     "Categoria": p.get('categoria', ''),
@@ -16790,7 +16911,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     "CA": f"{p.get('ca', 0):.2f}",
                     "BASE": f"{p.get('base', 0):.2f}",
                     "Quantidade": f"{qtd:.2f}",
-                    "Status": status
+                    "Status": status,
+                    "Previsão": previsao
                 })
             
             df_estoque = pd.DataFrame(dados_tabela)
@@ -16808,6 +16930,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             styled_df = df_estoque.style.apply(style_status, axis=1)
             st.dataframe(styled_df, use_container_width=True, height=500, hide_index=True)
+            
+            st.caption("📊 **Previsão:** Baseada nas saídas registradas no histórico. '-----' = sem dados suficientes para previsão.")
         else:
             st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
     
@@ -17273,8 +17397,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
             else:
                 st.info("📭 Nenhum produto cadastrado.")
     
-        # ======================
-    # ABA: RELATÓRIOS (COM FILTROS PARA AMBOS OS RELATÓRIOS)
+    # ======================
+    # ABA: RELATÓRIOS
     # ======================
     elif st.session_state.almoxarifado_aba == 'RELATORIOS':
         st.markdown("### 📊 Relatórios do Almoxarifado")
@@ -17293,14 +17417,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
         # ============================================================
         if tipo_relatorio == "📦 Estoque Completo":
             st.markdown("#### 📦 Relatório Completo do Almoxarifado")
-            st.caption("Este relatório inclui: estoque atual, saídas recentes e resumo por categoria.")
+            st.caption("Este relatório inclui: estoque atual, previsão de consumo, movimentações recentes e resumo por categoria.")
             
             st.markdown("##### 🔍 Filtros do Relatório")
             
             col_f1, col_f2, col_f3 = st.columns(3)
             
             with col_f1:
-                # Filtro por Categoria
                 opcoes_cat_rel_estoque = ["(Todas)"] + sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
                 filtro_cat_rel_estoque = st.selectbox(
                     "📂 Categoria",
@@ -17309,7 +17432,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 )
             
             with col_f2:
-                # Filtro por Status
                 opcoes_status_rel = ["(Todos)", "ZERADO", "BAIXO", "NORMAL", "ALTO"]
                 filtro_status_rel = st.selectbox(
                     "📊 Status",
@@ -17318,7 +17440,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 )
             
             with col_f3:
-                # Filtro por Produto
                 opcoes_prod_rel_estoque = ["(Todos)"] + sorted(set([p.get('produto', '') for p in produtos if p.get('produto')]))
                 filtro_prod_rel_estoque = st.selectbox(
                     "📦 Produto",
@@ -17328,7 +17449,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             st.markdown("---")
             
-            # Aplicar filtros para prévia
             produtos_preview = produtos.copy()
             
             if filtro_cat_rel_estoque != "(Todas)":
@@ -17347,7 +17467,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 elif filtro_status_rel == "ALTO":
                     produtos_preview = [p for p in produtos_preview if p.get('quantidade', 0) > 20]
             
-            # Cards de estatísticas do estoque filtrado
             total_prod_preview = len(produtos_preview)
             total_qtd_preview = sum(p.get('quantidade', 0) for p in produtos_preview)
             zerados_preview = len([p for p in produtos_preview if p.get('quantidade', 0) <= 0])
@@ -17365,7 +17484,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             st.markdown("---")
             
-            # Tabela de prévia do estoque
             if produtos_preview:
                 dados_preview_estoque = []
                 for p in sorted(produtos_preview, key=lambda x: x.get('produto', '')):
@@ -17379,6 +17497,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     else:
                         status = "🔵 ALTO"
                     
+                    # Calcular previsão para prévia
+                    previsao = calcular_previsao_dias(
+                        p.get('produto', ''), 
+                        qtd, 
+                        movimentacoes
+                    )
+                    
                     dados_preview_estoque.append({
                         "ID": p.get('id', ''),
                         "Categoria": p.get('categoria', ''),
@@ -17386,7 +17511,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         "CA": f"{p.get('ca', 0):.2f}",
                         "BASE": f"{p.get('base', 0):.2f}",
                         "Quantidade": f"{qtd:.2f}",
-                        "Status": status
+                        "Status": status,
+                        "Previsão": previsao
                     })
                 
                 df_preview_estoque = pd.DataFrame(dados_preview_estoque)
@@ -17404,7 +17530,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 
                 styled_preview_estoque = df_preview_estoque.style.apply(style_estoque_preview, axis=1)
                 st.dataframe(styled_preview_estoque, use_container_width=True, height=300, hide_index=True)
-                st.caption(f"📊 Exibindo {len(produtos_preview)} de {len(produtos)} produtos")
+                st.caption(f"📊 Exibindo {len(produtos_preview)} de {len(produtos)} produtos | Previsão baseada nas saídas registradas")
                 
                 if st.button("📊 Gerar Relatório Completo com Filtros", type="primary", use_container_width=True):
                     with st.spinner("Gerando relatório..."):
