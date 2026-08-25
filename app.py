@@ -15719,8 +15719,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)    
 # ==================================================================================================
-# ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE + FALLBACK GOOGLE SHEETS
-# VERSÃO CORRIGIDA - COM FUNÇÕES DE FALLBACK ROBUSTAS
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM PRIORIDADE SUPABASE
+# Google Sheets usado APENAS como fallback
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15750,14 +15750,14 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return None
     
     # ======================
-    # FUNÇÃO DE FALLBACK PARA GOOGLE SHEETS (CORRIGIDA)
+    # FUNÇÃO PARA CARREGAR DO GOOGLE SHEETS (FALLBACK)
     # ======================
     
     def carregar_produtos_google_sheets() -> List[Dict]:
-        """Carrega produtos diretamente do Google Sheets com tratamento de erro robusto"""
+        """Carrega produtos do Google Sheets (APENAS FALLBACK)"""
         produtos = []
         try:
-            print("🔄 Tentando carregar do Google Sheets...")
+            print("🔄 FALLBACK: Tentando carregar do Google Sheets...")
             client = get_gspread_client()
             if client is None:
                 print("❌ Cliente Google Sheets não disponível")
@@ -15768,7 +15768,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             todos_dados = sheet.get_all_values()
             
             if len(todos_dados) < 2:
-                print("⚠️ Aba BASE vazia")
                 return []
             
             cabecalho = todos_dados[0]
@@ -15796,15 +15795,22 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 elif col_clean == 'QUANTIDADE':
                     idx_quantidade = i
             
-            # Se não encontrou as colunas, tentar por posição
+            # Fallback para posições
             if idx_id is None or idx_produto is None:
-                print("⚠️ Colunas não encontradas pelo nome, usando posições...")
                 idx_id = 0
                 idx_categoria = 1
                 idx_produto = 2
                 idx_ca = 3
                 idx_base = 4
                 idx_quantidade = 5
+            
+            def parse_valor(val):
+                if not val or str(val).strip() == '':
+                    return 0.0
+                try:
+                    return float(str(val).replace(',', '.'))
+                except:
+                    return 0.0
             
             for row in todos_dados[1:]:
                 try:
@@ -15817,43 +15823,29 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     if not id_val or not produto_val:
                         continue
                     
-                    # Função auxiliar para converter valor
-                    def parse_valor(val):
-                        if not val or str(val).strip() == '':
-                            return 0.0
-                        try:
-                            return float(str(val).replace(',', '.'))
-                        except:
-                            return 0.0
-                    
-                    produto = {
+                    produtos.append({
                         'id': id_val,
                         'categoria': str(row[idx_categoria]).strip() if idx_categoria is not None and idx_categoria < len(row) and row[idx_categoria] else "",
                         'produto': produto_val,
                         'ca': parse_valor(row[idx_ca]) if idx_ca is not None and idx_ca < len(row) else 0.0,
                         'base': parse_valor(row[idx_base]) if idx_base is not None and idx_base < len(row) else 0.0,
                         'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade is not None and idx_quantidade < len(row) else 0.0
-                    }
-                    
-                    produtos.append(produto)
-                except Exception as e:
-                    print(f"⚠️ Erro ao processar linha: {e}")
+                    })
+                except:
                     continue
             
-            print(f"✅ {len(produtos)} produtos carregados do Google Sheets")
+            print(f"✅ FALLBACK: {len(produtos)} produtos carregados do Google Sheets")
             return produtos
             
         except Exception as e:
-            print(f"❌ Erro ao carregar do Google Sheets: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ FALLBACK: Erro ao carregar do Google Sheets: {e}")
             return []
     
     def carregar_movimentacoes_google_sheets() -> List[Dict]:
-        """Carrega movimentações diretamente do Google Sheets"""
+        """Carrega movimentações do Google Sheets (APENAS FALLBACK)"""
         movimentacoes = []
         try:
-            print("🔄 Tentando carregar movimentações do Google Sheets...")
+            print("🔄 FALLBACK: Tentando carregar movimentações do Google Sheets...")
             client = get_gspread_client()
             if client is None:
                 return []
@@ -15867,7 +15859,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             cabecalho = todos_dados[0]
             
-            # Mapear índices
             idx_id = None
             idx_data = None
             idx_produto = None
@@ -15943,7 +15934,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     if not id_val or not produto_val:
                         continue
                     
-                    movimentacao = {
+                    movimentacoes.append({
                         'id': id_val,
                         'data': parse_data(row[idx_data]) if idx_data is not None and idx_data < len(row) else None,
                         'produto': produto_val,
@@ -15953,29 +15944,29 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'obs': str(row[idx_obs]).strip() if idx_obs is not None and idx_obs < len(row) and row[idx_obs] else "",
                         'responsavel': str(row[idx_responsavel]).strip() if idx_responsavel is not None and idx_responsavel < len(row) and row[idx_responsavel] else "",
                         'tipo': str(row[idx_tipo]).strip().upper() if idx_tipo is not None and idx_tipo < len(row) and row[idx_tipo] else "SAÍDA"
-                    }
-                    
-                    movimentacoes.append(movimentacao)
-                except Exception as e:
+                    })
+                except:
                     continue
             
-            print(f"✅ {len(movimentacoes)} movimentações carregadas do Google Sheets")
+            print(f"✅ FALLBACK: {len(movimentacoes)} movimentações carregadas do Google Sheets")
             return movimentacoes
             
         except Exception as e:
-            print(f"❌ Erro ao carregar movimentações do Google Sheets: {e}")
+            print(f"❌ FALLBACK: Erro ao carregar movimentações: {e}")
             return []
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO DO SUPABASE
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (PRIORIDADE)
     # ======================
     
     @st.cache_data(ttl=300)
     def carregar_produtos_supabase() -> List[Dict]:
-        """Carrega produtos do Supabase"""
+        """Carrega produtos do Supabase - FONTE PRINCIPAL"""
         try:
+            print("🔄 Carregando produtos do Supabase...")
             supabase = get_supabase_client()
             if supabase is None:
+                print("❌ Supabase não disponível")
                 return []
             
             response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
@@ -15991,19 +15982,23 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'base': float(item.get('base', 0)),
                         'quantidade': float(item.get('quantidade', 0))
                     })
+                print(f"✅ {len(produtos)} produtos carregados do Supabase")
                 return produtos
+            print("⚠️ Nenhum produto encontrado no Supabase")
             return []
             
         except Exception as e:
-            print(f"Erro ao carregar produtos do Supabase: {e}")
+            print(f"❌ Erro ao carregar produtos do Supabase: {e}")
             return []
     
     @st.cache_data(ttl=300)
     def carregar_movimentacoes_supabase() -> List[Dict]:
-        """Carrega movimentações do Supabase"""
+        """Carrega movimentações do Supabase - FONTE PRINCIPAL"""
         try:
+            print("🔄 Carregando movimentações do Supabase...")
             supabase = get_supabase_client()
             if supabase is None:
+                print("❌ Supabase não disponível")
                 return []
             
             response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
@@ -16029,19 +16024,21 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'responsavel': item.get('responsavel', ''),
                         'tipo': item.get('tipo', 'SAÍDA')
                     })
+                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
                 return movimentacoes
+            print("⚠️ Nenhuma movimentação encontrada no Supabase")
             return []
             
         except Exception as e:
-            print(f"Erro ao carregar movimentações do Supabase: {e}")
+            print(f"❌ Erro ao carregar movimentações do Supabase: {e}")
             return []
     
     # ======================
-    # FUNÇÕES DE SALVAR NO SUPABASE
+    # FUNÇÕES DE SALVAR NO SUPABASE (PRIORIDADE)
     # ======================
     
     def salvar_produto_supabase(produto_dict: Dict) -> tuple:
-        """Salva produto no Supabase"""
+        """Salva produto no Supabase - PRIORIDADE"""
         try:
             supabase = get_supabase_client()
             if supabase is None:
@@ -16067,14 +16064,14 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 supabase.table('almoxarifado_base').insert(data).execute()
             
             st.cache_data.clear()
-            return True, f"✅ Produto {produto_dict['produto']} salvo no Supabase!"
+            return True, f"✅ Produto salvo no Supabase!"
             
         except Exception as e:
             print(f"Erro ao salvar produto no Supabase: {e}")
             return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
     
     def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
-        """Salva movimentação no Supabase"""
+        """Salva movimentação no Supabase - PRIORIDADE"""
         try:
             supabase = get_supabase_client()
             if supabase is None:
@@ -16110,19 +16107,18 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 supabase.table('almoxarifado_base').update({'quantidade': nova_qtd}).eq('produto', mov_dict['produto']).execute()
             
             st.cache_data.clear()
-            return True, f"✅ Movimentação salva no Supabase!"
+            return True, "✅ Movimentação salva no Supabase!"
             
         except Exception as e:
             print(f"Erro ao salvar movimentação no Supabase: {e}")
             return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
     
     def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
-        """Salva lote de movimentações no Supabase"""
+        """Salva lote de movimentações no Supabase - PRIORIDADE"""
         sucessos = 0
         erros = []
         
         for mov in lista_mov:
-            # Gerar ID se não tiver
             if not mov.get('id') or mov['id'].startswith('TEMP-'):
                 mov['id'] = gerar_id_movimentacao_supabase()
             
@@ -16138,7 +16134,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return True, f"✅ {sucessos} movimentações salvas no Supabase!"
     
     def gerar_id_movimentacao_supabase() -> str:
-        """Gera ID para movimentação no Supabase"""
+        """Gera ID para movimentação"""
         try:
             supabase = get_supabase_client()
             if supabase:
@@ -16156,144 +16152,102 @@ elif aba_selecionada == 'ALMOXARIFADO':
         return f"MOV-{datetime.now().strftime('%H%M%S')}"
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO COM FALLBACK (CORRIGIDAS)
+    # FUNÇÕES DE CARREGAMENTO COM FALLBACK (APENAS SE SUPABASE FALHAR)
     # ======================
     
-    def carregar_produtos_com_fallback() -> List[Dict]:
-        """Carrega produtos com fallback para Google Sheets"""
-        # Tentar Supabase primeiro
+    def carregar_produtos_com_fallback() -> tuple:
+        """Carrega produtos - PRIORIDADE Supabase, FALLBACK Google Sheets"""
+        
+        # 1. TENTAR SUPABASE PRIMEIRO
         try:
             produtos = carregar_produtos_supabase()
             if produtos:
-                print(f"✅ {len(produtos)} produtos carregados do Supabase")
-                return produtos
+                return produtos, "Supabase"
         except Exception as e:
-            print(f"⚠️ Erro ao carregar do Supabase: {e}")
+            print(f"⚠️ Erro no Supabase: {e}")
         
-        # Fallback para Google Sheets
+        # 2. FALLBACK PARA GOOGLE SHEETS (APENAS SE SUPABASE FALHAR)
+        print("⚠️ Supabase indisponível. Usando Google Sheets como fallback...")
         try:
             produtos = carregar_produtos_google_sheets()
             if produtos:
-                print(f"✅ {len(produtos)} produtos carregados do Google Sheets (fallback)")
-                # Tentar sincronizar com Supabase
+                # Tentar sincronizar com Supabase em background
                 try:
+                    print("🔄 Sincronizando fallback com Supabase...")
                     for p in produtos:
                         salvar_produto_supabase(p)
-                    print("🔄 Produtos sincronizados com Supabase")
-                except:
-                    pass
-                return produtos
+                    print("✅ Sincronização concluída")
+                except Exception as e:
+                    print(f"⚠️ Erro na sincronização: {e}")
+                return produtos, "Google Sheets (fallback)"
         except Exception as e:
-            print(f"❌ Erro no fallback Google Sheets: {e}")
+            print(f"❌ Fallback também falhou: {e}")
         
-        return []
+        return [], "Nenhum"
     
-    def carregar_movimentacoes_com_fallback() -> List[Dict]:
-        """Carrega movimentações com fallback para Google Sheets"""
-        # Tentar Supabase primeiro
+    def carregar_movimentacoes_com_fallback() -> tuple:
+        """Carrega movimentações - PRIORIDADE Supabase, FALLBACK Google Sheets"""
+        
+        # 1. TENTAR SUPABASE PRIMEIRO
         try:
             movimentacoes = carregar_movimentacoes_supabase()
             if movimentacoes:
-                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
-                return movimentacoes
+                return movimentacoes, "Supabase"
         except Exception as e:
-            print(f"⚠️ Erro ao carregar movimentações do Supabase: {e}")
+            print(f"⚠️ Erro no Supabase: {e}")
         
-        # Fallback para Google Sheets
+        # 2. FALLBACK PARA GOOGLE SHEETS (APENAS SE SUPABASE FALHAR)
+        print("⚠️ Supabase indisponível. Usando Google Sheets como fallback...")
         try:
             movimentacoes = carregar_movimentacoes_google_sheets()
             if movimentacoes:
-                print(f"✅ {len(movimentacoes)} movimentações carregadas do Google Sheets (fallback)")
-                return movimentacoes
+                return movimentacoes, "Google Sheets (fallback)"
         except Exception as e:
-            print(f"❌ Erro no fallback Google Sheets: {e}")
+            print(f"❌ Fallback também falhou: {e}")
         
-        return []
+        return [], "Nenhum"
     
     # ======================
-    # FUNÇÕES CRUD COM FALLBACK
+    # CARREGAR DADOS COM PRIORIDADE SUPABASE
     # ======================
     
-    def salvar_produto_com_fallback(produto_dict: Dict) -> tuple:
-        """Salva produto com fallback para Google Sheets"""
-        # Tentar Supabase primeiro
-        sucesso, msg = salvar_produto_supabase(produto_dict)
-        
-        if sucesso:
-            return sucesso, msg
-        
-        # Fallback para Google Sheets
-        try:
-            sucesso, msg = salvar_produto(produto_dict)
-            return sucesso, msg
-        except Exception as e:
-            return False, f"❌ Erro ao salvar (Supabase e Sheets): {str(e)}"
-    
-    def salvar_lote_movimentacoes_com_fallback(lista_mov: List[Dict]) -> tuple:
-        """Salva lote de movimentações com fallback"""
-        # Tentar Supabase primeiro
-        sucesso, msg = salvar_lote_movimentacoes_supabase(lista_mov)
-        
-        if sucesso:
-            return sucesso, msg
-        
-        # Fallback para Google Sheets
-        try:
-            sucesso, msg = salvar_lote_movimentacoes(lista_mov)
-            return sucesso, msg
-        except Exception as e:
-            return False, f"❌ Erro ao salvar (Supabase e Sheets): {str(e)}"
-    
-    # ======================
-    # CARREGAR DADOS COM FALLBACK
-    # ======================
-    
-    with st.spinner("🔄 Carregando dados do almoxarifado..."):
-        produtos = carregar_produtos_com_fallback()
-        movimentacoes = carregar_movimentacoes_com_fallback()
+    with st.spinner("🔄 Carregando dados do Supabase..."):
+        produtos, fonte_produtos = carregar_produtos_com_fallback()
+        movimentacoes, fonte_mov = carregar_movimentacoes_com_fallback()
         
         # Mostrar fonte dos dados
         if produtos:
-            # Verificar se veio do Supabase ou Sheets
-            fonte = "Supabase" if carregar_produtos_supabase() else "Google Sheets (fallback)"
-            st.caption(f"📊 {len(produtos)} produtos carregados de: **{fonte}**")
+            st.caption(f"📊 {len(produtos)} produtos carregados de: **{fonte_produtos}**")
+            if fonte_produtos != "Supabase":
+                st.info(f"ℹ️ Usando **{fonte_produtos}** como fallback. Os dados serão sincronizados com o Supabase.")
         else:
-            st.warning("⚠️ Nenhum dado disponível. Verifique a conexão com Supabase e Google Sheets.")
-            # Mostrar diagnóstico
+            st.error("❌ Nenhum dado disponível. Verifique a conexão com Supabase e Google Sheets.")
+            # Mostrar diagnóstico rápido
             with st.expander("🔍 Diagnóstico de conexão", expanded=True):
-                st.markdown("""
-                **Verificando conexões:**
-                """)
+                supabase = get_supabase_client()
+                if supabase:
+                    st.success("✅ Supabase: Conectado")
+                    try:
+                        response = supabase.table('almoxarifado_base').select('count').limit(1).execute()
+                        st.success("✅ Tabela 'almoxarifado_base' acessível")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao acessar tabela: {e}")
+                else:
+                    st.error("❌ Supabase: Falha na conexão")
                 
-                # Verificar Supabase
-                try:
-                    supabase = get_supabase_client()
-                    if supabase:
-                        st.success("✅ Conexão com Supabase estabelecida")
-                        try:
-                            response = supabase.table('almoxarifado_base').select('count').execute()
-                            st.success(f"✅ Tabela 'almoxarifado_base' acessível")
-                        except Exception as e:
-                            st.error(f"❌ Erro ao acessar tabela: {e}")
-                    else:
-                        st.error("❌ Falha na conexão com Supabase")
-                except Exception as e:
-                    st.error(f"❌ Erro na conexão Supabase: {e}")
-                
-                # Verificar Google Sheets
                 try:
                     client = get_gspread_client()
                     if client:
-                        st.success("✅ Conexão com Google Sheets estabelecida")
+                        st.success("✅ Google Sheets: Conectado")
                         try:
                             spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-                            st.success(f"✅ Planilha encontrada: {spreadsheet.title}")
+                            st.success(f"✅ Planilha: {spreadsheet.title}")
                         except Exception as e:
                             st.error(f"❌ Erro ao abrir planilha: {e}")
                     else:
-                        st.error("❌ Falha na conexão com Google Sheets")
+                        st.error("❌ Google Sheets: Falha na conexão")
                 except Exception as e:
-                    st.error(f"❌ Erro na conexão Google Sheets: {e}")
+                    st.error(f"❌ Google Sheets: {e}")
     
     # ======================
     # INICIALIZAR SESSION STATE
@@ -16536,10 +16490,776 @@ elif aba_selecionada == 'ALMOXARIFADO':
             st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
     
     # ======================
-    # CONTINUA COM O RESTO DO CÓDIGO (MOVIMENTAÇÕES, CADASTRAR, RELATÓRIOS)
+    # ABA: MOVIMENTAÇÕES
     # ======================
-    # [Aqui vai o resto do código que já estava funcionando]
-    # ...
+    elif st.session_state.almoxarifado_aba == 'MOVIMENTACOES':
+        st.markdown("### 📤 Registro de Movimentações")
+        
+        # ÁREA DE ADIÇÃO DE ITENS À LISTA TEMPORÁRIA
+        st.markdown("#### ➕ Adicionar à Lista de Movimentações")
+        
+        col_form1, col_form2 = st.columns(2)
+        
+        with col_form1:
+            opcoes_produtos = sorted([p.get('produto', '') for p in produtos if p.get('produto')])
+            produto_selecionado = st.selectbox(
+                "📦 Produto*",
+                options=opcoes_produtos,
+                key="mov_produto_temp"
+            )
+            
+            categoria_automatica = ""
+            estoque_atual = 0
+            if produto_selecionado:
+                for p in produtos:
+                    if p.get('produto', '') == produto_selecionado:
+                        categoria_automatica = p.get('categoria', '')
+                        estoque_atual = p.get('quantidade', 0)
+                        break
+            
+            st.text_input(
+                "📂 Categoria",
+                value=categoria_automatica,
+                disabled=True,
+                key="mov_categoria_temp"
+            )
+            
+            st.caption(f"📊 Estoque atual: {estoque_atual:.2f}")
+        
+        with col_form2:
+            tipo_mov = st.selectbox(
+                "📋 Tipo de Movimentação*",
+                options=["", "ENTRADA", "SAÍDA", "INVENTÁRIO"],
+                key="mov_tipo_temp"
+            )
+            
+            quantidade = st.number_input(
+                "📦 Quantidade*",
+                min_value=0.01,
+                step=0.5,
+                value=1.0,
+                key="mov_quantidade_temp"
+            )
+            
+            colaborador = st.text_input(
+                "👤 Colaborador*",
+                placeholder="Nome do colaborador",
+                key="mov_colaborador_temp"
+            )
+            
+            obs_mov = st.text_area(
+                "📝 Observação",
+                placeholder="Informações adicionais...",
+                key="mov_obs_temp",
+                height=60
+            )
+            
+            st.text_input(
+                "👤 Responsável",
+                value=st.session_state.get('usuario', ''),
+                disabled=True,
+                key="mov_responsavel_temp"
+            )
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+        
+        with col_btn1:
+            if st.button("➕ ADICIONAR À LISTA", use_container_width=True, type="primary"):
+                if not produto_selecionado:
+                    st.error("❌ Selecione um produto!")
+                elif not tipo_mov:
+                    st.error("❌ Selecione o tipo de movimentação!")
+                elif not colaborador:
+                    st.error("❌ Informe o nome do colaborador!")
+                elif quantidade <= 0:
+                    st.error("❌ A quantidade deve ser maior que zero!")
+                else:
+                    if tipo_mov == "SAÍDA" and quantidade > estoque_atual:
+                        st.error(f"❌ Estoque insuficiente! Disponível: {estoque_atual:.2f}")
+                    else:
+                        novo_item = {
+                            'id': f"TEMP-{len(st.session_state.almoxarifado_lista_temporaria) + 1:03d}",
+                            'produto': produto_selecionado,
+                            'categoria': categoria_automatica,
+                            'tipo': tipo_mov,
+                            'quantidade': quantidade,
+                            'colaborador': colaborador,
+                            'obs': obs_mov,
+                            'responsavel': st.session_state.get('usuario', ''),
+                            'data': datetime.now(),
+                            'estoque_atual': estoque_atual
+                        }
+                        
+                        st.session_state.almoxarifado_lista_temporaria.append(novo_item)
+                        st.success(f"✅ {tipo_mov} de {produto_selecionado} adicionada à lista!")
+                        st.rerun()
+        
+        with col_btn2:
+            if st.button("🗑️ LIMPAR LISTA", use_container_width=True):
+                if st.session_state.almoxarifado_lista_temporaria:
+                    st.session_state.almoxarifado_lista_temporaria = []
+                    st.success("🗑️ Lista limpa!")
+                    st.rerun()
+        
+        with col_btn3:
+            if st.button("❌ CANCELAR TUDO", use_container_width=True):
+                if st.session_state.almoxarifado_lista_temporaria:
+                    st.session_state.almoxarifado_lista_temporaria = []
+                    st.success("❌ Todos os lançamentos cancelados!")
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # LISTA TEMPORÁRIA
+        st.markdown("#### 📋 Lista de Movimentações Pendentes")
+        
+        lista_temp = st.session_state.almoxarifado_lista_temporaria
+        
+        if lista_temp:
+            total_itens = len(lista_temp)
+            total_entradas = sum(1 for item in lista_temp if item['tipo'] == 'ENTRADA')
+            total_saidas = sum(1 for item in lista_temp if item['tipo'] == 'SAÍDA')
+            total_inventarios = sum(1 for item in lista_temp if item['tipo'] == 'INVENTÁRIO')
+            
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            with col_r1:
+                st.metric("📋 Total Itens", f"{total_itens}")
+            with col_r2:
+                st.metric("📥 Entradas", f"{total_entradas}")
+            with col_r3:
+                st.metric("📤 Saídas", f"{total_saidas}")
+            with col_r4:
+                st.metric("📋 Inventários", f"{total_inventarios}")
+            
+            st.markdown("---")
+            
+            for idx, item in enumerate(lista_temp):
+                col_acoes1, col_acoes2, col_acoes3 = st.columns([6, 1, 1])
+                
+                tipo_emoji = "📥" if item['tipo'] == 'ENTRADA' else "📤" if item['tipo'] == 'SAÍDA' else "📋"
+                
+                with col_acoes1:
+                    st.write(f"**{idx+1}.** {tipo_emoji} {item['produto']} - {item['quantidade']:.2f} - {item['colaborador']}")
+                
+                with col_acoes2:
+                    if st.button("✏️", key=f"edit_{idx}"):
+                        st.session_state.almoxarifado_editando_item = idx
+                        st.rerun()
+                
+                with col_acoes3:
+                    if st.button("🗑️", key=f"del_{idx}"):
+                        del st.session_state.almoxarifado_lista_temporaria[idx]
+                        st.success(f"🗑️ Item removido!")
+                        st.rerun()
+            
+            # EDIÇÃO DE ITEM
+            if st.session_state.almoxarifado_editando_item is not None:
+                idx_edit = st.session_state.almoxarifado_editando_item
+                item_edit = lista_temp[idx_edit]
+                
+                st.markdown("---")
+                st.markdown(f"#### ✏️ Editando Item {idx_edit + 1}")
+                
+                col_edit1, col_edit2 = st.columns(2)
+                
+                with col_edit1:
+                    novo_produto = st.selectbox(
+                        "Produto",
+                        options=opcoes_produtos,
+                        index=opcoes_produtos.index(item_edit['produto']) if item_edit['produto'] in opcoes_produtos else 0,
+                        key="edit_produto"
+                    )
+                    
+                    novo_tipo = st.selectbox(
+                        "Tipo",
+                        options=["ENTRADA", "SAÍDA", "INVENTÁRIO"],
+                        index=["ENTRADA", "SAÍDA", "INVENTÁRIO"].index(item_edit['tipo']) if item_edit['tipo'] in ["ENTRADA", "SAÍDA", "INVENTÁRIO"] else 0,
+                        key="edit_tipo"
+                    )
+                    
+                    nova_categoria = ""
+                    if novo_produto:
+                        for p in produtos:
+                            if p.get('produto', '') == novo_produto:
+                                nova_categoria = p.get('categoria', '')
+                                break
+                
+                with col_edit2:
+                    nova_quantidade = st.number_input(
+                        "Quantidade",
+                        min_value=0.01,
+                        step=0.5,
+                        value=item_edit['quantidade'],
+                        key="edit_quantidade"
+                    )
+                    
+                    novo_colaborador = st.text_input(
+                        "Colaborador",
+                        value=item_edit['colaborador'],
+                        key="edit_colaborador"
+                    )
+                    
+                    nova_obs = st.text_area(
+                        "Observação",
+                        value=item_edit['obs'],
+                        key="edit_obs",
+                        height=60
+                    )
+                
+                col_edit_btn1, col_edit_btn2 = st.columns(2)
+                
+                with col_edit_btn1:
+                    if st.button("💾 SALVAR ALTERAÇÕES", use_container_width=True, type="primary"):
+                        lista_temp[idx_edit] = {
+                            'id': item_edit['id'],
+                            'produto': novo_produto,
+                            'categoria': nova_categoria,
+                            'tipo': novo_tipo,
+                            'quantidade': nova_quantidade,
+                            'colaborador': novo_colaborador,
+                            'obs': nova_obs,
+                            'responsavel': item_edit['responsavel'],
+                            'data': item_edit['data'],
+                            'estoque_atual': item_edit['estoque_atual']
+                        }
+                        st.session_state.almoxarifado_editando_item = None
+                        st.success("✅ Item atualizado!")
+                        st.rerun()
+                
+                with col_edit_btn2:
+                    if st.button("❌ CANCELAR EDIÇÃO", use_container_width=True):
+                        st.session_state.almoxarifado_editando_item = None
+                        st.rerun()
+            
+            # SALVAR LOTE
+            st.markdown("---")
+            
+            col_salvar1, col_salvar2, col_salvar3 = st.columns([1, 2, 1])
+            
+            with col_salvar2:
+                if st.button("💾 SALVAR TODOS OS LANÇAMENTOS", use_container_width=True, type="primary"):
+                    st.session_state.almoxarifado_mostrar_confirmacao = True
+                    st.rerun()
+        
+        else:
+            st.info("📭 Nenhuma movimentação na lista. Adicione itens acima.")
+        
+        # CONFIRMAÇÃO PARA SALVAR LOTE
+        if st.session_state.almoxarifado_mostrar_confirmacao and lista_temp:
+            st.markdown("---")
+            st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO")
+            
+            st.warning("⚠️ Você está prestes a salvar TODOS os lançamentos.")
+            
+            st.markdown("**📋 Resumo do lote:**")
+            st.write(f"- Total de itens: {len(lista_temp)}")
+            st.write(f"- Entradas: {sum(1 for item in lista_temp if item['tipo'] == 'ENTRADA')}")
+            st.write(f"- Saídas: {sum(1 for item in lista_temp if item['tipo'] == 'SAÍDA')}")
+            st.write(f"- Inventários: {sum(1 for item in lista_temp if item['tipo'] == 'INVENTÁRIO')}")
+            
+            df_confirmacao = pd.DataFrame([{
+                "Produto": item['produto'],
+                "Tipo": item['tipo'],
+                "Quantidade": f"{item['quantidade']:.2f}",
+                "Colaborador": item['colaborador']
+            } for item in lista_temp])
+            st.dataframe(df_confirmacao, use_container_width=True, hide_index=True)
+            
+            col_confirm1, col_confirm2, col_confirm3 = st.columns(3)
+            
+            with col_confirm1:
+                if st.button("✅ SIM, SALVAR TUDO", use_container_width=True, type="primary"):
+                    with st.spinner("Salvando movimentações no Supabase..."):
+                        sucesso, msg = salvar_lote_movimentacoes_supabase(lista_temp)
+                        
+                        if sucesso:
+                            st.success(msg)
+                            st.balloons()
+                            st.session_state.almoxarifado_lista_temporaria = []
+                            st.session_state.almoxarifado_mostrar_confirmacao = False
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            
+            with col_confirm2:
+                if st.button("✏️ VOLTAR E EDITAR", use_container_width=True):
+                    st.session_state.almoxarifado_mostrar_confirmacao = False
+                    st.rerun()
+            
+            with col_confirm3:
+                if st.button("❌ CANCELAR", use_container_width=True):
+                    st.session_state.almoxarifado_mostrar_confirmacao = False
+                    st.rerun()
+        
+        # HISTÓRICO DE MOVIMENTAÇÕES
+        st.markdown("---")
+        st.markdown("### 📋 Histórico de Movimentações (Salvas)")
+        
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        with col_f1:
+            opcoes_prod_mov = ["(Todos)"] + sorted(set([m.get('produto', '') for m in movimentacoes if m.get('produto')]))
+            filtro_produto_mov = st.selectbox(
+                "🔎 Produto",
+                options=opcoes_prod_mov,
+                key="filtro_prod_mov"
+            )
+        with col_f2:
+            opcoes_tipo_mov = ["(Todos)", "ENTRADA", "SAÍDA", "INVENTÁRIO"]
+            filtro_tipo_mov = st.selectbox(
+                "📋 Tipo",
+                options=opcoes_tipo_mov,
+                key="filtro_tipo_mov"
+            )
+        with col_f3:
+            data_ini_mov = st.date_input("Data Inicial", value=None, key="data_ini_mov")
+        with col_f4:
+            data_fim_mov = st.date_input("Data Final", value=None, key="data_fim_mov")
+        
+        mov_filtradas = movimentacoes.copy()
+        if filtro_produto_mov != "(Todos)":
+            mov_filtradas = [m for m in mov_filtradas if m.get('produto', '') == filtro_produto_mov]
+        if filtro_tipo_mov != "(Todos)":
+            mov_filtradas = [m for m in mov_filtradas if m.get('tipo', '') == filtro_tipo_mov]
+        if data_ini_mov:
+            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] >= data_ini_mov]
+        if data_fim_mov:
+            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] <= data_fim_mov]
+        
+        total_mov = len(mov_filtradas)
+        total_qtd_mov = sum(m.get('quantidade', 0) for m in mov_filtradas)
+        total_entradas = len([m for m in mov_filtradas if m.get('tipo', '').upper() == 'ENTRADA'])
+        total_saidas = len([m for m in mov_filtradas if m.get('tipo', '').upper() == 'SAÍDA'])
+        total_inventarios = len([m for m in mov_filtradas if m.get('tipo', '').upper() == 'INVENTÁRIO'])
+        
+        col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
+        with col_k1:
+            st.metric("📤 Total", f"{total_mov:,}")
+        with col_k2:
+            st.metric("📥 Entradas", f"{total_entradas:,}")
+        with col_k3:
+            st.metric("📤 Saídas", f"{total_saidas:,}")
+        with col_k4:
+            st.metric("📋 Inventários", f"{total_inventarios:,}")
+        with col_k5:
+            st.metric("📦 Qtd Total", f"{total_qtd_mov:.2f}")
+        
+        st.markdown("---")
+        
+        if mov_filtradas:
+            dados_mov = []
+            for m in sorted(mov_filtradas, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True):
+                data_obj = m.get('data')
+                tipo = m.get('tipo', 'SAÍDA')
+                tipo_emoji = "📥" if tipo == "ENTRADA" else "📤" if tipo == "SAÍDA" else "📋"
+                
+                dados_mov.append({
+                    "ID": m.get('id', ''),
+                    "Data": data_obj.strftime("%d/%m/%Y") if data_obj else "-",
+                    "Produto": m.get('produto', ''),
+                    "Categoria": m.get('categoria', ''),
+                    "Colaborador": m.get('colaborador', ''),
+                    "Quantidade": f"{m.get('quantidade', 0):.2f}",
+                    "Tipo": f"{tipo_emoji} {tipo}",
+                    "Obs": m.get('obs', '')[:30] + "..." if len(m.get('obs', '')) > 30 else m.get('obs', ''),
+                    "Responsável": m.get('responsavel', '')
+                })
+            
+            df_mov = pd.DataFrame(dados_mov)
+            
+            def style_mov(row):
+                tipo = row['Tipo']
+                if "ENTRADA" in tipo:
+                    return ['background-color: #d4edda; color: #155724;'] * len(row)
+                elif "SAÍDA" in tipo:
+                    return ['background-color: #f8d7da; color: #721c24;'] * len(row)
+                elif "INVENTÁRIO" in tipo:
+                    return ['background-color: #e8d4f8; color: #4a1a6b;'] * len(row)
+                else:
+                    return [''] * len(row)
+            
+            styled_df = df_mov.style.apply(style_mov, axis=1)
+            st.dataframe(styled_df, use_container_width=True, height=400, hide_index=True)
+        else:
+            st.info("📭 Nenhuma movimentação registrada.")
+    
+    # ======================
+    # ABA: CADASTRAR
+    # ======================
+    elif st.session_state.almoxarifado_aba == 'CADASTRAR':
+        st.markdown("### ➕ Cadastro de Produtos")
+        
+        tab_novo, tab_editar, tab_excluir = st.tabs(["➕ Novo Produto", "✏️ Editar Produto", "🗑️ Excluir Produto"])
+        
+        with tab_novo:
+            with st.form("form_novo_produto"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    novo_id = gerar_id_produto(produtos)
+                    st.text_input("ID (automático)", value=novo_id, disabled=True, key="novo_id_display")
+                    
+                    categoria_nova = st.selectbox(
+                        "Categoria*",
+                        options=sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')])),
+                        key="nova_categoria"
+                    )
+                    
+                    produto_nome = st.text_input(
+                        "Produto*",
+                        placeholder="Nome do produto",
+                        key="novo_produto_nome"
+                    )
+                
+                with col2:
+                    ca_novo = st.number_input(
+                        "CA*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_ca"
+                    )
+                    
+                    base_novo = st.number_input(
+                        "BASE*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_base"
+                    )
+                    
+                    quantidade_novo = st.number_input(
+                        "Quantidade Inicial*",
+                        min_value=0.0,
+                        step=0.5,
+                        value=0.0,
+                        key="novo_quantidade"
+                    )
+                
+                st.markdown("---")
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    submitted_novo = st.form_submit_button("💾 SALVAR PRODUTO (Supabase)", type="primary", use_container_width=True)
+                
+                if submitted_novo:
+                    if not produto_nome:
+                        st.error("❌ Informe o nome do produto!")
+                    elif not categoria_nova:
+                        st.error("❌ Informe a categoria!")
+                    else:
+                        existe = any(p.get('produto', '').upper() == produto_nome.upper() for p in produtos)
+                        if existe:
+                            st.warning(f"⚠️ O produto '{produto_nome}' já está cadastrado!")
+                        else:
+                            novo_produto = {
+                                'id': novo_id,
+                                'categoria': categoria_nova,
+                                'produto': produto_nome,
+                                'ca': ca_novo,
+                                'base': base_novo,
+                                'quantidade': quantidade_novo
+                            }
+                            
+                            sucesso, msg = salvar_produto_supabase(novo_produto)
+                            if sucesso:
+                                st.success(msg)
+                                st.balloons()
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(msg)
+        
+        with tab_editar:
+            if produtos:
+                opcoes_produtos_edit = sorted([p.get('produto', '') for p in produtos])
+                
+                if st.session_state.almoxarifado_editando:
+                    current_prod = st.session_state.almoxarifado_editando.get('produto', '')
+                    idx_atual = opcoes_produtos_edit.index(current_prod) if current_prod in opcoes_produtos_edit else 0
+                    produto_selecionado_edit = st.selectbox(
+                        "Selecione o produto para editar",
+                        options=opcoes_produtos_edit,
+                        key="edit_produto_select",
+                        index=idx_atual
+                    )
+                else:
+                    produto_selecionado_edit = st.selectbox(
+                        "Selecione o produto para editar",
+                        options=opcoes_produtos_edit,
+                        key="edit_produto_select"
+                    )
+                
+                if produto_selecionado_edit:
+                    produto_edit = next((p for p in produtos if p.get('produto', '') == produto_selecionado_edit), None)
+                    
+                    if produto_edit:
+                        if st.session_state.almoxarifado_editando is None or st.session_state.almoxarifado_editando.get('produto', '') != produto_edit.get('produto', ''):
+                            st.session_state.almoxarifado_editando = produto_edit
+                            st.rerun()
+                        
+                        with st.form("form_editar_produto"):
+                            st.info(f"📌 Editando: {produto_edit.get('id', '')} - {produto_edit.get('produto', '')}")
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.text_input("ID", value=produto_edit.get('id', ''), disabled=True, key="edit_id_display")
+                                
+                                cat_options = sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+                                cat_index = cat_options.index(produto_edit.get('categoria', '')) if produto_edit.get('categoria', '') in cat_options else 0
+                                categoria_edit = st.selectbox(
+                                    "Categoria*",
+                                    options=cat_options,
+                                    index=cat_index,
+                                    key="edit_categoria"
+                                )
+                                
+                                produto_nome_edit = st.text_input(
+                                    "Produto*",
+                                    value=produto_edit.get('produto', ''),
+                                    key="edit_produto_nome"
+                                )
+                            
+                            with col2:
+                                ca_edit = st.number_input(
+                                    "CA*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('ca', 0),
+                                    key="edit_ca"
+                                )
+                                
+                                base_edit = st.number_input(
+                                    "BASE*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('base', 0),
+                                    key="edit_base"
+                                )
+                                
+                                quantidade_edit = st.number_input(
+                                    "Quantidade*",
+                                    min_value=0.0,
+                                    step=0.5,
+                                    value=produto_edit.get('quantidade', 0),
+                                    key="edit_quantidade"
+                                )
+                            
+                            st.markdown("---")
+                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                            with col_btn2:
+                                submitted_edit = st.form_submit_button("💾 SALVAR ALTERAÇÕES (Supabase)", type="primary", use_container_width=True)
+                            
+                            if submitted_edit:
+                                if not produto_nome_edit:
+                                    st.error("❌ Informe o nome do produto!")
+                                else:
+                                    produto_atualizado = {
+                                        'id': produto_edit.get('id', ''),
+                                        'categoria': categoria_edit,
+                                        'produto': produto_nome_edit,
+                                        'ca': ca_edit,
+                                        'base': base_edit,
+                                        'quantidade': quantidade_edit
+                                    }
+                                    
+                                    sucesso, msg = salvar_produto_supabase(produto_atualizado)
+                                    if sucesso:
+                                        st.success(msg)
+                                        st.session_state.almoxarifado_editando = None
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                        
+                        if st.button("❌ Cancelar Edição", use_container_width=True):
+                            st.session_state.almoxarifado_editando = None
+                            st.rerun()
+            else:
+                st.info("📭 Nenhum produto cadastrado para editar.")
+        
+        with tab_excluir:
+            if produtos:
+                opcoes_produtos_excluir = sorted([p.get('produto', '') for p in produtos])
+                
+                produto_selecionado_excluir = st.selectbox(
+                    "Selecione o produto para excluir",
+                    options=opcoes_produtos_excluir,
+                    key="excluir_produto_select"
+                )
+                
+                if produto_selecionado_excluir:
+                    produto_excluir = next((p for p in produtos if p.get('produto', '') == produto_selecionado_excluir), None)
+                    
+                    if produto_excluir:
+                        st.warning(f"⚠️ Excluir: **{produto_excluir.get('produto', '')}** (ID: {produto_excluir.get('id', '')})")
+                        st.caption(f"Quantidade: {produto_excluir.get('quantidade', 0):.2f}")
+                        
+                        if produto_excluir.get('quantidade', 0) > 0:
+                            st.warning(f"⚠️ Este produto tem {produto_excluir.get('quantidade', 0):.2f} unidades em estoque.")
+                        
+                        confirmar_excluir = st.checkbox(f"✅ Confirmo exclusão de {produto_excluir.get('produto', '')}")
+                        
+                        if confirmar_excluir:
+                            if st.button("🗑️ CONFIRMAR EXCLUSÃO (Supabase)", type="primary", use_container_width=True):
+                                sucesso, msg = excluir_produto(produto_excluir.get('id', ''))
+                                if sucesso:
+                                    st.success(msg)
+                                    st.balloons()
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+            else:
+                st.info("📭 Nenhum produto cadastrado.")
+    
+    # ======================
+    # ABA: RELATÓRIOS
+    # ======================
+    elif st.session_state.almoxarifado_aba == 'RELATORIOS':
+        st.markdown("### 📊 Relatórios do Almoxarifado")
+        
+        tipo_relatorio = st.radio(
+            "Selecione o tipo de relatório:",
+            ["📦 Estoque Completo", "📤 Relatório de Movimentações"],
+            horizontal=True,
+            key="tipo_relatorio_almox"
+        )
+        
+        st.markdown("---")
+        
+        if tipo_relatorio == "📦 Estoque Completo":
+            st.markdown("#### 📦 Relatório Completo do Almoxarifado")
+            
+            col_f1, col_f2, col_f3 = st.columns(3)
+            
+            with col_f1:
+                opcoes_cat_rel_estoque = ["(Todas)"] + sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+                filtro_cat_rel_estoque = st.selectbox(
+                    "📂 Categoria",
+                    options=opcoes_cat_rel_estoque,
+                    key="rel_filtro_cat_estoque"
+                )
+            
+            with col_f2:
+                opcoes_status_rel = ["(Todos)", "ZERADO", "BAIXO", "NORMAL", "ALTO"]
+                filtro_status_rel = st.selectbox(
+                    "📊 Status",
+                    options=opcoes_status_rel,
+                    key="rel_filtro_status_estoque"
+                )
+            
+            with col_f3:
+                opcoes_prod_rel_estoque = ["(Todos)"] + sorted(set([p.get('produto', '') for p in produtos if p.get('produto')]))
+                filtro_prod_rel_estoque = st.selectbox(
+                    "📦 Produto",
+                    options=opcoes_prod_rel_estoque,
+                    key="rel_filtro_prod_estoque"
+                )
+            
+            st.markdown("---")
+            
+            produtos_preview = produtos.copy()
+            
+            if filtro_cat_rel_estoque != "(Todas)":
+                produtos_preview = [p for p in produtos_preview if p.get('categoria', '') == filtro_cat_rel_estoque]
+            
+            if filtro_prod_rel_estoque != "(Todos)":
+                produtos_preview = [p for p in produtos_preview if p.get('produto', '') == filtro_prod_rel_estoque]
+            
+            if filtro_status_rel != "(Todos)":
+                if filtro_status_rel == "ZERADO":
+                    produtos_preview = [p for p in produtos_preview if p.get('quantidade', 0) <= 0]
+                elif filtro_status_rel == "BAIXO":
+                    produtos_preview = [p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5]
+                elif filtro_status_rel == "NORMAL":
+                    produtos_preview = [p for p in produtos_preview if 5 <= p.get('quantidade', 0) <= 20]
+                elif filtro_status_rel == "ALTO":
+                    produtos_preview = [p for p in produtos_preview if p.get('quantidade', 0) > 20]
+            
+            total_prod_preview = len(produtos_preview)
+            total_qtd_preview = sum(p.get('quantidade', 0) for p in produtos_preview)
+            
+            col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+            with col_k1:
+                st.metric("📦 Produtos", f"{total_prod_preview:,}")
+            with col_k2:
+                st.metric("📊 Estoque Total", f"{total_qtd_preview:.2f}")
+            with col_k3:
+                st.metric("🔴 Zerados", f"{len([p for p in produtos_preview if p.get('quantidade', 0) <= 0]):,}", delta_color="inverse")
+            with col_k4:
+                st.metric("🟡 Estoque Baixo", f"{len([p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5]):,}", delta_color="inverse")
+            
+            st.markdown("---")
+            
+            if produtos_preview:
+                if st.button("📊 Gerar Relatório Completo", type="primary", use_container_width=True):
+                    with st.spinner("Gerando relatório..."):
+                        html_content = gerar_relatorio_almoxarifado(produtos_preview, movimentacoes)
+                        baixar_relatorio(html_content, f"relatorio_almoxarifado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+            else:
+                st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
+        
+        elif tipo_relatorio == "📤 Relatório de Movimentações":
+            st.markdown("#### 📤 Relatório de Movimentações")
+            
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            
+            with col_f1:
+                opcoes_tipo_rel = ["(Todos)", "ENTRADA", "SAÍDA", "INVENTÁRIO"]
+                filtro_tipo_rel = st.selectbox(
+                    "📋 Tipo",
+                    options=opcoes_tipo_rel,
+                    key="rel_filtro_tipo"
+                )
+            
+            with col_f2:
+                opcoes_prod_rel = ["(Todos)"] + sorted(set([p.get('produto', '') for p in produtos if p.get('produto')]))
+                filtro_prod_rel = st.selectbox(
+                    "📦 Produto",
+                    options=opcoes_prod_rel,
+                    key="rel_filtro_produto"
+                )
+            
+            with col_f3:
+                opcoes_cat_rel = ["(Todos)"] + sorted(set([p.get('categoria', '') for p in produtos if p.get('categoria')]))
+                filtro_cat_rel = st.selectbox(
+                    "📂 Categoria",
+                    options=opcoes_cat_rel,
+                    key="rel_filtro_categoria"
+                )
+            
+            with col_f4:
+                mostrar_todos = st.checkbox(
+                    "📅 Mostrar todos os períodos",
+                    value=True,
+                    key="rel_mostrar_todos"
+                )
+            
+            if not mostrar_todos:
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    data_ini_rel = st.date_input("📅 Data Inicial", value=None, key="rel_data_ini")
+                with col_d2:
+                    data_fim_rel = st.date_input("📅 Data Final", value=None, key="rel_data_fim")
+            else:
+                data_ini_rel = None
+                data_fim_rel = None
+            
+            st.markdown("---")
+            
+            if st.button("📊 Gerar Relatório de Movimentações", type="primary", use_container_width=True):
+                with st.spinner("Gerando relatório..."):
+                    html_content = gerar_relatorio_movimentacoes_html(
+                        movimentacoes, 
+                        data_ini_rel, 
+                        data_fim_rel,
+                        filtro_tipo_rel,
+                        filtro_prod_rel,
+                        filtro_cat_rel
+                    )
+                    baixar_relatorio(html_content, f"relatorio_movimentacoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
     
     # ======================
     # FOOTER
