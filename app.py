@@ -15719,7 +15719,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)    
 # ==================================================================================================
-# ALMOXARIFADO - CONTROLE DE ESTOQUE COM LISTA TEMPORÁRIA DE MOVIMENTAÇÕES
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE + FALLBACK GOOGLE SHEETS
+# VERSÃO COMPLETA
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15727,11 +15728,310 @@ elif aba_selecionada == 'ALMOXARIFADO':
                        THEME['accent_cyan'])
     
     # ======================
-    # CONFIGURAÇÃO DA PLANILHA
+    # CONFIGURAÇÃO
     # ======================
     ID_PLANILHA_ALMOXARIFADO = '1vbWzYuCXJOY1paZpQXSFomvN1Zj_xviK8UgR8Td4Tag'
     ABA_BASE = 'BASE'
     ABA_MOVIMENTACAO = 'MOVIMENTAÇÃO'
+    
+    # ======================
+    # FUNÇÕES DE CONEXÃO SUPABASE
+    # ======================
+    
+    def get_supabase_client():
+        """Retorna cliente Supabase configurado"""
+        try:
+            from supabase import create_client, Client
+            SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
+            SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
+            return create_client(SUPABASE_URL, SUPABASE_KEY)
+        except Exception as e:
+            print(f"Erro ao conectar Supabase: {e}")
+            return None
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE
+    # ======================
+    
+    @st.cache_data(ttl=300)
+    def carregar_produtos_supabase() -> List[Dict]:
+        """Carrega produtos do Supabase"""
+        try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return []
+            
+            response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
+            
+            if hasattr(response, 'data') and response.data:
+                produtos = []
+                for item in response.data:
+                    produtos.append({
+                        'id': item.get('produto_id', ''),
+                        'categoria': item.get('categoria', ''),
+                        'produto': item.get('produto', ''),
+                        'ca': float(item.get('ca', 0)),
+                        'base': float(item.get('base', 0)),
+                        'quantidade': float(item.get('quantidade', 0))
+                    })
+                return produtos
+            return []
+            
+        except Exception as e:
+            print(f"Erro ao carregar produtos do Supabase: {e}")
+            return []
+    
+    @st.cache_data(ttl=300)
+    def carregar_movimentacoes_supabase() -> List[Dict]:
+        """Carrega movimentações do Supabase"""
+        try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return []
+            
+            response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
+            
+            if hasattr(response, 'data') and response.data:
+                movimentacoes = []
+                for item in response.data:
+                    data_val = item.get('data')
+                    if data_val and isinstance(data_val, str):
+                        try:
+                            data_val = datetime.strptime(data_val, '%Y-%m-%d')
+                        except:
+                            data_val = None
+                    
+                    movimentacoes.append({
+                        'id': item.get('mov_id', ''),
+                        'data': data_val,
+                        'produto': item.get('produto', ''),
+                        'categoria': item.get('categoria', ''),
+                        'colaborador': item.get('colaborador', ''),
+                        'quantidade': float(item.get('quantidade', 0)),
+                        'obs': item.get('obs', ''),
+                        'responsavel': item.get('responsavel', ''),
+                        'tipo': item.get('tipo', 'SAÍDA')
+                    })
+                return movimentacoes
+            return []
+            
+        except Exception as e:
+            print(f"Erro ao carregar movimentações do Supabase: {e}")
+            return []
+    
+    # ======================
+    # FUNÇÕES DE SALVAR NO SUPABASE
+    # ======================
+    
+    def salvar_produto_supabase(produto_dict: Dict) -> tuple:
+        """Salva produto no Supabase"""
+        try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return False, "❌ Erro ao conectar ao Supabase"
+            
+            data = {
+                'produto_id': produto_dict['id'],
+                'categoria': produto_dict['categoria'],
+                'produto': produto_dict['produto'],
+                'ca': produto_dict['ca'],
+                'base': produto_dict['base'],
+                'quantidade': produto_dict['quantidade']
+            }
+            
+            # Verificar se já existe
+            response = supabase.table('almoxarifado_base').select('*').eq('produto_id', produto_dict['id']).execute()
+            
+            if hasattr(response, 'data') and response.data:
+                # Atualizar
+                supabase.table('almoxarifado_base').update(data).eq('produto_id', produto_dict['id']).execute()
+            else:
+                # Inserir
+                supabase.table('almoxarifado_base').insert(data).execute()
+            
+            st.cache_data.clear()
+            return True, f"✅ Produto {produto_dict['produto']} salvo no Supabase!"
+            
+        except Exception as e:
+            print(f"Erro ao salvar produto no Supabase: {e}")
+            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
+    
+    def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
+        """Salva movimentação no Supabase"""
+        try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return False, "❌ Erro ao conectar ao Supabase"
+            
+            data = {
+                'mov_id': mov_dict['id'],
+                'data': mov_dict['data'].isoformat() if mov_dict.get('data') else None,
+                'produto': mov_dict['produto'],
+                'categoria': mov_dict.get('categoria', ''),
+                'colaborador': mov_dict.get('colaborador', ''),
+                'quantidade': mov_dict['quantidade'],
+                'obs': mov_dict.get('obs', ''),
+                'responsavel': mov_dict.get('responsavel', ''),
+                'tipo': mov_dict['tipo']
+            }
+            
+            supabase.table('almoxarifado_movimentacao').insert(data).execute()
+            
+            # Atualizar estoque no Supabase
+            if mov_dict['tipo'] == 'ENTRADA':
+                delta = mov_dict['quantidade']
+            elif mov_dict['tipo'] == 'SAÍDA':
+                delta = -mov_dict['quantidade']
+            else:  # INVENTÁRIO
+                delta = mov_dict['quantidade']
+            
+            # Buscar produto atual
+            response = supabase.table('almoxarifado_base').select('quantidade').eq('produto', mov_dict['produto']).execute()
+            if hasattr(response, 'data') and response.data:
+                qtd_atual = float(response.data[0].get('quantidade', 0))
+                nova_qtd = qtd_atual + delta
+                supabase.table('almoxarifado_base').update({'quantidade': nova_qtd}).eq('produto', mov_dict['produto']).execute()
+            
+            st.cache_data.clear()
+            return True, f"✅ Movimentação salva no Supabase!"
+            
+        except Exception as e:
+            print(f"Erro ao salvar movimentação no Supabase: {e}")
+            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
+    
+    def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
+        """Salva lote de movimentações no Supabase"""
+        sucessos = 0
+        erros = []
+        
+        for mov in lista_mov:
+            # Gerar ID se não tiver
+            if not mov.get('id') or mov['id'].startswith('TEMP-'):
+                mov['id'] = gerar_id_movimentacao_supabase()
+            
+            sucesso, msg = salvar_movimentacao_supabase(mov)
+            if sucesso:
+                sucessos += 1
+            else:
+                erros.append(msg)
+        
+        if erros:
+            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
+        else:
+            return True, f"✅ {sucessos} movimentações salvas no Supabase!"
+    
+    def gerar_id_movimentacao_supabase() -> str:
+        """Gera ID para movimentação no Supabase"""
+        try:
+            supabase = get_supabase_client()
+            if supabase:
+                response = supabase.table('almoxarifado_movimentacao').select('mov_id').order('mov_id', desc=True).limit(1).execute()
+                if hasattr(response, 'data') and response.data:
+                    ultimo_id = response.data[0].get('mov_id', '')
+                    if ultimo_id and ultimo_id.startswith('MOV-'):
+                        try:
+                            num = int(ultimo_id.replace('MOV-', ''))
+                            return f"MOV-{num + 1:03d}"
+                        except:
+                            pass
+        except:
+            pass
+        return f"MOV-{datetime.now().strftime('%H%M%S')}"
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO COM FALLBACK
+    # ======================
+    
+    def carregar_produtos_com_fallback() -> List[Dict]:
+        """Carrega produtos com fallback para Google Sheets"""
+        # Tentar Supabase primeiro
+        produtos = carregar_produtos_supabase()
+        
+        if produtos:
+            return produtos
+        
+        # Fallback para Google Sheets
+        try:
+            produtos = carregar_produtos_estoque()
+            if produtos:
+                # Tentar sincronizar com Supabase em background
+                try:
+                    for p in produtos:
+                        salvar_produto_supabase(p)
+                except:
+                    pass
+                return produtos
+        except:
+            pass
+        
+        return []
+    
+    def carregar_movimentacoes_com_fallback() -> List[Dict]:
+        """Carrega movimentações com fallback para Google Sheets"""
+        # Tentar Supabase primeiro
+        movimentacoes = carregar_movimentacoes_supabase()
+        
+        if movimentacoes:
+            return movimentacoes
+        
+        # Fallback para Google Sheets
+        try:
+            movimentacoes = carregar_movimentacoes()
+            return movimentacoes
+        except:
+            pass
+        
+        return []
+    
+    # ======================
+    # FUNÇÕES CRUD COM FALLBACK
+    # ======================
+    
+    def salvar_produto_com_fallback(produto_dict: Dict) -> tuple:
+        """Salva produto com fallback para Google Sheets"""
+        # Tentar Supabase primeiro
+        sucesso, msg = salvar_produto_supabase(produto_dict)
+        
+        if sucesso:
+            return sucesso, msg
+        
+        # Fallback para Google Sheets
+        try:
+            sucesso, msg = salvar_produto(produto_dict)
+            return sucesso, msg
+        except Exception as e:
+            return False, f"❌ Erro ao salvar (Supabase e Sheets): {str(e)}"
+    
+    def salvar_lote_movimentacoes_com_fallback(lista_mov: List[Dict]) -> tuple:
+        """Salva lote de movimentações com fallback"""
+        # Tentar Supabase primeiro
+        sucesso, msg = salvar_lote_movimentacoes_supabase(lista_mov)
+        
+        if sucesso:
+            return sucesso, msg
+        
+        # Fallback para Google Sheets
+        try:
+            sucesso, msg = salvar_lote_movimentacoes(lista_mov)
+            return sucesso, msg
+        except Exception as e:
+            return False, f"❌ Erro ao salvar (Supabase e Sheets): {str(e)}"
+    
+    # ======================
+    # CARREGAR DADOS COM FALLBACK
+    # ======================
+    
+    with st.spinner("🔄 Carregando dados do almoxarifado..."):
+        produtos = carregar_produtos_com_fallback()
+        movimentacoes = carregar_movimentacoes_com_fallback()
+        
+        # Mostrar fonte dos dados
+        if produtos:
+            # Verificar se veio do Supabase ou Sheets
+            fonte = "Supabase" if carregar_produtos_supabase() else "Google Sheets (fallback)"
+            st.caption(f"📊 {len(produtos)} produtos carregados de: **{fonte}**")
+        else:
+            st.warning("⚠️ Nenhum dado disponível. Verifique a conexão com Supabase e Google Sheets.")
     
     # ======================
     # INICIALIZAR SESSION STATE
@@ -15745,7 +16045,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
     if 'almoxarifado_termo_busca' not in st.session_state:
         st.session_state.almoxarifado_termo_busca = ""
     
-    # ===== NOVOS STATES PARA LISTA TEMPORÁRIA =====
     if 'almoxarifado_lista_temporaria' not in st.session_state:
         st.session_state.almoxarifado_lista_temporaria = []
     
@@ -15777,26 +16076,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         proximo = max(ids) + 1
         return f"PROD-{proximo:03d}"
-    
-    def gerar_id_movimentacao(movimentacoes_dict: List[Dict]) -> str:
-        if not movimentacoes_dict:
-            return "MOV-001"
-        
-        ids = []
-        for m in movimentacoes_dict:
-            id_val = m.get('id', '')
-            if id_val and id_val.startswith("MOV-"):
-                try:
-                    num = int(id_val.replace("MOV-", ""))
-                    ids.append(num)
-                except:
-                    pass
-        
-        if not ids:
-            return "MOV-001"
-        
-        proximo = max(ids) + 1
-        return f"MOV-{proximo:03d}"
     
     # ======================
     # FUNÇÃO PARA CALCULAR PREVISÃO DE DIAS
@@ -15845,909 +16124,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return f"🔵 {meses:.1f} meses"
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO
-    # ======================
-    @retry_on_quota()
-    @st.cache_data(ttl=300)
-    def carregar_produtos_estoque() -> List[Dict]:
-        produtos = []
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return produtos
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            
-            try:
-                sheet = spreadsheet.worksheet(ABA_BASE)
-            except Exception as e:
-                return produtos
-            
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                return produtos
-            
-            cabecalho = todos_dados[0]
-            idx_id = None
-            idx_categoria = None
-            idx_produto = None
-            idx_ca = None
-            idx_base = None
-            idx_quantidade = None
-            
-            for i, col in enumerate(cabecalho):
-                col_clean = str(col).strip().upper()
-                if col_clean == 'ID':
-                    idx_id = i
-                elif col_clean == 'CATEGORIA':
-                    idx_categoria = i
-                elif col_clean == 'PRODUTO':
-                    idx_produto = i
-                elif col_clean == 'CA':
-                    idx_ca = i
-                elif col_clean == 'BASE':
-                    idx_base = i
-                elif col_clean == 'QUANTIDADE':
-                    idx_quantidade = i
-            
-            if idx_id is None or idx_produto is None:
-                for i, col in enumerate(cabecalho):
-                    col_clean = str(col).strip().upper()
-                    if 'ID' in col_clean and idx_id is None:
-                        idx_id = i
-                    elif 'PRODUTO' in col_clean and idx_produto is None:
-                        idx_produto = i
-                    elif 'CATEGORIA' in col_clean and idx_categoria is None:
-                        idx_categoria = i
-                    elif 'CA' in col_clean and idx_ca is None:
-                        idx_ca = i
-                    elif 'BASE' in col_clean and idx_base is None:
-                        idx_base = i
-                    elif 'QUANTIDADE' in col_clean and idx_quantidade is None:
-                        idx_quantidade = i
-            
-            for row in todos_dados[1:]:
-                try:
-                    if idx_id is not None and len(row) <= idx_id:
-                        continue
-                    if idx_produto is not None and len(row) <= idx_produto:
-                        continue
-                    
-                    id_val = row[idx_id].strip() if idx_id is not None and row[idx_id] else ""
-                    produto_val = row[idx_produto].strip() if idx_produto is not None and row[idx_produto] else ""
-                    
-                    if not id_val or not produto_val:
-                        continue
-                    
-                    produto = {
-                        'id': id_val,
-                        'categoria': row[idx_categoria].strip() if idx_categoria is not None and len(row) > idx_categoria and row[idx_categoria] else "",
-                        'produto': produto_val,
-                        'ca': 0.0,
-                        'base': 0.0,
-                        'quantidade': 0.0
-                    }
-                    
-                    if idx_ca is not None and len(row) > idx_ca and row[idx_ca]:
-                        try:
-                            produto['ca'] = float(str(row[idx_ca]).replace(',', '.'))
-                        except:
-                            pass
-                    
-                    if idx_base is not None and len(row) > idx_base and row[idx_base]:
-                        try:
-                            produto['base'] = float(str(row[idx_base]).replace(',', '.'))
-                        except:
-                            pass
-                    
-                    if idx_quantidade is not None and len(row) > idx_quantidade and row[idx_quantidade]:
-                        try:
-                            produto['quantidade'] = float(str(row[idx_quantidade]).replace(',', '.'))
-                        except:
-                            pass
-                    
-                    produtos.append(produto)
-                except Exception as e:
-                    continue
-            
-            return produtos
-            
-        except Exception as e:
-            return produtos
-    
-    @retry_on_quota()
-    @st.cache_data(ttl=300)
-    def carregar_movimentacoes() -> List[Dict]:
-        movimentacoes = []
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return movimentacoes
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            
-            try:
-                sheet = spreadsheet.worksheet(ABA_MOVIMENTACAO)
-            except Exception as e:
-                sheet = spreadsheet.add_worksheet(title=ABA_MOVIMENTACAO, rows=1000, cols=20)
-                cabecalho = ["ID", "DATA", "PRODUTO", "CATEGORIA", "COLABORADOR", "QUANTIDADE", "OBS", "RESPONSÁVEL", "TIPO"]
-                sheet.append_row(cabecalho)
-                return movimentacoes
-            
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                return movimentacoes
-            
-            cabecalho = todos_dados[0]
-            idx_id = None
-            idx_data = None
-            idx_produto = None
-            idx_categoria = None
-            idx_colaborador = None
-            idx_quantidade = None
-            idx_obs = None
-            idx_responsavel = None
-            idx_tipo = None
-            
-            for i, col in enumerate(cabecalho):
-                col_clean = str(col).strip().upper()
-                if col_clean == 'ID':
-                    idx_id = i
-                elif col_clean == 'DATA':
-                    idx_data = i
-                elif col_clean == 'PRODUTO':
-                    idx_produto = i
-                elif col_clean == 'CATEGORIA':
-                    idx_categoria = i
-                elif col_clean == 'COLABORADOR':
-                    idx_colaborador = i
-                elif col_clean == 'QUANTIDADE':
-                    idx_quantidade = i
-                elif col_clean == 'OBS':
-                    idx_obs = i
-                elif col_clean == 'RESPONSÁVEL':
-                    idx_responsavel = i
-                elif col_clean == 'TIPO':
-                    idx_tipo = i
-            
-            if idx_tipo is None:
-                for i, col in enumerate(cabecalho):
-                    col_clean = str(col).strip().upper()
-                    if 'TIPO' in col_clean:
-                        idx_tipo = i
-                        break
-            
-            for row in todos_dados[1:]:
-                try:
-                    if idx_id is not None and len(row) <= idx_id:
-                        continue
-                    if idx_produto is not None and len(row) <= idx_produto:
-                        continue
-                    
-                    id_val = row[idx_id].strip() if idx_id is not None and row[idx_id] else ""
-                    produto_val = row[idx_produto].strip() if idx_produto is not None and row[idx_produto] else ""
-                    
-                    if not id_val or not produto_val:
-                        continue
-                    
-                    movimentacao = {
-                        'id': id_val,
-                        'data': None,
-                        'produto': produto_val,
-                        'categoria': row[idx_categoria].strip() if idx_categoria is not None and len(row) > idx_categoria and row[idx_categoria] else "",
-                        'colaborador': row[idx_colaborador].strip() if idx_colaborador is not None and len(row) > idx_colaborador and row[idx_colaborador] else "",
-                        'quantidade': 0.0,
-                        'obs': row[idx_obs].strip() if idx_obs is not None and len(row) > idx_obs and row[idx_obs] else "",
-                        'responsavel': row[idx_responsavel].strip() if idx_responsavel is not None and len(row) > idx_responsavel and row[idx_responsavel] else "",
-                        'tipo': row[idx_tipo].strip().upper() if idx_tipo is not None and len(row) > idx_tipo and row[idx_tipo] else "SAÍDA"
-                    }
-                    
-                    if idx_data is not None and len(row) > idx_data and row[idx_data]:
-                        try:
-                            movimentacao['data'] = datetime.strptime(row[idx_data].strip(), "%d/%m/%Y")
-                        except:
-                            movimentacao['data'] = converter_data_br(row[idx_data])
-                    
-                    if idx_quantidade is not None and len(row) > idx_quantidade and row[idx_quantidade]:
-                        try:
-                            movimentacao['quantidade'] = float(str(row[idx_quantidade]).replace(',', '.'))
-                        except:
-                            pass
-                    
-                    movimentacoes.append(movimentacao)
-                except:
-                    continue
-            
-            return movimentacoes
-            
-        except Exception as e:
-            return movimentacoes
-    
-    # ======================
-    # FUNÇÕES CRUD - PRODUTOS
-    # ======================
-    def salvar_produto(produto_dict: Dict) -> tuple:
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return False, "❌ Erro ao conectar ao Google Sheets"
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            sheet = spreadsheet.worksheet(ABA_BASE)
-            
-            dados = [
-                produto_dict['id'],
-                produto_dict['categoria'],
-                produto_dict['produto'],
-                str(produto_dict['ca']).replace('.', ','),
-                str(produto_dict['base']).replace('.', ','),
-                str(produto_dict['quantidade']).replace('.', ',')
-            ]
-            
-            sheet.append_row(dados)
-            st.cache_data.clear()
-            return True, f"✅ Produto {produto_dict['produto']} salvo com sucesso!"
-            
-        except Exception as e:
-            return False, f"❌ Erro ao salvar: {str(e)}"
-    
-    def atualizar_produto(produto_dict: Dict) -> tuple:
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return False, "❌ Erro ao conectar ao Google Sheets"
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            sheet = spreadsheet.worksheet(ABA_BASE)
-            
-            cell = sheet.find(produto_dict['id'], in_column=1)
-            if not cell:
-                return False, f"❌ Produto {produto_dict['id']} não encontrado"
-            
-            dados = [
-                produto_dict['id'],
-                produto_dict['categoria'],
-                produto_dict['produto'],
-                str(produto_dict['ca']).replace('.', ','),
-                str(produto_dict['base']).replace('.', ','),
-                str(produto_dict['quantidade']).replace('.', ',')
-            ]
-            
-            for col, valor in enumerate(dados, start=1):
-                sheet.update_cell(cell.row, col, valor)
-            
-            st.cache_data.clear()
-            return True, f"✅ Produto {produto_dict['produto']} atualizado com sucesso!"
-            
-        except Exception as e:
-            return False, f"❌ Erro ao atualizar: {str(e)}"
-    
-    def excluir_produto(id_produto: str) -> tuple:
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return False, "❌ Erro ao conectar ao Google Sheets"
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            sheet = spreadsheet.worksheet(ABA_BASE)
-            
-            cell = sheet.find(id_produto, in_column=1)
-            if not cell:
-                return False, f"❌ Produto {id_produto} não encontrado"
-            
-            sheet.delete_rows(cell.row)
-            st.cache_data.clear()
-            return True, f"✅ Produto {id_produto} excluído com sucesso!"
-            
-        except Exception as e:
-            return False, f"❌ Erro ao excluir: {str(e)}"
-    
-    # ======================
-    # FUNÇÕES PARA SALVAR LOTE DE MOVIMENTAÇÕES
-    # ======================
-    def salvar_lote_movimentacoes(lista_mov: List[Dict]) -> tuple:
-        """
-        Salva um lote de movimentações na planilha online
-        """
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return False, "❌ Erro ao conectar ao Google Sheets"
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            sheet_mov = spreadsheet.worksheet(ABA_MOVIMENTACAO)
-            sheet_base = spreadsheet.worksheet(ABA_BASE)
-            
-            # Processar cada movimentação
-            erros = []
-            sucessos = 0
-            
-            for mov in lista_mov:
-                try:
-                    # Verificar estoque para SAÍDA
-                    if mov['tipo'] == 'SAÍDA':
-                        cell = sheet_base.find(mov['produto'], in_column=3)
-                        if not cell:
-                            erros.append(f"Produto {mov['produto']} não encontrado")
-                            continue
-                        
-                        qtd_cell = sheet_base.cell(cell.row, 6)
-                        qtd_atual = 0
-                        if qtd_cell.value:
-                            try:
-                                qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
-                            except:
-                                qtd_atual = 0
-                        
-                        if mov['quantidade'] > qtd_atual:
-                            erros.append(f"Estoque insuficiente para {mov['produto']}: disponível {qtd_atual:.2f}, solicitado {mov['quantidade']:.2f}")
-                            continue
-                    
-                    # Salvar movimentação
-                    data_str = mov['data'].strftime("%d/%m/%Y") if mov.get('data') else datetime.now().strftime("%d/%m/%Y")
-                    dados_mov = [
-                        mov['id'],
-                        data_str,
-                        mov['produto'],
-                        mov.get('categoria', ''),
-                        mov.get('colaborador', ''),
-                        str(mov['quantidade']).replace('.', ','),
-                        mov.get('obs', ''),
-                        mov.get('responsavel', ''),
-                        mov['tipo']
-                    ]
-                    sheet_mov.append_row(dados_mov)
-                    
-                    # Atualizar estoque
-                    cell = sheet_base.find(mov['produto'], in_column=3)
-                    if cell:
-                        qtd_cell = sheet_base.cell(cell.row, 6)
-                        qtd_atual = 0
-                        if qtd_cell.value:
-                            try:
-                                qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
-                            except:
-                                qtd_atual = 0
-                        
-                        if mov['tipo'] == 'ENTRADA':
-                            nova_qtd = qtd_atual + mov['quantidade']
-                        elif mov['tipo'] == 'SAÍDA':
-                            nova_qtd = qtd_atual - mov['quantidade']
-                        else:  # INVENTÁRIO
-                            nova_qtd = mov['quantidade']
-                        
-                        sheet_base.update_cell(cell.row, 6, str(nova_qtd).replace('.', ','))
-                    
-                    sucessos += 1
-                    
-                except Exception as e:
-                    erros.append(f"Erro ao processar {mov.get('produto', '')}: {str(e)}")
-            
-            st.cache_data.clear()
-            
-            if erros:
-                return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
-            else:
-                return True, f"✅ {sucessos} movimentações salvas com sucesso!"
-            
-        except Exception as e:
-            return False, f"❌ Erro ao salvar lote: {str(e)}"
-    
-    # ======================
-    # FUNÇÕES DE RELATÓRIOS
-    # ======================
-    def gerar_relatorio_almoxarifado(produtos_dict: List[Dict], movimentacoes_dict: List[Dict]) -> str:
-        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        
-        total_produtos = len(produtos_dict)
-        total_quantidade = sum(p.get('quantidade', 0) for p in produtos_dict)
-        total_mov = len(movimentacoes_dict)
-        total_qtd_mov = sum(m.get('quantidade', 0) for m in movimentacoes_dict)
-        
-        categorias = {}
-        for p in produtos_dict:
-            cat = p.get('categoria', 'Sem categoria')
-            if cat not in categorias:
-                categorias[cat] = 0
-            categorias[cat] += p.get('quantidade', 0)
-        
-        estoque_baixo = [p for p in produtos_dict if 0 < p.get('quantidade', 0) < 5]
-        estoque_zero = [p for p in produtos_dict if p.get('quantidade', 0) <= 0]
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Relatório Almoxarifado</title>
-            <style>
-                @page {{ size: A4 landscape; margin: 10mm; }}
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
-                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
-                .header {{
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    padding: 15px 20px;
-                    border-radius: 10px;
-                    margin-bottom: 15px;
-                    color: white;
-                }}
-                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
-                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
-                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
-                
-                .cards {{
-                    display: grid;
-                    grid-template-columns: repeat(5, 1fr);
-                    gap: 10px;
-                    margin-bottom: 15px;
-                }}
-                .card {{
-                    background: #f8f9fc;
-                    padding: 10px 14px;
-                    border-radius: 8px;
-                    border-left: 4px solid #0078D4;
-                    text-align: center;
-                }}
-                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
-                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
-                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
-                .card-green {{ border-left-color: #28a745; }}
-                .card-red {{ border-left-color: #dc3545; }}
-                .card-orange {{ border-left-color: #E86C2C; }}
-                .card-purple {{ border-left-color: #6B46C1; }}
-                
-                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
-                
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
-                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; white-space: nowrap; }}
-                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
-                table tr:nth-child(even) {{ background: #f8f9fc; }}
-                
-                .table-responsive {{ overflow-x: auto; }}
-                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
-                
-                .alert-box {{ padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 10px; }}
-                .alert-danger {{ background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }}
-                .alert-warning {{ background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }}
-                
-                .status-zero {{ color: #dc3545; font-weight: bold; }}
-                .status-baixo {{ color: #dc3545; font-weight: bold; }}
-                .status-normal {{ color: #28a745; }}
-                .status-alto {{ color: #0078D4; }}
-                
-                .previsao-zerado {{ color: #dc3545; font-weight: bold; }}
-                .previsao-urgencia {{ color: #dc3545; font-weight: bold; }}
-                .previsao-curto {{ color: #E86C2C; }}
-                .previsao-medio {{ color: #28a745; }}
-                .previsao-longo {{ color: #0078D4; }}
-                
-                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
-                .badge-entrada {{ background: #d4edda; color: #155724; }}
-                .badge-saida {{ background: #f8d7da; color: #721c24; }}
-                .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
-                
-                @media print {{
-                    body {{ margin: 3mm; padding: 0; }}
-                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>📦 RELATÓRIO ALMOXARIFADO</h1>
-                    <div class="subtitle">Controle de Estoque com Previsão de Consumo - Luvidarte</div>
-                    <div class="data">Gerado em: {data_atual}</div>
-                </div>
-                
-                <div class="cards">
-                    <div class="card"><div class="label">📦 Total Produtos</div><div class="value">{total_produtos}</div></div>
-                    <div class="card card-green"><div class="label">📊 Estoque Total</div><div class="value">{total_quantidade:.2f}</div></div>
-                    <div class="card card-orange"><div class="label">📤 Total Movimentações</div><div class="value">{total_mov}</div></div>
-                    <div class="card card-purple"><div class="label">📦 Qtd Movimentada</div><div class="value">{total_qtd_mov:.2f}</div></div>
-                    <div class="card card-red"><div class="label">🔴 Produtos Zerados</div><div class="value">{len(estoque_zero)}</div></div>
-                </div>
-        """
-        
-        if estoque_zero:
-            html += f'<div class="alert-box alert-danger"><strong>🔴 ATENÇÃO - ESTOQUE ZERADO:</strong> {len(estoque_zero)} produto(s) com estoque zerado.</div>'
-        if estoque_baixo:
-            html += f'<div class="alert-box alert-warning"><strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s) com estoque abaixo de 5 unidades.</div>'
-        
-        # Tabela de Produtos com PREVISÃO
-        html += f"""
-                <div class="section-title">📋 ESTOQUE ATUAL COM PREVISÃO DE CONSUMO</div>
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Categoria</th>
-                                <th>Produto</th>
-                                <th>CA</th>
-                                <th>BASE</th>
-                                <th>Quantidade</th>
-                                <th>Status</th>
-                                <th>Previsão</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-        """
-        
-        if produtos_dict:
-            for p in sorted(produtos_dict, key=lambda x: x.get('produto', '')):
-                qtd = p.get('quantidade', 0)
-                
-                if qtd <= 0:
-                    status = '<span class="status-zero">🔴 ZERADO</span>'
-                elif qtd < 5:
-                    status = '<span class="status-baixo">🟡 BAIXO</span>'
-                elif qtd < 20:
-                    status = '<span class="status-normal">🟢 NORMAL</span>'
-                else:
-                    status = '<span class="status-alto">🔵 ALTO</span>'
-                
-                previsao = calcular_previsao_dias(
-                    p.get('produto', ''), 
-                    qtd, 
-                    movimentacoes_dict
-                )
-                
-                if "ZERADO" in previsao:
-                    previsao_class = 'previsao-zerado'
-                elif "⚠️" in previsao or "horas" in previsao:
-                    previsao_class = 'previsao-urgencia'
-                elif "🟡" in previsao:
-                    previsao_class = 'previsao-curto'
-                elif "🟢" in previsao:
-                    previsao_class = 'previsao-medio'
-                elif "🔵" in previsao:
-                    previsao_class = 'previsao-longo'
-                else:
-                    previsao_class = ''
-                
-                html += f"""
-                            <tr>
-                                <td>{p.get('id', '')}</td>
-                                <td>{p.get('categoria', '')}</td>
-                                <td><strong>{p.get('produto', '')}</strong></td>
-                                <td>{p.get('ca', 0):.2f}</td>
-                                <td>{p.get('base', 0):.2f}</td>
-                                <td><strong>{qtd:.2f}</strong></td>
-                                <td>{status}</td>
-                                <td class="{previsao_class}">{previsao}</td>
-                            </tr>
-                """
-        else:
-            html += '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Nenhum produto cadastrado.</td></tr>'
-        
-        html += """
-                        </tbody>
-                    </table>
-                </div>
-        """
-        
-        # Movimentações recentes
-        if movimentacoes_dict:
-            html += f"""
-                <div class="section-title">📤 ÚLTIMAS MOVIMENTAÇÕES</div>
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th><th>Data</th><th>Produto</th><th>Categoria</th>
-                                <th>Colaborador</th><th>Quantidade</th><th>Tipo</th><th>Responsável</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            """
-            
-            for m in sorted(movimentacoes_dict, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:30]:
-                data_obj = m.get('data')
-                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
-                tipo = m.get('tipo', 'SAÍDA')
-                badge_class = f'badge-{tipo.lower()}'
-                
-                html += f"""
-                            <tr>
-                                <td>{m.get('id', '')}</td>
-                                <td>{data_str}</td>
-                                <td>{m.get('produto', '')}</td>
-                                <td>{m.get('categoria', '')}</td>
-                                <td>{m.get('colaborador', '')}</td>
-                                <td><strong>{m.get('quantidade', 0):.2f}</strong></td>
-                                <td><span class="badge {badge_class}">{tipo}</span></td>
-                                <td>{m.get('responsavel', '')}</td>
-                            </tr>
-                """
-            
-            html += """
-                        </tbody>
-                    </table>
-                </div>
-            """
-        
-        # Resumo por Categoria
-        if categorias:
-            html += f"""
-                <div class="section-title">📊 RESUMO POR CATEGORIA</div>
-                <div class="table-responsive">
-                    <table>
-                        <thead><tr><th>Categoria</th><th>Quantidade</th><th>% do Total</th></tr></thead>
-                        <tbody>
-            """
-            total = sum(categorias.values())
-            for cat, qtd in sorted(categorias.items(), key=lambda x: x[1], reverse=True):
-                perc = (qtd / total * 100) if total > 0 else 0
-                html += f'<tr><td><strong>{cat}</strong></td><td>{qtd:.2f}</td><td>{perc:.1f}%</td></tr>'
-            html += """
-                        </tbody>
-                    </table>
-                </div>
-            """
-        
-        html += f"""
-                <div class="footer">
-                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
-                    {data_atual} | Previsão baseada nas saídas registradas no histórico
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html
-    
-    def gerar_relatorio_movimentacoes_html(movimentacoes_dict: List[Dict], 
-                                            data_ini=None, 
-                                            data_fim=None,
-                                            tipo_filtro: str = "(Todos)",
-                                            produto_filtro: str = "(Todos)",
-                                            categoria_filtro: str = "(Todos)") -> str:
-        
-        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        
-        mov_filtradas = movimentacoes_dict.copy()
-        
-        if data_ini:
-            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] >= data_ini]
-        if data_fim:
-            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] <= data_fim]
-        
-        if tipo_filtro != "(Todos)":
-            mov_filtradas = [m for m in mov_filtradas if m.get('tipo', '').upper() == tipo_filtro.upper()]
-        
-        if produto_filtro != "(Todos)" and produto_filtro:
-            mov_filtradas = [m for m in mov_filtradas if m.get('produto', '').lower() == produto_filtro.lower()]
-        
-        if categoria_filtro != "(Todos)" and categoria_filtro:
-            mov_filtradas = [m for m in mov_filtradas if m.get('categoria', '').lower() == categoria_filtro.lower()]
-        
-        total_mov = len(mov_filtradas)
-        total_qtd = sum(m.get('quantidade', 0) for m in mov_filtradas)
-        
-        entradas = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'ENTRADA']
-        saidas = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'SAÍDA']
-        inventarios = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'INVENTÁRIO']
-        
-        total_entradas = len(entradas)
-        total_saidas = len(saidas)
-        total_inventarios = len(inventarios)
-        
-        qtd_entradas = sum(m.get('quantidade', 0) for m in entradas)
-        qtd_saidas = sum(m.get('quantidade', 0) for m in saidas)
-        qtd_inventarios = sum(m.get('quantidade', 0) for m in inventarios)
-        
-        filtros_texto = []
-        if data_ini:
-            filtros_texto.append(f"Data Inicial: {data_ini.strftime('%d/%m/%Y')}")
-        if data_fim:
-            filtros_texto.append(f"Data Final: {data_fim.strftime('%d/%m/%Y')}")
-        if tipo_filtro != "(Todos)":
-            filtros_texto.append(f"Tipo: {tipo_filtro}")
-        if produto_filtro != "(Todos)":
-            filtros_texto.append(f"Produto: {produto_filtro}")
-        if categoria_filtro != "(Todos)":
-            filtros_texto.append(f"Categoria: {categoria_filtro}")
-        
-        filtros_str = " | ".join(filtros_texto) if filtros_texto else "Nenhum filtro aplicado"
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Relatório de Movimentações - Almoxarifado</title>
-            <style>
-                @page {{ size: A4 landscape; margin: 12mm; }}
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
-                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
-                .header {{
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    padding: 15px 20px;
-                    border-radius: 10px;
-                    margin-bottom: 15px;
-                    color: white;
-                }}
-                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
-                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
-                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
-                
-                .cards {{
-                    display: grid;
-                    grid-template-columns: repeat(5, 1fr);
-                    gap: 10px;
-                    margin-bottom: 15px;
-                }}
-                .card {{
-                    background: #f8f9fc;
-                    padding: 10px 14px;
-                    border-radius: 8px;
-                    border-left: 4px solid #0078D4;
-                    text-align: center;
-                }}
-                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
-                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
-                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
-                .card-green {{ border-left-color: #28a745; }}
-                .card-red {{ border-left-color: #dc3545; }}
-                .card-purple {{ border-left-color: #6B46C1; }}
-                .card-orange {{ border-left-color: #E86C2C; }}
-                
-                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
-                
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
-                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; white-space: nowrap; }}
-                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
-                table tr:nth-child(even) {{ background: #f8f9fc; }}
-                
-                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
-                .filtros {{ background: #f0f2f5; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 10px; }}
-                
-                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
-                .badge-entrada {{ background: #d4edda; color: #155724; }}
-                .badge-saida {{ background: #f8d7da; color: #721c24; }}
-                .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
-                
-                @media print {{
-                    body {{ margin: 3mm; padding: 0; }}
-                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>📤 RELATÓRIO DE MOVIMENTAÇÕES</h1>
-                    <div class="subtitle">Almoxarifado - Luvidarte</div>
-                    <div class="data">Gerado em: {data_atual}</div>
-                </div>
-                
-                <div class="filtros">
-                    <strong>📅 Filtros aplicados:</strong> {filtros_str}
-                    <br>
-                    <strong>📊 Total de registros:</strong> {total_mov}
-                </div>
-                
-                <div class="cards">
-                    <div class="card card-orange">
-                        <div class="label">📤 Total</div>
-                        <div class="value">{total_mov}</div>
-                        <div class="sub">{total_qtd:.2f} un</div>
-                    </div>
-                    <div class="card card-green">
-                        <div class="label">📥 Entradas</div>
-                        <div class="value">{total_entradas}</div>
-                        <div class="sub">{qtd_entradas:.2f} un</div>
-                    </div>
-                    <div class="card card-red">
-                        <div class="label">📤 Saídas</div>
-                        <div class="value">{total_saidas}</div>
-                        <div class="sub">{qtd_saidas:.2f} un</div>
-                    </div>
-                    <div class="card card-purple">
-                        <div class="label">📋 Inventários</div>
-                        <div class="value">{total_inventarios}</div>
-                        <div class="sub">{qtd_inventarios:.2f} un</div>
-                    </div>
-                    <div class="card">
-                        <div class="label">📊 Média</div>
-                        <div class="value">{f"{(total_qtd / total_mov):.2f}" if total_mov > 0 else "0.00"}</div>
-                        <div class="sub">un/mov</div>
-                    </div>
-                </div>
-        """
-        
-        if mov_filtradas:
-            html += f"""
-                <div class="section-title">📋 DETALHAMENTO DAS MOVIMENTAÇÕES</div>
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Data</th>
-                                <th>Produto</th>
-                                <th>Categoria</th>
-                                <th>Colaborador</th>
-                                <th>Quantidade</th>
-                                <th>Tipo</th>
-                                <th>Responsável</th>
-                                <th>Observação</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            """
-            
-            for m in sorted(mov_filtradas, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True):
-                data_obj = m.get('data')
-                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
-                tipo = m.get('tipo', 'SAÍDA')
-                badge_class = f'badge-{tipo.lower()}'
-                obs = m.get('obs', '')[:40] + "..." if len(m.get('obs', '')) > 40 else m.get('obs', '')
-                
-                html += f"""
-                            <tr>
-                                <td><strong>{m.get('id', '')}</strong></td>
-                                <td>{data_str}</td>
-                                <td>{m.get('produto', '')}</td>
-                                <td>{m.get('categoria', '')}</td>
-                                <td>{m.get('colaborador', '')}</td>
-                                <td><strong>{m.get('quantidade', 0):.2f}</strong></td>
-                                <td><span class="badge {badge_class}">{tipo}</span></td>
-                                <td>{m.get('responsavel', '')}</td>
-                                <td style="font-size:8px; text-align:left;">{obs or '-'}</td>
-                            </tr>
-                """
-            
-            html += """
-                        </tbody>
-                    </table>
-                </div>
-            """
-        else:
-            html += """
-                <div style="text-align:center; padding:30px; color:#999; background:#f8f9fa; border-radius:8px;">
-                    📭 Nenhuma movimentação encontrada com os filtros selecionados.
-                </div>
-            """
-        
-        html += f"""
-                <div class="footer">
-                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
-                    {data_atual}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html
-    
-    def baixar_relatorio(html_content: str, nome_arquivo: str):
-        st.download_button(
-            label="📥 Baixar Relatório",
-            data=html_content,
-            file_name=nome_arquivo,
-            mime="text/html",
-            use_container_width=True,
-            type="primary"
-        )
-    
-    # ======================
-    # CARREGAR DADOS
-    # ======================
-    with st.spinner("🔄 Carregando dados do almoxarifado..."):
-        produtos = carregar_produtos_estoque()
-        movimentacoes = carregar_movimentacoes()
-    
-    # ======================
     # NAVEGAÇÃO
     # ======================
     st.markdown("### 📊 Selecione a Visualização")
@@ -16791,7 +16167,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
     if st.session_state.almoxarifado_aba == 'ESTOQUE':
         st.markdown("### 📦 Estoque Atual")
         
-        st.caption(f"📊 {len(produtos)} produtos carregados da planilha")
+        st.caption(f"📊 {len(produtos)} produtos carregados")
         
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
@@ -17168,7 +16544,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             st.markdown("---")
             st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO")
             
-            st.warning("⚠️ Você está prestes a salvar TODOS os lançamentos da lista na planilha online.")
+            st.warning("⚠️ Você está prestes a salvar TODOS os lançamentos.")
             
             st.markdown("**📋 Resumo do lote:**")
             st.write(f"- Total de itens: {len(lista_temp)}")
@@ -17189,10 +16565,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             with col_confirm1:
                 if st.button("✅ SIM, SALVAR TUDO", use_container_width=True, type="primary"):
                     with st.spinner("Salvando movimentações..."):
-                        for item in lista_temp:
-                            item['id'] = gerar_id_movimentacao(movimentacoes + lista_temp)
-                        
-                        sucesso, msg = salvar_lote_movimentacoes(lista_temp)
+                        sucesso, msg = salvar_lote_movimentacoes_com_fallback(lista_temp)
                         
                         if sucesso:
                             st.success(msg)
@@ -17385,10 +16758,11 @@ elif aba_selecionada == 'ALMOXARIFADO':
                                 'quantidade': quantidade_novo
                             }
                             
-                            sucesso, msg = salvar_produto(novo_produto)
+                            sucesso, msg = salvar_produto_com_fallback(novo_produto)
                             if sucesso:
                                 st.success(msg)
                                 st.balloons()
+                                st.cache_data.clear()
                                 st.rerun()
                             else:
                                 st.error(msg)
@@ -17487,10 +16861,11 @@ elif aba_selecionada == 'ALMOXARIFADO':
                                         'quantidade': quantidade_edit
                                     }
                                     
-                                    sucesso, msg = atualizar_produto(produto_atualizado)
+                                    sucesso, msg = salvar_produto_com_fallback(produto_atualizado)
                                     if sucesso:
                                         st.success(msg)
                                         st.session_state.almoxarifado_editando = None
+                                        st.cache_data.clear()
                                         st.rerun()
                                     else:
                                         st.error(msg)
@@ -17529,6 +16904,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                                 if sucesso:
                                     st.success(msg)
                                     st.balloons()
+                                    st.cache_data.clear()
                                     st.rerun()
                                 else:
                                     st.error(msg)
