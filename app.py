@@ -15720,7 +15720,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     """, unsafe_allow_html=True)    
 # ==================================================================================================
 # ALMOXARIFADO - CONTROLE DE ESTOQUE COM PRIORIDADE SUPABASE
-# Google Sheets usado APENAS como fallback
+# Google Sheets usado APENAS como fallback em caso de erro
+# VERSÃO COMPLETA
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15750,7 +15751,85 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return None
     
     # ======================
-    # FUNÇÃO PARA CARREGAR DO GOOGLE SHEETS (FALLBACK)
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (PRIORIDADE)
+    # ======================
+    
+    @st.cache_data(ttl=300)
+    def carregar_produtos_supabase() -> List[Dict]:
+        """Carrega produtos do Supabase - FONTE PRINCIPAL"""
+        try:
+            print("🔄 Carregando produtos do Supabase...")
+            supabase = get_supabase_client()
+            if supabase is None:
+                print("❌ Supabase não disponível")
+                return []
+            
+            response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
+            
+            if hasattr(response, 'data') and response.data:
+                produtos = []
+                for item in response.data:
+                    produtos.append({
+                        'id': item.get('produto_id', ''),
+                        'categoria': item.get('categoria', ''),
+                        'produto': item.get('produto', ''),
+                        'ca': float(item.get('ca', 0)),
+                        'base': float(item.get('base', 0)),
+                        'quantidade': float(item.get('quantidade', 0))
+                    })
+                print(f"✅ {len(produtos)} produtos carregados do Supabase")
+                return produtos
+            print("⚠️ Nenhum produto encontrado no Supabase")
+            return []
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar produtos do Supabase: {e}")
+            return []
+    
+    @st.cache_data(ttl=300)
+    def carregar_movimentacoes_supabase() -> List[Dict]:
+        """Carrega movimentações do Supabase - FONTE PRINCIPAL"""
+        try:
+            print("🔄 Carregando movimentações do Supabase...")
+            supabase = get_supabase_client()
+            if supabase is None:
+                print("❌ Supabase não disponível")
+                return []
+            
+            response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
+            
+            if hasattr(response, 'data') and response.data:
+                movimentacoes = []
+                for item in response.data:
+                    data_val = item.get('data')
+                    if data_val and isinstance(data_val, str):
+                        try:
+                            data_val = datetime.strptime(data_val, '%Y-%m-%d')
+                        except:
+                            data_val = None
+                    
+                    movimentacoes.append({
+                        'id': item.get('mov_id', ''),
+                        'data': data_val,
+                        'produto': item.get('produto', ''),
+                        'categoria': item.get('categoria', ''),
+                        'colaborador': item.get('colaborador', ''),
+                        'quantidade': float(item.get('quantidade', 0)),
+                        'obs': item.get('obs', ''),
+                        'responsavel': item.get('responsavel', ''),
+                        'tipo': item.get('tipo', 'SAÍDA')
+                    })
+                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
+                return movimentacoes
+            print("⚠️ Nenhuma movimentação encontrada no Supabase")
+            return []
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar movimentações do Supabase: {e}")
+            return []
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO DO GOOGLE SHEETS (FALLBACK)
     # ======================
     
     def carregar_produtos_google_sheets() -> List[Dict]:
@@ -15768,6 +15847,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             todos_dados = sheet.get_all_values()
             
             if len(todos_dados) < 2:
+                print("⚠️ Aba BASE vazia")
                 return []
             
             cabecalho = todos_dados[0]
@@ -15797,6 +15877,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             # Fallback para posições
             if idx_id is None or idx_produto is None:
+                print("⚠️ Colunas não encontradas, usando posições padrão...")
                 idx_id = 0
                 idx_categoria = 1
                 idx_produto = 2
@@ -15831,7 +15912,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'base': parse_valor(row[idx_base]) if idx_base is not None and idx_base < len(row) else 0.0,
                         'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade is not None and idx_quantidade < len(row) else 0.0
                     })
-                except:
+                except Exception as e:
                     continue
             
             print(f"✅ FALLBACK: {len(produtos)} produtos carregados do Google Sheets")
@@ -15945,7 +16026,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         'responsavel': str(row[idx_responsavel]).strip() if idx_responsavel is not None and idx_responsavel < len(row) and row[idx_responsavel] else "",
                         'tipo': str(row[idx_tipo]).strip().upper() if idx_tipo is not None and idx_tipo < len(row) and row[idx_tipo] else "SAÍDA"
                     })
-                except:
+                except Exception as e:
                     continue
             
             print(f"✅ FALLBACK: {len(movimentacoes)} movimentações carregadas do Google Sheets")
@@ -15953,84 +16034,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
         except Exception as e:
             print(f"❌ FALLBACK: Erro ao carregar movimentações: {e}")
-            return []
-    
-    # ======================
-    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (PRIORIDADE)
-    # ======================
-    
-    @st.cache_data(ttl=300)
-    def carregar_produtos_supabase() -> List[Dict]:
-        """Carrega produtos do Supabase - FONTE PRINCIPAL"""
-        try:
-            print("🔄 Carregando produtos do Supabase...")
-            supabase = get_supabase_client()
-            if supabase is None:
-                print("❌ Supabase não disponível")
-                return []
-            
-            response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
-            
-            if hasattr(response, 'data') and response.data:
-                produtos = []
-                for item in response.data:
-                    produtos.append({
-                        'id': item.get('produto_id', ''),
-                        'categoria': item.get('categoria', ''),
-                        'produto': item.get('produto', ''),
-                        'ca': float(item.get('ca', 0)),
-                        'base': float(item.get('base', 0)),
-                        'quantidade': float(item.get('quantidade', 0))
-                    })
-                print(f"✅ {len(produtos)} produtos carregados do Supabase")
-                return produtos
-            print("⚠️ Nenhum produto encontrado no Supabase")
-            return []
-            
-        except Exception as e:
-            print(f"❌ Erro ao carregar produtos do Supabase: {e}")
-            return []
-    
-    @st.cache_data(ttl=300)
-    def carregar_movimentacoes_supabase() -> List[Dict]:
-        """Carrega movimentações do Supabase - FONTE PRINCIPAL"""
-        try:
-            print("🔄 Carregando movimentações do Supabase...")
-            supabase = get_supabase_client()
-            if supabase is None:
-                print("❌ Supabase não disponível")
-                return []
-            
-            response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
-            
-            if hasattr(response, 'data') and response.data:
-                movimentacoes = []
-                for item in response.data:
-                    data_val = item.get('data')
-                    if data_val and isinstance(data_val, str):
-                        try:
-                            data_val = datetime.strptime(data_val, '%Y-%m-%d')
-                        except:
-                            data_val = None
-                    
-                    movimentacoes.append({
-                        'id': item.get('mov_id', ''),
-                        'data': data_val,
-                        'produto': item.get('produto', ''),
-                        'categoria': item.get('categoria', ''),
-                        'colaborador': item.get('colaborador', ''),
-                        'quantidade': float(item.get('quantidade', 0)),
-                        'obs': item.get('obs', ''),
-                        'responsavel': item.get('responsavel', ''),
-                        'tipo': item.get('tipo', 'SAÍDA')
-                    })
-                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
-                return movimentacoes
-            print("⚠️ Nenhuma movimentação encontrada no Supabase")
-            return []
-            
-        except Exception as e:
-            print(f"❌ Erro ao carregar movimentações do Supabase: {e}")
             return []
     
     # ======================
@@ -16152,13 +16155,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
         return f"MOV-{datetime.now().strftime('%H%M%S')}"
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO COM FALLBACK (APENAS SE SUPABASE FALHAR)
+    # FUNÇÃO DE CARREGAMENTO COM FALLBACK (PRIORIDADE SUPABASE)
     # ======================
     
     def carregar_produtos_com_fallback() -> tuple:
         """Carrega produtos - PRIORIDADE Supabase, FALLBACK Google Sheets"""
         
-        # 1. TENTAR SUPABASE PRIMEIRO
+        # 1. TENTAR SUPABASE PRIMEIRO (SEMPRE)
         try:
             produtos = carregar_produtos_supabase()
             if produtos:
@@ -16188,7 +16191,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
     def carregar_movimentacoes_com_fallback() -> tuple:
         """Carrega movimentações - PRIORIDADE Supabase, FALLBACK Google Sheets"""
         
-        # 1. TENTAR SUPABASE PRIMEIRO
+        # 1. TENTAR SUPABASE PRIMEIRO (SEMPRE)
         try:
             movimentacoes = carregar_movimentacoes_supabase()
             if movimentacoes:
@@ -16217,11 +16220,13 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         # Mostrar fonte dos dados
         if produtos:
-            st.caption(f"📊 {len(produtos)} produtos carregados de: **{fonte_produtos}**")
-            if fonte_produtos != "Supabase":
-                st.info(f"ℹ️ Usando **{fonte_produtos}** como fallback. Os dados serão sincronizados com o Supabase.")
+            if fonte_produtos == "Supabase":
+                st.success(f"✅ **{len(produtos)} produtos** carregados do Supabase")
+            else:
+                st.warning(f"⚠️ **{len(produtos)} produtos** carregados do {fonte_produtos}")
+                st.info("🔄 Os dados estão sendo sincronizados com o Supabase...")
         else:
-            st.error("❌ Nenhum dado disponível. Verifique a conexão com Supabase e Google Sheets.")
+            st.error("❌ Nenhum dado disponível. Verifique a conexão com Supabase.")
             # Mostrar diagnóstico rápido
             with st.expander("🔍 Diagnóstico de conexão", expanded=True):
                 supabase = get_supabase_client()
@@ -16490,12 +16495,14 @@ elif aba_selecionada == 'ALMOXARIFADO':
             st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
     
     # ======================
-    # ABA: MOVIMENTAÇÕES
+    # ABA: MOVIMENTAÇÕES (COM LISTA TEMPORÁRIA)
     # ======================
     elif st.session_state.almoxarifado_aba == 'MOVIMENTACOES':
         st.markdown("### 📤 Registro de Movimentações")
         
+        # ============================================================
         # ÁREA DE ADIÇÃO DE ITENS À LISTA TEMPORÁRIA
+        # ============================================================
         st.markdown("#### ➕ Adicionar à Lista de Movimentações")
         
         col_form1, col_form2 = st.columns(2)
@@ -16610,7 +16617,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         st.markdown("---")
         
-        # LISTA TEMPORÁRIA
+        # ============================================================
+        # LISTA TEMPORÁRIA DE MOVIMENTAÇÕES
+        # ============================================================
         st.markdown("#### 📋 Lista de Movimentações Pendentes")
         
         lista_temp = st.session_state.almoxarifado_lista_temporaria
@@ -16633,6 +16642,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             st.markdown("---")
             
+            # Exibir itens com botões de ação
             for idx, item in enumerate(lista_temp):
                 col_acoes1, col_acoes2, col_acoes3 = st.columns([6, 1, 1])
                 
@@ -16652,7 +16662,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         st.success(f"🗑️ Item removido!")
                         st.rerun()
             
-            # EDIÇÃO DE ITEM
+            # ============================================================
+            # ÁREA DE EDIÇÃO DE ITEM
+            # ============================================================
             if st.session_state.almoxarifado_editando_item is not None:
                 idx_edit = st.session_state.almoxarifado_editando_item
                 item_edit = lista_temp[idx_edit]
@@ -16731,7 +16743,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         st.session_state.almoxarifado_editando_item = None
                         st.rerun()
             
-            # SALVAR LOTE
+            # ============================================================
+            # BOTÕES DE CONFIRMAÇÃO PARA SALVAR LOTE
+            # ============================================================
             st.markdown("---")
             
             col_salvar1, col_salvar2, col_salvar3 = st.columns([1, 2, 1])
@@ -16744,7 +16758,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
         else:
             st.info("📭 Nenhuma movimentação na lista. Adicione itens acima.")
         
+        # ============================================================
         # CONFIRMAÇÃO PARA SALVAR LOTE
+        # ============================================================
         if st.session_state.almoxarifado_mostrar_confirmacao and lista_temp:
             st.markdown("---")
             st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO")
@@ -16793,7 +16809,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     st.session_state.almoxarifado_mostrar_confirmacao = False
                     st.rerun()
         
+        # ============================================================
         # HISTÓRICO DE MOVIMENTAÇÕES
+        # ============================================================
         st.markdown("---")
         st.markdown("### 📋 Histórico de Movimentações (Salvas)")
         
