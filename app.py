@@ -15719,7 +15719,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)    
 # ==================================================================================================
-# ALMOXARIFADO - CONTROLE DE ESTOQUE COM ENTRADA, SAÍDA E INVENTÁRIO (VERSÃO COMPLETA)
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM LISTA TEMPORÁRIA DE MOVIMENTAÇÕES
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15742,14 +15742,18 @@ elif aba_selecionada == 'ALMOXARIFADO':
     if 'almoxarifado_editando' not in st.session_state:
         st.session_state.almoxarifado_editando = None
     
-    if 'almoxarifado_confirmar_movimentacao' not in st.session_state:
-        st.session_state.almoxarifado_confirmar_movimentacao = False
-    
     if 'almoxarifado_termo_busca' not in st.session_state:
         st.session_state.almoxarifado_termo_busca = ""
     
-    if 'almoxarifado_forcar_recarga' not in st.session_state:
-        st.session_state.almoxarifado_forcar_recarga = False
+    # ===== NOVOS STATES PARA LISTA TEMPORÁRIA =====
+    if 'almoxarifado_lista_temporaria' not in st.session_state:
+        st.session_state.almoxarifado_lista_temporaria = []
+    
+    if 'almoxarifado_editando_item' not in st.session_state:
+        st.session_state.almoxarifado_editando_item = None
+    
+    if 'almoxarifado_mostrar_confirmacao' not in st.session_state:
+        st.session_state.almoxarifado_mostrar_confirmacao = False
     
     # ======================
     # FUNÇÃO PARA GERAR ID AUTOMÁTICO
@@ -15798,14 +15802,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
     # FUNÇÃO PARA CALCULAR PREVISÃO DE DIAS
     # ======================
     def calcular_previsao_dias(produto: str, quantidade_atual: float, movimentacoes_dict: List[Dict]) -> str:
-        """
-        Calcula quantos dias o estoque atual vai durar com base nas saídas registradas.
-        Retorna uma string formatada.
-        """
         if quantidade_atual <= 0:
             return "🔴 ZERADO"
         
-        # Filtrar apenas saídas deste produto
         saidas_produto = [m for m in movimentacoes_dict 
                          if m.get('produto', '') == produto 
                          and m.get('tipo', '').upper() == 'SAÍDA'
@@ -15814,10 +15813,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
         if not saidas_produto:
             return "-----"
         
-        # Ordenar por data
         saidas_produto = sorted(saidas_produto, key=lambda x: x.get('data'))
-        
-        # Calcular média diária de saída
         data_inicio = saidas_produto[0].get('data')
         data_fim = saidas_produto[-1].get('data')
         
@@ -15830,17 +15826,12 @@ elif aba_selecionada == 'ALMOXARIFADO':
             dias_periodo = (data_fim - data_inicio).days
             if dias_periodo <= 0:
                 dias_periodo = 1
-            
             total_saidas = sum(m.get('quantidade', 0) for m in saidas_produto)
-            
             if total_saidas <= 0:
                 return "-----"
-            
             media_diaria = total_saidas / dias_periodo
-            
             if media_diaria <= 0:
                 return "-----"
-            
             dias_estimados = quantidade_atual / media_diaria
         
         if dias_estimados < 1:
@@ -16154,9 +16145,12 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return False, f"❌ Erro ao excluir: {str(e)}"
     
     # ======================
-    # FUNÇÕES CRUD - MOVIMENTAÇÕES
+    # FUNÇÕES PARA SALVAR LOTE DE MOVIMENTAÇÕES
     # ======================
-    def salvar_movimentacao(mov_dict: Dict) -> tuple:
+    def salvar_lote_movimentacoes(lista_mov: List[Dict]) -> tuple:
+        """
+        Salva um lote de movimentações na planilha online
+        """
         try:
             client = get_gspread_client()
             if client is None:
@@ -16166,109 +16160,83 @@ elif aba_selecionada == 'ALMOXARIFADO':
             sheet_mov = spreadsheet.worksheet(ABA_MOVIMENTACAO)
             sheet_base = spreadsheet.worksheet(ABA_BASE)
             
-            cell = sheet_base.find(mov_dict['produto'], in_column=3)
-            if not cell:
-                return False, f"❌ Produto {mov_dict['produto']} não encontrado no estoque"
+            # Processar cada movimentação
+            erros = []
+            sucessos = 0
             
-            qtd_cell = sheet_base.cell(cell.row, 6)
-            qtd_atual = 0
-            if qtd_cell.value:
+            for mov in lista_mov:
                 try:
-                    qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
-                except:
-                    qtd_atual = 0
-            
-            tipo = mov_dict.get('tipo', 'SAÍDA').upper()
-            quantidade = mov_dict['quantidade']
-            nova_qtd = qtd_atual
-            
-            if tipo == 'ENTRADA':
-                nova_qtd = qtd_atual + quantidade
-            elif tipo == 'SAÍDA':
-                if quantidade > qtd_atual:
-                    return False, f"❌ Estoque insuficiente! Disponível: {qtd_atual:.2f}, Solicitado: {quantidade:.2f}"
-                nova_qtd = qtd_atual - quantidade
-            elif tipo == 'INVENTÁRIO':
-                nova_qtd = quantidade
-            else:
-                return False, f"❌ Tipo de movimentação inválido: {tipo}"
-            
-            sheet_base.update_cell(cell.row, 6, str(nova_qtd).replace('.', ','))
-            
-            data_str = mov_dict['data'].strftime("%d/%m/%Y") if mov_dict.get('data') else ""
-            dados_mov = [
-                mov_dict['id'],
-                data_str,
-                mov_dict['produto'],
-                mov_dict.get('categoria', ''),
-                mov_dict.get('colaborador', ''),
-                str(quantidade).replace('.', ','),
-                mov_dict.get('obs', ''),
-                mov_dict.get('responsavel', ''),
-                tipo
-            ]
-            sheet_mov.append_row(dados_mov)
-            
-            st.cache_data.clear()
-            return True, f"✅ Movimentação {mov_dict['id']} registrada! Novo estoque: {nova_qtd:.2f}"
-            
-        except Exception as e:
-            return False, f"❌ Erro ao salvar movimentação: {str(e)}"
-    
-    def excluir_movimentacao(id_mov: str) -> tuple:
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return False, "❌ Erro ao conectar ao Google Sheets"
-            
-            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-            sheet_mov = spreadsheet.worksheet(ABA_MOVIMENTACAO)
-            
-            cell = sheet_mov.find(id_mov, in_column=1)
-            if not cell:
-                return False, f"❌ Movimentação {id_mov} não encontrada"
-            
-            row = sheet_mov.row_values(cell.row)
-            produto = row[2] if len(row) > 2 else ""
-            quantidade_str = row[5] if len(row) > 5 else "0"
-            tipo = row[8] if len(row) > 8 else "SAÍDA"
-            
-            try:
-                quantidade = float(str(quantidade_str).replace(',', '.'))
-            except:
-                quantidade = 0
-            
-            sheet_base = spreadsheet.worksheet(ABA_BASE)
-            cell_prod = sheet_base.find(produto, in_column=3)
-            if cell_prod:
-                qtd_cell = sheet_base.cell(cell_prod.row, 6)
-                qtd_atual = 0
-                if qtd_cell.value:
-                    try:
-                        qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
-                    except:
+                    # Verificar estoque para SAÍDA
+                    if mov['tipo'] == 'SAÍDA':
+                        cell = sheet_base.find(mov['produto'], in_column=3)
+                        if not cell:
+                            erros.append(f"Produto {mov['produto']} não encontrado")
+                            continue
+                        
+                        qtd_cell = sheet_base.cell(cell.row, 6)
                         qtd_atual = 0
-                
-                if tipo.upper() == 'ENTRADA':
-                    nova_qtd = qtd_atual - quantidade
-                elif tipo.upper() == 'SAÍDA':
-                    nova_qtd = qtd_atual + quantidade
-                else:
-                    nova_qtd = qtd_atual
-                
-                if nova_qtd >= 0:
-                    sheet_base.update_cell(cell_prod.row, 6, str(nova_qtd).replace('.', ','))
-            
-            sheet_mov.delete_rows(cell.row)
+                        if qtd_cell.value:
+                            try:
+                                qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
+                            except:
+                                qtd_atual = 0
+                        
+                        if mov['quantidade'] > qtd_atual:
+                            erros.append(f"Estoque insuficiente para {mov['produto']}: disponível {qtd_atual:.2f}, solicitado {mov['quantidade']:.2f}")
+                            continue
+                    
+                    # Salvar movimentação
+                    data_str = mov['data'].strftime("%d/%m/%Y") if mov.get('data') else datetime.now().strftime("%d/%m/%Y")
+                    dados_mov = [
+                        mov['id'],
+                        data_str,
+                        mov['produto'],
+                        mov.get('categoria', ''),
+                        mov.get('colaborador', ''),
+                        str(mov['quantidade']).replace('.', ','),
+                        mov.get('obs', ''),
+                        mov.get('responsavel', ''),
+                        mov['tipo']
+                    ]
+                    sheet_mov.append_row(dados_mov)
+                    
+                    # Atualizar estoque
+                    cell = sheet_base.find(mov['produto'], in_column=3)
+                    if cell:
+                        qtd_cell = sheet_base.cell(cell.row, 6)
+                        qtd_atual = 0
+                        if qtd_cell.value:
+                            try:
+                                qtd_atual = float(str(qtd_cell.value).replace(',', '.'))
+                            except:
+                                qtd_atual = 0
+                        
+                        if mov['tipo'] == 'ENTRADA':
+                            nova_qtd = qtd_atual + mov['quantidade']
+                        elif mov['tipo'] == 'SAÍDA':
+                            nova_qtd = qtd_atual - mov['quantidade']
+                        else:  # INVENTÁRIO
+                            nova_qtd = mov['quantidade']
+                        
+                        sheet_base.update_cell(cell.row, 6, str(nova_qtd).replace('.', ','))
+                    
+                    sucessos += 1
+                    
+                except Exception as e:
+                    erros.append(f"Erro ao processar {mov.get('produto', '')}: {str(e)}")
             
             st.cache_data.clear()
-            return True, f"✅ Movimentação {id_mov} excluída!"
+            
+            if erros:
+                return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
+            else:
+                return True, f"✅ {sucessos} movimentações salvas com sucesso!"
             
         except Exception as e:
-            return False, f"❌ Erro ao excluir movimentação: {str(e)}"
+            return False, f"❌ Erro ao salvar lote: {str(e)}"
     
     # ======================
-    # FUNÇÃO GERAR RELATÓRIO ALMOXARIFADO COM PREVISÃO
+    # FUNÇÕES DE RELATÓRIOS
     # ======================
     def gerar_relatorio_almoxarifado(produtos_dict: List[Dict], movimentacoes_dict: List[Dict]) -> str:
         data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -16423,14 +16391,12 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 else:
                     status = '<span class="status-alto">🔵 ALTO</span>'
                 
-                # Calcular previsão para este produto
                 previsao = calcular_previsao_dias(
                     p.get('produto', ''), 
                     qtd, 
                     movimentacoes_dict
                 )
                 
-                # Definir classe CSS para previsão
                 if "ZERADO" in previsao:
                     previsao_class = 'previsao-zerado'
                 elif "⚠️" in previsao or "horas" in previsao:
@@ -16536,9 +16502,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         return html
     
-    # ======================
-    # FUNÇÃO GERAR RELATÓRIO DE MOVIMENTAÇÕES
-    # ======================
     def gerar_relatorio_movimentacoes_html(movimentacoes_dict: List[Dict], 
                                             data_ini=None, 
                                             data_fim=None,
@@ -16897,7 +16860,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 else:
                     status = "🔵 ALTO"
                 
-                # Calcular previsão para exibição na tabela
                 previsao = calcular_previsao_dias(
                     p.get('produto', ''), 
                     qtd, 
@@ -16931,157 +16893,333 @@ elif aba_selecionada == 'ALMOXARIFADO':
             styled_df = df_estoque.style.apply(style_status, axis=1)
             st.dataframe(styled_df, use_container_width=True, height=500, hide_index=True)
             
-            st.caption("📊 **Previsão:** Baseada nas saídas registradas no histórico. '-----' = sem dados suficientes para previsão.")
+            st.caption("📊 **Previsão:** Baseada nas saídas registradas no histórico. '-----' = sem dados suficientes.")
         else:
             st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
     
     # ======================
-    # ABA: MOVIMENTAÇÕES
+    # ABA: MOVIMENTAÇÕES (COM LISTA TEMPORÁRIA)
     # ======================
     elif st.session_state.almoxarifado_aba == 'MOVIMENTACOES':
         st.markdown("### 📤 Registro de Movimentações")
         
-        if st.button("➕ Nova Movimentação", type="primary", use_container_width=True):
-            st.session_state.almoxarifado_confirmar_movimentacao = True
-            st.rerun()
+        # ============================================================
+        # ÁREA DE ADIÇÃO DE ITENS À LISTA TEMPORÁRIA
+        # ============================================================
+        st.markdown("#### ➕ Adicionar à Lista de Movimentações")
+        
+        col_form1, col_form2 = st.columns(2)
+        
+        with col_form1:
+            opcoes_produtos = sorted([p.get('produto', '') for p in produtos if p.get('produto')])
+            produto_selecionado = st.selectbox(
+                "📦 Produto*",
+                options=opcoes_produtos,
+                key="mov_produto_temp"
+            )
+            
+            categoria_automatica = ""
+            estoque_atual = 0
+            if produto_selecionado:
+                for p in produtos:
+                    if p.get('produto', '') == produto_selecionado:
+                        categoria_automatica = p.get('categoria', '')
+                        estoque_atual = p.get('quantidade', 0)
+                        break
+            
+            st.text_input(
+                "📂 Categoria",
+                value=categoria_automatica,
+                disabled=True,
+                key="mov_categoria_temp"
+            )
+            
+            st.caption(f"📊 Estoque atual: {estoque_atual:.2f}")
+        
+        with col_form2:
+            tipo_mov = st.selectbox(
+                "📋 Tipo de Movimentação*",
+                options=["", "ENTRADA", "SAÍDA", "INVENTÁRIO"],
+                key="mov_tipo_temp"
+            )
+            
+            quantidade = st.number_input(
+                "📦 Quantidade*",
+                min_value=0.01,
+                step=0.5,
+                value=1.0,
+                key="mov_quantidade_temp"
+            )
+            
+            colaborador = st.text_input(
+                "👤 Colaborador*",
+                placeholder="Nome do colaborador",
+                key="mov_colaborador_temp"
+            )
+            
+            obs_mov = st.text_area(
+                "📝 Observação",
+                placeholder="Informações adicionais...",
+                key="mov_obs_temp",
+                height=60
+            )
+            
+            st.text_input(
+                "👤 Responsável",
+                value=st.session_state.get('usuario', ''),
+                disabled=True,
+                key="mov_responsavel_temp"
+            )
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+        
+        with col_btn1:
+            if st.button("➕ ADICIONAR À LISTA", use_container_width=True, type="primary"):
+                if not produto_selecionado:
+                    st.error("❌ Selecione um produto!")
+                elif not tipo_mov:
+                    st.error("❌ Selecione o tipo de movimentação!")
+                elif not colaborador:
+                    st.error("❌ Informe o nome do colaborador!")
+                elif quantidade <= 0:
+                    st.error("❌ A quantidade deve ser maior que zero!")
+                else:
+                    if tipo_mov == "SAÍDA" and quantidade > estoque_atual:
+                        st.error(f"❌ Estoque insuficiente! Disponível: {estoque_atual:.2f}")
+                    else:
+                        novo_item = {
+                            'id': f"TEMP-{len(st.session_state.almoxarifado_lista_temporaria) + 1:03d}",
+                            'produto': produto_selecionado,
+                            'categoria': categoria_automatica,
+                            'tipo': tipo_mov,
+                            'quantidade': quantidade,
+                            'colaborador': colaborador,
+                            'obs': obs_mov,
+                            'responsavel': st.session_state.get('usuario', ''),
+                            'data': datetime.now(),
+                            'estoque_atual': estoque_atual
+                        }
+                        
+                        st.session_state.almoxarifado_lista_temporaria.append(novo_item)
+                        st.success(f"✅ {tipo_mov} de {produto_selecionado} adicionada à lista!")
+                        st.rerun()
+        
+        with col_btn2:
+            if st.button("🗑️ LIMPAR LISTA", use_container_width=True):
+                if st.session_state.almoxarifado_lista_temporaria:
+                    st.session_state.almoxarifado_lista_temporaria = []
+                    st.success("🗑️ Lista limpa!")
+                    st.rerun()
+        
+        with col_btn3:
+            if st.button("❌ CANCELAR TUDO", use_container_width=True):
+                if st.session_state.almoxarifado_lista_temporaria:
+                    st.session_state.almoxarifado_lista_temporaria = []
+                    st.success("❌ Todos os lançamentos cancelados!")
+                    st.rerun()
         
         st.markdown("---")
         
-        if st.session_state.almoxarifado_confirmar_movimentacao:
-            st.markdown("### ✏️ Registrar Movimentação")
+        # ============================================================
+        # LISTA TEMPORÁRIA DE MOVIMENTAÇÕES
+        # ============================================================
+        st.markdown("#### 📋 Lista de Movimentações Pendentes")
+        
+        lista_temp = st.session_state.almoxarifado_lista_temporaria
+        
+        if lista_temp:
+            total_itens = len(lista_temp)
+            total_entradas = sum(1 for item in lista_temp if item['tipo'] == 'ENTRADA')
+            total_saidas = sum(1 for item in lista_temp if item['tipo'] == 'SAÍDA')
+            total_inventarios = sum(1 for item in lista_temp if item['tipo'] == 'INVENTÁRIO')
             
-            opcoes_produtos = sorted([p.get('produto', '') for p in produtos if p.get('produto')])
-            opcoes_tipo = ["", "ENTRADA", "SAÍDA", "INVENTÁRIO"]
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            with col_r1:
+                st.metric("📋 Total Itens", f"{total_itens}")
+            with col_r2:
+                st.metric("📥 Entradas", f"{total_entradas}")
+            with col_r3:
+                st.metric("📤 Saídas", f"{total_saidas}")
+            with col_r4:
+                st.metric("📋 Inventários", f"{total_inventarios}")
             
-            with st.form("form_movimentacao"):
-                col1, col2 = st.columns(2)
+            st.markdown("---")
+            
+            # Exibir itens com botões de ação
+            for idx, item in enumerate(lista_temp):
+                col_acoes1, col_acoes2, col_acoes3 = st.columns([6, 1, 1])
                 
-                with col1:
-                    produto_selecionado = st.selectbox(
-                        "Produto*",
-                        options=opcoes_produtos,
-                        key="mov_produto"
-                    )
-                    
-                    categoria_automatica = ""
-                    if produto_selecionado:
-                        for p in produtos:
-                            if p.get('produto', '') == produto_selecionado:
-                                categoria_automatica = p.get('categoria', '')
-                                break
-                    
-                    categoria_mov = st.text_input(
-                        "Categoria*",
-                        value=categoria_automatica,
-                        disabled=True,
-                        key="mov_categoria"
-                    )
-                    
-                    tipo_mov = st.selectbox(
-                        "Tipo de Movimentação*",
-                        options=opcoes_tipo,
-                        key="mov_tipo"
-                    )
-                    
-                    colaborador = st.text_input(
-                        "Colaborador*",
-                        placeholder="Nome do colaborador",
-                        key="mov_colaborador"
-                    )
+                tipo_emoji = "📥" if item['tipo'] == 'ENTRADA' else "📤" if item['tipo'] == 'SAÍDA' else "📋"
                 
-                with col2:
-                    quantidade = st.number_input(
-                        "Quantidade*",
-                        min_value=0.01,
-                        step=0.5,
-                        value=1.0,
-                        key="mov_quantidade"
-                    )
-                    
-                    if produto_selecionado:
-                        for p in produtos:
-                            if p.get('produto', '') == produto_selecionado:
-                                st.caption(f"📦 Estoque atual: {p.get('quantidade', 0):.2f}")
-                                if tipo_mov == "SAÍDA" and quantidade > p.get('quantidade', 0):
-                                    st.warning(f"⚠️ Quantidade ({quantidade:.2f}) excede o estoque ({p.get('quantidade', 0):.2f})")
-                                elif tipo_mov == "INVENTÁRIO":
-                                    st.info(f"📋 INVENTÁRIO: Estoque será substituído para {quantidade:.2f}")
-                    
-                    if tipo_mov == "ENTRADA":
-                        st.success("📥 **ENTRADA**: Adiciona ao estoque")
-                    elif tipo_mov == "SAÍDA":
-                        st.warning("📤 **SAÍDA**: Remove do estoque")
-                    elif tipo_mov == "INVENTÁRIO":
-                        st.info("📋 **INVENTÁRIO**: Substitui o estoque pelo valor informado")
-                    
-                    responsavel = st.text_input(
-                        "Responsável*",
-                        value=st.session_state.get('usuario', ''),
-                        disabled=True,
-                        key="mov_responsavel"
-                    )
-                    
-                    obs_mov = st.text_area(
-                        "Observação",
-                        placeholder="Informações adicionais...",
-                        key="mov_obs",
-                        height=80
-                    )
+                with col_acoes1:
+                    st.write(f"**{idx+1}.** {tipo_emoji} {item['produto']} - {item['quantidade']:.2f} - {item['colaborador']}")
+                
+                with col_acoes2:
+                    if st.button("✏️", key=f"edit_{idx}"):
+                        st.session_state.almoxarifado_editando_item = idx
+                        st.rerun()
+                
+                with col_acoes3:
+                    if st.button("🗑️", key=f"del_{idx}"):
+                        del st.session_state.almoxarifado_lista_temporaria[idx]
+                        st.success(f"🗑️ Item removido!")
+                        st.rerun()
+            
+            # ============================================================
+            # ÁREA DE EDIÇÃO DE ITEM
+            # ============================================================
+            if st.session_state.almoxarifado_editando_item is not None:
+                idx_edit = st.session_state.almoxarifado_editando_item
+                item_edit = lista_temp[idx_edit]
                 
                 st.markdown("---")
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                with col_btn2:
-                    submitted = st.form_submit_button("💾 REGISTRAR MOVIMENTAÇÃO", type="primary", use_container_width=True)
+                st.markdown(f"#### ✏️ Editando Item {idx_edit + 1}")
                 
-                if submitted:
-                    if not produto_selecionado:
-                        st.error("❌ Selecione um produto!")
-                    elif not tipo_mov:
-                        st.error("❌ Selecione o tipo de movimentação!")
-                    elif not colaborador:
-                        st.error("❌ Informe o nome do colaborador!")
-                    elif quantidade <= 0:
-                        st.error("❌ A quantidade deve ser maior que zero!")
-                    else:
-                        if tipo_mov == "SAÍDA":
-                            estoque_atual = 0
-                            for p in produtos:
-                                if p.get('produto', '') == produto_selecionado:
-                                    estoque_atual = p.get('quantidade', 0)
-                                    break
-                            
-                            if quantidade > estoque_atual:
-                                st.error(f"❌ Estoque insuficiente! Disponível: {estoque_atual:.2f}")
-                                st.stop()
-                        
-                        nova_mov = {
-                            'id': gerar_id_movimentacao(movimentacoes),
-                            'data': datetime.now(),
-                            'produto': produto_selecionado,
-                            'categoria': categoria_automatica,
-                            'colaborador': colaborador,
-                            'quantidade': quantidade,
-                            'obs': obs_mov,
-                            'responsavel': st.session_state.get('usuario', ''),
-                            'tipo': tipo_mov
+                col_edit1, col_edit2 = st.columns(2)
+                
+                with col_edit1:
+                    novo_produto = st.selectbox(
+                        "Produto",
+                        options=opcoes_produtos,
+                        index=opcoes_produtos.index(item_edit['produto']) if item_edit['produto'] in opcoes_produtos else 0,
+                        key="edit_produto"
+                    )
+                    
+                    novo_tipo = st.selectbox(
+                        "Tipo",
+                        options=["ENTRADA", "SAÍDA", "INVENTÁRIO"],
+                        index=["ENTRADA", "SAÍDA", "INVENTÁRIO"].index(item_edit['tipo']) if item_edit['tipo'] in ["ENTRADA", "SAÍDA", "INVENTÁRIO"] else 0,
+                        key="edit_tipo"
+                    )
+                    
+                    nova_categoria = ""
+                    if novo_produto:
+                        for p in produtos:
+                            if p.get('produto', '') == novo_produto:
+                                nova_categoria = p.get('categoria', '')
+                                break
+                
+                with col_edit2:
+                    nova_quantidade = st.number_input(
+                        "Quantidade",
+                        min_value=0.01,
+                        step=0.5,
+                        value=item_edit['quantidade'],
+                        key="edit_quantidade"
+                    )
+                    
+                    novo_colaborador = st.text_input(
+                        "Colaborador",
+                        value=item_edit['colaborador'],
+                        key="edit_colaborador"
+                    )
+                    
+                    nova_obs = st.text_area(
+                        "Observação",
+                        value=item_edit['obs'],
+                        key="edit_obs",
+                        height=60
+                    )
+                
+                col_edit_btn1, col_edit_btn2 = st.columns(2)
+                
+                with col_edit_btn1:
+                    if st.button("💾 SALVAR ALTERAÇÕES", use_container_width=True, type="primary"):
+                        lista_temp[idx_edit] = {
+                            'id': item_edit['id'],
+                            'produto': novo_produto,
+                            'categoria': nova_categoria,
+                            'tipo': novo_tipo,
+                            'quantidade': nova_quantidade,
+                            'colaborador': novo_colaborador,
+                            'obs': nova_obs,
+                            'responsavel': item_edit['responsavel'],
+                            'data': item_edit['data'],
+                            'estoque_atual': item_edit['estoque_atual']
                         }
+                        st.session_state.almoxarifado_editando_item = None
+                        st.success("✅ Item atualizado!")
+                        st.rerun()
+                
+                with col_edit_btn2:
+                    if st.button("❌ CANCELAR EDIÇÃO", use_container_width=True):
+                        st.session_state.almoxarifado_editando_item = None
+                        st.rerun()
+            
+            # ============================================================
+            # BOTÕES DE CONFIRMAÇÃO PARA SALVAR LOTE
+            # ============================================================
+            st.markdown("---")
+            
+            col_salvar1, col_salvar2, col_salvar3 = st.columns([1, 2, 1])
+            
+            with col_salvar2:
+                if st.button("💾 SALVAR TODOS OS LANÇAMENTOS", use_container_width=True, type="primary"):
+                    st.session_state.almoxarifado_mostrar_confirmacao = True
+                    st.rerun()
+        
+        else:
+            st.info("📭 Nenhuma movimentação na lista. Adicione itens acima.")
+        
+        # ============================================================
+        # CONFIRMAÇÃO PARA SALVAR LOTE
+        # ============================================================
+        if st.session_state.almoxarifado_mostrar_confirmacao and lista_temp:
+            st.markdown("---")
+            st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO")
+            
+            st.warning("⚠️ Você está prestes a salvar TODOS os lançamentos da lista na planilha online.")
+            
+            st.markdown("**📋 Resumo do lote:**")
+            st.write(f"- Total de itens: {len(lista_temp)}")
+            st.write(f"- Entradas: {sum(1 for item in lista_temp if item['tipo'] == 'ENTRADA')}")
+            st.write(f"- Saídas: {sum(1 for item in lista_temp if item['tipo'] == 'SAÍDA')}")
+            st.write(f"- Inventários: {sum(1 for item in lista_temp if item['tipo'] == 'INVENTÁRIO')}")
+            
+            df_confirmacao = pd.DataFrame([{
+                "Produto": item['produto'],
+                "Tipo": item['tipo'],
+                "Quantidade": f"{item['quantidade']:.2f}",
+                "Colaborador": item['colaborador']
+            } for item in lista_temp])
+            st.dataframe(df_confirmacao, use_container_width=True, hide_index=True)
+            
+            col_confirm1, col_confirm2, col_confirm3 = st.columns(3)
+            
+            with col_confirm1:
+                if st.button("✅ SIM, SALVAR TUDO", use_container_width=True, type="primary"):
+                    with st.spinner("Salvando movimentações..."):
+                        for item in lista_temp:
+                            item['id'] = gerar_id_movimentacao(movimentacoes + lista_temp)
                         
-                        sucesso, msg = salvar_movimentacao(nova_mov)
+                        sucesso, msg = salvar_lote_movimentacoes(lista_temp)
+                        
                         if sucesso:
                             st.success(msg)
                             st.balloons()
-                            st.session_state.almoxarifado_confirmar_movimentacao = False
+                            st.session_state.almoxarifado_lista_temporaria = []
+                            st.session_state.almoxarifado_mostrar_confirmacao = False
+                            st.cache_data.clear()
                             time.sleep(1)
                             st.rerun()
                         else:
                             st.error(msg)
             
-            if st.button("❌ Cancelar", use_container_width=True):
-                st.session_state.almoxarifado_confirmar_movimentacao = False
-                st.rerun()
+            with col_confirm2:
+                if st.button("✏️ VOLTAR E EDITAR", use_container_width=True):
+                    st.session_state.almoxarifado_mostrar_confirmacao = False
+                    st.rerun()
+            
+            with col_confirm3:
+                if st.button("❌ CANCELAR", use_container_width=True):
+                    st.session_state.almoxarifado_mostrar_confirmacao = False
+                    st.rerun()
         
+        # ============================================================
+        # HISTÓRICO DE MOVIMENTAÇÕES
+        # ============================================================
         st.markdown("---")
-        st.markdown("### 📋 Histórico de Movimentações")
+        st.markdown("### 📋 Histórico de Movimentações (Salvas)")
         
         col_f1, col_f2, col_f3, col_f4 = st.columns(4)
         with col_f1:
@@ -17412,14 +17550,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         st.markdown("---")
         
-        # ============================================================
-        # RELATÓRIO DE ESTOQUE COMPLETO COM FILTROS
-        # ============================================================
         if tipo_relatorio == "📦 Estoque Completo":
             st.markdown("#### 📦 Relatório Completo do Almoxarifado")
-            st.caption("Este relatório inclui: estoque atual, previsão de consumo, movimentações recentes e resumo por categoria.")
-            
-            st.markdown("##### 🔍 Filtros do Relatório")
             
             col_f1, col_f2, col_f3 = st.columns(3)
             
@@ -17469,8 +17601,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             total_prod_preview = len(produtos_preview)
             total_qtd_preview = sum(p.get('quantidade', 0) for p in produtos_preview)
-            zerados_preview = len([p for p in produtos_preview if p.get('quantidade', 0) <= 0])
-            baixos_preview = len([p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5])
             
             col_k1, col_k2, col_k3, col_k4 = st.columns(4)
             with col_k1:
@@ -17478,74 +17608,22 @@ elif aba_selecionada == 'ALMOXARIFADO':
             with col_k2:
                 st.metric("📊 Estoque Total", f"{total_qtd_preview:.2f}")
             with col_k3:
-                st.metric("🔴 Zerados", f"{zerados_preview:,}", delta_color="inverse")
+                st.metric("🔴 Zerados", f"{len([p for p in produtos_preview if p.get('quantidade', 0) <= 0]):,}", delta_color="inverse")
             with col_k4:
-                st.metric("🟡 Estoque Baixo", f"{baixos_preview:,}", delta_color="inverse")
+                st.metric("🟡 Estoque Baixo", f"{len([p for p in produtos_preview if 0 < p.get('quantidade', 0) < 5]):,}", delta_color="inverse")
             
             st.markdown("---")
             
             if produtos_preview:
-                dados_preview_estoque = []
-                for p in sorted(produtos_preview, key=lambda x: x.get('produto', '')):
-                    qtd = p.get('quantidade', 0)
-                    if qtd <= 0:
-                        status = "🔴 ZERADO"
-                    elif qtd < 5:
-                        status = "🟡 BAIXO"
-                    elif qtd < 20:
-                        status = "🟢 NORMAL"
-                    else:
-                        status = "🔵 ALTO"
-                    
-                    # Calcular previsão para prévia
-                    previsao = calcular_previsao_dias(
-                        p.get('produto', ''), 
-                        qtd, 
-                        movimentacoes
-                    )
-                    
-                    dados_preview_estoque.append({
-                        "ID": p.get('id', ''),
-                        "Categoria": p.get('categoria', ''),
-                        "Produto": p.get('produto', ''),
-                        "CA": f"{p.get('ca', 0):.2f}",
-                        "BASE": f"{p.get('base', 0):.2f}",
-                        "Quantidade": f"{qtd:.2f}",
-                        "Status": status,
-                        "Previsão": previsao
-                    })
-                
-                df_preview_estoque = pd.DataFrame(dados_preview_estoque)
-                
-                def style_estoque_preview(row):
-                    status = row['Status']
-                    if "ZERADO" in status:
-                        return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
-                    elif "BAIXO" in status:
-                        return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
-                    elif "NORMAL" in status:
-                        return ['background-color: #d4edda; color: #155724;'] * len(row)
-                    else:
-                        return ['background-color: #cce5ff; color: #004085;'] * len(row)
-                
-                styled_preview_estoque = df_preview_estoque.style.apply(style_estoque_preview, axis=1)
-                st.dataframe(styled_preview_estoque, use_container_width=True, height=300, hide_index=True)
-                st.caption(f"📊 Exibindo {len(produtos_preview)} de {len(produtos)} produtos | Previsão baseada nas saídas registradas")
-                
-                if st.button("📊 Gerar Relatório Completo com Filtros", type="primary", use_container_width=True):
+                if st.button("📊 Gerar Relatório Completo", type="primary", use_container_width=True):
                     with st.spinner("Gerando relatório..."):
                         html_content = gerar_relatorio_almoxarifado(produtos_preview, movimentacoes)
                         baixar_relatorio(html_content, f"relatorio_almoxarifado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
             else:
                 st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
         
-        # ============================================================
-        # RELATÓRIO DE MOVIMENTAÇÕES COM FILTROS
-        # ============================================================
         elif tipo_relatorio == "📤 Relatório de Movimentações":
             st.markdown("#### 📤 Relatório de Movimentações")
-            
-            st.markdown("##### 🔍 Filtros do Relatório")
             
             col_f1, col_f2, col_f3, col_f4 = st.columns(4)
             
@@ -17592,92 +17670,17 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             st.markdown("---")
             
-            with st.spinner("Carregando dados..."):
-                mov_preview = movimentacoes.copy()
-                
-                if filtro_tipo_rel != "(Todos)":
-                    mov_preview = [m for m in mov_preview if m.get('tipo', '').upper() == filtro_tipo_rel.upper()]
-                
-                if filtro_prod_rel != "(Todos)":
-                    mov_preview = [m for m in mov_preview if m.get('produto', '') == filtro_prod_rel]
-                
-                if filtro_cat_rel != "(Todos)":
-                    mov_preview = [m for m in mov_preview if m.get('categoria', '') == filtro_cat_rel]
-                
-                if not mostrar_todos:
-                    if data_ini_rel:
-                        mov_preview = [m for m in mov_preview if m.get('data') and m['data'] >= data_ini_rel]
-                    if data_fim_rel:
-                        mov_preview = [m for m in mov_preview if m.get('data') and m['data'] <= data_fim_rel]
-            
-            total_preview = len(mov_preview)
-            total_qtd_preview = sum(m.get('quantidade', 0) for m in mov_preview)
-            entradas_preview = len([m for m in mov_preview if m.get('tipo', '').upper() == 'ENTRADA'])
-            saidas_preview = len([m for m in mov_preview if m.get('tipo', '').upper() == 'SAÍDA'])
-            inventarios_preview = len([m for m in mov_preview if m.get('tipo', '').upper() == 'INVENTÁRIO'])
-            
-            col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
-            with col_k1:
-                st.metric("📤 Total", f"{total_preview:,}")
-            with col_k2:
-                st.metric("📥 Entradas", f"{entradas_preview:,}")
-            with col_k3:
-                st.metric("📤 Saídas", f"{saidas_preview:,}")
-            with col_k4:
-                st.metric("📋 Inventários", f"{inventarios_preview:,}")
-            with col_k5:
-                st.metric("📦 Qtd Total", f"{total_qtd_preview:.2f}")
-            
-            st.markdown("---")
-            
-            if mov_preview:
-                dados_preview = []
-                for m in sorted(mov_preview, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:20]:
-                    data_obj = m.get('data')
-                    tipo = m.get('tipo', 'SAÍDA')
-                    tipo_emoji = "📥" if tipo == "ENTRADA" else "📤" if tipo == "SAÍDA" else "📋"
-                    
-                    dados_preview.append({
-                        "ID": m.get('id', ''),
-                        "Data": data_obj.strftime("%d/%m/%Y") if data_obj else "-",
-                        "Produto": m.get('produto', ''),
-                        "Categoria": m.get('categoria', ''),
-                        "Colaborador": m.get('colaborador', ''),
-                        "Quantidade": f"{m.get('quantidade', 0):.2f}",
-                        "Tipo": f"{tipo_emoji} {tipo}",
-                        "Responsável": m.get('responsavel', '')
-                    })
-                
-                df_preview = pd.DataFrame(dados_preview)
-                
-                def style_mov_preview(row):
-                    tipo = row['Tipo']
-                    if "ENTRADA" in tipo:
-                        return ['background-color: #d4edda; color: #155724;'] * len(row)
-                    elif "SAÍDA" in tipo:
-                        return ['background-color: #f8d7da; color: #721c24;'] * len(row)
-                    elif "INVENTÁRIO" in tipo:
-                        return ['background-color: #e8d4f8; color: #4a1a6b;'] * len(row)
-                    else:
-                        return [''] * len(row)
-                
-                styled_preview = df_preview.style.apply(style_mov_preview, axis=1)
-                st.dataframe(styled_preview, use_container_width=True, height=300, hide_index=True)
-                st.caption(f"📊 Exibindo {min(len(mov_preview), 20)} de {len(mov_preview)} registros")
-                
-                if st.button("📊 Gerar Relatório de Movimentações com Filtros", type="primary", use_container_width=True):
-                    with st.spinner("Gerando relatório..."):
-                        html_content = gerar_relatorio_movimentacoes_html(
-                            movimentacoes, 
-                            data_ini_rel, 
-                            data_fim_rel,
-                            filtro_tipo_rel,
-                            filtro_prod_rel,
-                            filtro_cat_rel
-                        )
-                        baixar_relatorio(html_content, f"relatorio_movimentacoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
-            else:
-                st.info("📭 Nenhuma movimentação encontrada com os filtros selecionados.")
+            if st.button("📊 Gerar Relatório de Movimentações", type="primary", use_container_width=True):
+                with st.spinner("Gerando relatório..."):
+                    html_content = gerar_relatorio_movimentacoes_html(
+                        movimentacoes, 
+                        data_ini_rel, 
+                        data_fim_rel,
+                        filtro_tipo_rel,
+                        filtro_prod_rel,
+                        filtro_cat_rel
+                    )
+                    baixar_relatorio(html_content, f"relatorio_movimentacoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
     
     # ======================
     # FOOTER
