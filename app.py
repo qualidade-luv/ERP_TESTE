@@ -15719,7 +15719,7 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)    
 # ==================================================================================================
-# ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE (USANDO REQUESTS)
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE (CLIENTE NATIVO)
 # VERSÃO COMPLETA - PRIORIDADE ABSOLUTA SUPABASE
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
@@ -15734,110 +15734,113 @@ elif aba_selecionada == 'ALMOXARIFADO':
     ABA_BASE = 'BASE'
     ABA_MOVIMENTACAO = 'MOVIMENTAÇÃO'
     
-    SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
+    # ======================
+    # FUNÇÃO DE CONEXÃO SUPABASE
+    # ======================
     
-    SUPABASE_HEADERS = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json"
-    }
+    def get_supabase_client():
+        """Retorna cliente Supabase configurado"""
+        try:
+            from supabase import create_client
+            SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
+            SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
+            return create_client(SUPABASE_URL, SUPABASE_KEY)
+        except Exception as e:
+            print(f"Erro ao criar cliente Supabase: {e}")
+            return None
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (USANDO REQUESTS)
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE
     # ======================
     
     @st.cache_data(ttl=300)
     def carregar_produtos_supabase() -> List[Dict]:
-        """Carrega produtos do Supabase usando requests - FONTE PRINCIPAL"""
+        """Carrega produtos do Supabase - FONTE PRINCIPAL"""
         try:
-            print("🔄 Carregando produtos do Supabase via requests...")
-            
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?select=*&order=produto.asc",
-                headers=SUPABASE_HEADERS
-            )
-            
-            if response.status_code == 200:
-                dados = response.json()
-                if dados:
-                    produtos = []
-                    for item in dados:
-                        produtos.append({
-                            'id': item.get('produto_id', ''),
-                            'categoria': item.get('categoria', ''),
-                            'produto': item.get('produto', ''),
-                            'ca': float(item.get('ca', 0)),
-                            'base': float(item.get('base', 0)),
-                            'quantidade': float(item.get('quantidade', 0))
-                        })
-                    print(f"✅ {len(produtos)} produtos carregados do Supabase")
-                    return produtos
-                else:
-                    print("⚠️ Nenhum produto encontrado no Supabase")
-                    return []
-            else:
-                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
+            print("🔄 Carregando produtos do Supabase...")
+            supabase = get_supabase_client()
+            if supabase is None:
+                print("❌ Cliente Supabase não criado")
                 return []
-                
+            
+            response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
+            
+            if hasattr(response, 'data') and response.data:
+                produtos = []
+                for item in response.data:
+                    produtos.append({
+                        'id': item.get('produto_id', ''),
+                        'categoria': item.get('categoria', ''),
+                        'produto': item.get('produto', ''),
+                        'ca': float(item.get('ca', 0)),
+                        'base': float(item.get('base', 0)),
+                        'quantidade': float(item.get('quantidade', 0))
+                    })
+                print(f"✅ {len(produtos)} produtos carregados do Supabase")
+                return produtos
+            
+            print("⚠️ Nenhum produto encontrado no Supabase")
+            return []
+            
         except Exception as e:
-            print(f"❌ Erro ao carregar produtos: {e}")
+            print(f"❌ Erro ao carregar produtos do Supabase: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     @st.cache_data(ttl=300)
     def carregar_movimentacoes_supabase() -> List[Dict]:
-        """Carrega movimentações do Supabase usando requests - FONTE PRINCIPAL"""
+        """Carrega movimentações do Supabase - FONTE PRINCIPAL"""
         try:
-            print("🔄 Carregando movimentações do Supabase via requests...")
-            
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao?select=*&order=data.desc",
-                headers=SUPABASE_HEADERS
-            )
-            
-            if response.status_code == 200:
-                dados = response.json()
-                if dados:
-                    movimentacoes = []
-                    for item in dados:
-                        data_val = item.get('data')
-                        if data_val and isinstance(data_val, str):
-                            try:
-                                data_val = datetime.strptime(data_val, '%Y-%m-%d')
-                            except:
-                                data_val = None
-                        
-                        movimentacoes.append({
-                            'id': item.get('mov_id', ''),
-                            'data': data_val,
-                            'produto': item.get('produto', ''),
-                            'categoria': item.get('categoria', ''),
-                            'colaborador': item.get('colaborador', ''),
-                            'quantidade': float(item.get('quantidade', 0)),
-                            'obs': item.get('obs', ''),
-                            'responsavel': item.get('responsavel', ''),
-                            'tipo': item.get('tipo', 'SAÍDA')
-                        })
-                    print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
-                    return movimentacoes
-                else:
-                    print("⚠️ Nenhuma movimentação encontrada no Supabase")
-                    return []
-            else:
-                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
+            print("🔄 Carregando movimentações do Supabase...")
+            supabase = get_supabase_client()
+            if supabase is None:
                 return []
-                
+            
+            response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
+            
+            if hasattr(response, 'data') and response.data:
+                movimentacoes = []
+                for item in response.data:
+                    data_val = item.get('data')
+                    if data_val and isinstance(data_val, str):
+                        try:
+                            data_val = datetime.strptime(data_val, '%Y-%m-%d')
+                        except:
+                            data_val = None
+                    
+                    movimentacoes.append({
+                        'id': item.get('mov_id', ''),
+                        'data': data_val,
+                        'produto': item.get('produto', ''),
+                        'categoria': item.get('categoria', ''),
+                        'colaborador': item.get('colaborador', ''),
+                        'quantidade': float(item.get('quantidade', 0)),
+                        'obs': item.get('obs', ''),
+                        'responsavel': item.get('responsavel', ''),
+                        'tipo': item.get('tipo', 'SAÍDA')
+                    })
+                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
+                return movimentacoes
+            
+            print("⚠️ Nenhuma movimentação encontrada no Supabase")
+            return []
+            
         except Exception as e:
-            print(f"❌ Erro ao carregar movimentações: {e}")
+            print(f"❌ Erro ao carregar movimentações do Supabase: {e}")
             return []
     
     # ======================
-    # FUNÇÕES DE SALVAR NO SUPABASE (USANDO REQUESTS)
+    # FUNÇÕES DE SALVAR NO SUPABASE
     # ======================
     
     def salvar_produto_supabase(produto_dict: Dict) -> tuple:
-        """Salva produto no Supabase usando requests"""
+        """Salva produto no Supabase"""
         try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return False, "❌ Erro ao conectar ao Supabase"
+            
             data = {
                 'produto_id': produto_dict['id'],
                 'categoria': produto_dict['categoria'],
@@ -15848,38 +15851,29 @@ elif aba_selecionada == 'ALMOXARIFADO':
             }
             
             # Verificar se já existe
-            check = requests.get(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{produto_dict['id']}",
-                headers=SUPABASE_HEADERS
-            )
+            response = supabase.table('almoxarifado_base').select('*').eq('produto_id', produto_dict['id']).execute()
             
-            if check.status_code == 200 and check.json():
+            if hasattr(response, 'data') and response.data:
                 # Atualizar
-                response = requests.patch(
-                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{produto_dict['id']}",
-                    json=data,
-                    headers=SUPABASE_HEADERS
-                )
+                supabase.table('almoxarifado_base').update(data).eq('produto_id', produto_dict['id']).execute()
             else:
                 # Inserir
-                response = requests.post(
-                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base",
-                    json=data,
-                    headers=SUPABASE_HEADERS
-                )
+                supabase.table('almoxarifado_base').insert(data).execute()
             
-            if response.status_code in [200, 201, 204]:
-                st.cache_data.clear()
-                return True, f"✅ Produto salvo no Supabase!"
-            else:
-                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
-                
+            st.cache_data.clear()
+            return True, f"✅ Produto salvo no Supabase!"
+            
         except Exception as e:
-            return False, f"❌ Erro: {str(e)}"
+            print(f"Erro ao salvar produto no Supabase: {e}")
+            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
     
     def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
-        """Salva movimentação no Supabase usando requests"""
+        """Salva movimentação no Supabase"""
         try:
+            supabase = get_supabase_client()
+            if supabase is None:
+                return False, "❌ Erro ao conectar ao Supabase"
+            
             data = {
                 'mov_id': mov_dict['id'],
                 'data': mov_dict['data'].isoformat() if mov_dict.get('data') else None,
@@ -15892,43 +15886,29 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 'tipo': mov_dict['tipo']
             }
             
-            response = requests.post(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao",
-                json=data,
-                headers=SUPABASE_HEADERS
-            )
+            supabase.table('almoxarifado_movimentacao').insert(data).execute()
             
-            if response.status_code in [200, 201, 204]:
-                # Atualizar estoque
-                if mov_dict['tipo'] == 'ENTRADA':
-                    delta = mov_dict['quantidade']
-                elif mov_dict['tipo'] == 'SAÍDA':
-                    delta = -mov_dict['quantidade']
-                else:
-                    delta = mov_dict['quantidade']
-                
-                # Buscar produto atual
-                check = requests.get(
-                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
-                    headers=SUPABASE_HEADERS
-                )
-                
-                if check.status_code == 200 and check.json():
-                    qtd_atual = float(check.json()[0].get('quantidade', 0))
-                    nova_qtd = qtd_atual + delta
-                    requests.patch(
-                        f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
-                        json={'quantidade': nova_qtd},
-                        headers=SUPABASE_HEADERS
-                    )
-                
-                st.cache_data.clear()
-                return True, "✅ Movimentação salva no Supabase!"
-            else:
-                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
-                
+            # Atualizar estoque no Supabase
+            if mov_dict['tipo'] == 'ENTRADA':
+                delta = mov_dict['quantidade']
+            elif mov_dict['tipo'] == 'SAÍDA':
+                delta = -mov_dict['quantidade']
+            else:  # INVENTÁRIO
+                delta = mov_dict['quantidade']
+            
+            # Buscar produto atual
+            response = supabase.table('almoxarifado_base').select('quantidade').eq('produto', mov_dict['produto']).execute()
+            if hasattr(response, 'data') and response.data:
+                qtd_atual = float(response.data[0].get('quantidade', 0))
+                nova_qtd = qtd_atual + delta
+                supabase.table('almoxarifado_base').update({'quantidade': nova_qtd}).eq('produto', mov_dict['produto']).execute()
+            
+            st.cache_data.clear()
+            return True, "✅ Movimentação salva no Supabase!"
+            
         except Exception as e:
-            return False, f"❌ Erro: {str(e)}"
+            print(f"Erro ao salvar movimentação no Supabase: {e}")
+            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
     
     def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
         """Salva lote de movimentações no Supabase"""
@@ -15953,18 +15933,17 @@ elif aba_selecionada == 'ALMOXARIFADO':
     def gerar_id_movimentacao_supabase() -> str:
         """Gera ID para movimentação"""
         try:
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao?select=mov_id&order=mov_id.desc&limit=1",
-                headers=SUPABASE_HEADERS
-            )
-            if response.status_code == 200 and response.json():
-                ultimo_id = response.json()[0].get('mov_id', '')
-                if ultimo_id and ultimo_id.startswith('MOV-'):
-                    try:
-                        num = int(ultimo_id.replace('MOV-', ''))
-                        return f"MOV-{num + 1:03d}"
-                    except:
-                        pass
+            supabase = get_supabase_client()
+            if supabase:
+                response = supabase.table('almoxarifado_movimentacao').select('mov_id').order('mov_id', desc=True).limit(1).execute()
+                if hasattr(response, 'data') and response.data:
+                    ultimo_id = response.data[0].get('mov_id', '')
+                    if ultimo_id and ultimo_id.startswith('MOV-'):
+                        try:
+                            num = int(ultimo_id.replace('MOV-', ''))
+                            return f"MOV-{num + 1:03d}"
+                        except:
+                            pass
         except:
             pass
         return f"MOV-{datetime.now().strftime('%H%M%S')}"
@@ -15972,16 +15951,17 @@ elif aba_selecionada == 'ALMOXARIFADO':
     def excluir_produto_supabase(id_produto: str) -> tuple:
         """Exclui produto do Supabase"""
         try:
-            response = requests.delete(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{id_produto}",
-                headers=SUPABASE_HEADERS
-            )
+            supabase = get_supabase_client()
+            if supabase is None:
+                return False, "❌ Erro ao conectar ao Supabase"
             
-            if response.status_code in [200, 204]:
+            response = supabase.table('almoxarifado_base').delete().eq('produto_id', id_produto).execute()
+            
+            if hasattr(response, 'data'):
                 st.cache_data.clear()
                 return True, f"✅ Produto {id_produto} excluído com sucesso!"
             else:
-                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
+                return False, "❌ Erro ao excluir produto"
                 
         except Exception as e:
             return False, f"❌ Erro: {str(e)}"
@@ -16138,12 +16118,12 @@ elif aba_selecionada == 'ALMOXARIFADO':
     # ======================
     
     with st.spinner("🔄 Carregando dados do Supabase..."):
-        # Tenta carregar do Supabase usando requests
+        # Tenta carregar do Supabase
         produtos = carregar_produtos_supabase()
         
-        # Se não conseguiu, tenta Google Sheets como fallback
+        # Se não conseguiu, usa Google Sheets como fallback
         if not produtos:
-            st.warning("⚠️ Supabase indisponível. Usando Google Sheets...")
+            st.warning("⚠️ Supabase sem dados. Usando Google Sheets...")
             produtos = carregar_produtos_google_sheets()
             
             # Se carregou do Sheets, salva no Supabase
@@ -16151,7 +16131,8 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 st.info("🔄 Sincronizando dados com o Supabase...")
                 for p in produtos:
                     salvar_produto_supabase(p)
-                st.success("✅ Dados sincronizados! Recarregando do Supabase...")
+                st.success("✅ Dados sincronizados!")
+                # Recarrega do Supabase
                 produtos = carregar_produtos_supabase()
         
         # Carrega movimentações
@@ -16167,31 +16148,33 @@ elif aba_selecionada == 'ALMOXARIFADO':
         if produtos:
             st.success(f"✅ **{len(produtos)} produtos** carregados do Supabase")
         else:
-            st.error("❌ Nenhum dado disponível. Verifique a conexão.")
-            # Mostrar diagnóstico rápido
+            st.error("❌ Nenhum dado disponível. Verifique a conexão com Supabase.")
+            # Mostrar diagnóstico
             with st.expander("🔍 Diagnóstico de conexão", expanded=True):
-                # Testar Supabase
-                try:
-                    response = requests.get(
-                        f"{SUPABASE_URL}/rest/v1/almoxarifado_base?select=count&limit=1",
-                        headers=SUPABASE_HEADERS
-                    )
-                    if response.status_code == 200:
-                        st.success("✅ Supabase: Conectado")
-                    else:
-                        st.error(f"❌ Supabase: Erro {response.status_code}")
-                except Exception as e:
-                    st.error(f"❌ Supabase: {e}")
+                st.write("**Supabase:**")
+                supabase = get_supabase_client()
+                if supabase:
+                    st.success("✅ Cliente criado")
+                    try:
+                        response = supabase.table('almoxarifado_base').select('count').limit(1).execute()
+                        if hasattr(response, 'data'):
+                            st.success(f"✅ Tabela acessível: {len(response.data)} registros")
+                        else:
+                            st.error("❌ Erro ao acessar tabela")
+                    except Exception as e:
+                        st.error(f"❌ Erro: {e}")
+                else:
+                    st.error("❌ Falha ao criar cliente")
                 
-                # Testar Google Sheets
+                st.write("**Google Sheets:**")
                 try:
                     client = get_gspread_client()
                     if client:
-                        st.success("✅ Google Sheets: Conectado")
+                        st.success("✅ Conectado")
                     else:
-                        st.error("❌ Google Sheets: Falha na conexão")
+                        st.error("❌ Falha na conexão")
                 except Exception as e:
-                    st.error(f"❌ Google Sheets: {e}")
+                    st.error(f"❌ Erro: {e}")
     
     # ======================
     # INICIALIZAR SESSION STATE
@@ -16434,7 +16417,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             st.info("📭 Nenhum produto encontrado com os filtros selecionados.")
     
     # ======================
-    # ABA: MOVIMENTAÇÕES (COM LISTA TEMPORÁRIA)
+    # ABA: MOVIMENTAÇÕES
     # ======================
     elif st.session_state.almoxarifado_aba == 'MOVIMENTACOES':
         st.markdown("### 📤 Registro de Movimentações")
