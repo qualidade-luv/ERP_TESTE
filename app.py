@@ -15720,12 +15720,19 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     """, unsafe_allow_html=True)    
 # ==================================================================================================
 # ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE (USANDO REQUESTS)
-# VERSÃO FINAL - PRIORIDADE ABSOLUTA SUPABASE
+# VERSÃO COMPLETA - PRIORIDADE ABSOLUTA SUPABASE
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
                        f"Controle de Estoque · Atualizado {get_horario_brasilia()}", 
                        THEME['accent_cyan'])
+    
+    # ======================
+    # IMPORTAÇÕES
+    # ======================
+    import requests
+    import json
+    from datetime import datetime, date, time as dt_time
     
     # ======================
     # CONFIGURAÇÃO
@@ -15744,7 +15751,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
     }
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (USANDO REQUESTS)
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE
     # ======================
     
     @st.cache_data(ttl=300)
@@ -15838,7 +15845,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
     # ======================
     
     def testar_supabase() -> tuple:
-        """Testa a conexão com o Supabase e retorna (sucesso, mensagem)"""
+        """Testa a conexão com o Supabase"""
         try:
             print("🔄 Testando conexão com Supabase...")
             response = requests.get(
@@ -15850,7 +15857,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             if response.status_code == 200:
                 dados = response.json()
                 if dados:
-                    return True, f"✅ Conectado! {len(dados)} registros encontrados"
+                    return True, f"✅ Conectado! {len(dados)} registros"
                 else:
                     return True, "⚠️ Conectado, mas sem dados"
             else:
@@ -15860,7 +15867,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
             return False, f"❌ Erro: {str(e)}"
     
     # ======================
-    # FUNÇÕES DE SALVAR NO SUPABASE (USANDO REQUESTS)
+    # FUNÇÕES DE SALVAR NO SUPABASE
     # ======================
     
     def salvar_produto_supabase(produto_dict: Dict) -> tuple:
@@ -16160,6 +16167,480 @@ elif aba_selecionada == 'ALMOXARIFADO':
         except Exception as e:
             print(f"❌ FALLBACK: Erro: {e}")
             return []
+    
+    # ======================
+    # FUNÇÕES DE RELATÓRIOS
+    # ======================
+    
+    def gerar_relatorio_almoxarifado(produtos_dict: List[Dict], movimentacoes_dict: List[Dict]) -> str:
+        """Gera relatório HTML do almoxarifado"""
+        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        total_produtos = len(produtos_dict)
+        total_quantidade = sum(p.get('quantidade', 0) for p in produtos_dict)
+        total_mov = len(movimentacoes_dict)
+        total_qtd_mov = sum(m.get('quantidade', 0) for m in movimentacoes_dict)
+        
+        categorias = {}
+        for p in produtos_dict:
+            cat = p.get('categoria', 'Sem categoria')
+            if cat not in categorias:
+                categorias[cat] = 0
+            categorias[cat] += p.get('quantidade', 0)
+        
+        estoque_baixo = [p for p in produtos_dict if 0 < p.get('quantidade', 0) < 5]
+        estoque_zero = [p for p in produtos_dict if p.get('quantidade', 0) <= 0]
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório Almoxarifado</title>
+            <style>
+                @page {{ size: A4 landscape; margin: 10mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
+                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
+                .header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    margin-bottom: 15px;
+                    color: white;
+                }}
+                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
+                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
+                
+                .cards {{
+                    display: grid;
+                    grid-template-columns: repeat(5, 1fr);
+                    gap: 10px;
+                    margin-bottom: 15px;
+                }}
+                .card {{
+                    background: #f8f9fc;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    border-left: 4px solid #0078D4;
+                    text-align: center;
+                }}
+                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
+                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
+                .card-green {{ border-left-color: #28a745; }}
+                .card-red {{ border-left-color: #dc3545; }}
+                .card-orange {{ border-left-color: #E86C2C; }}
+                .card-purple {{ border-left-color: #6B46C1; }}
+                
+                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
+                
+                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
+                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; }}
+                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
+                table tr:nth-child(even) {{ background: #f8f9fc; }}
+                
+                .table-responsive {{ overflow-x: auto; }}
+                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
+                
+                .alert-box {{ padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 10px; }}
+                .alert-danger {{ background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }}
+                .alert-warning {{ background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }}
+                
+                .status-zero {{ color: #dc3545; font-weight: bold; }}
+                .status-baixo {{ color: #dc3545; font-weight: bold; }}
+                .status-normal {{ color: #28a745; }}
+                .status-alto {{ color: #0078D4; }}
+                
+                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
+                .badge-entrada {{ background: #d4edda; color: #155724; }}
+                .badge-saida {{ background: #f8d7da; color: #721c24; }}
+                .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
+                
+                @media print {{
+                    body {{ margin: 3mm; padding: 0; }}
+                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📦 RELATÓRIO ALMOXARIFADO</h1>
+                    <div class="subtitle">Controle de Estoque - Luvidarte</div>
+                    <div class="data">Gerado em: {data_atual}</div>
+                </div>
+                
+                <div class="cards">
+                    <div class="card"><div class="label">📦 Total Produtos</div><div class="value">{total_produtos}</div></div>
+                    <div class="card card-green"><div class="label">📊 Estoque Total</div><div class="value">{total_quantidade:.2f}</div></div>
+                    <div class="card card-orange"><div class="label">📤 Total Movimentações</div><div class="value">{total_mov}</div></div>
+                    <div class="card card-purple"><div class="label">📦 Qtd Movimentada</div><div class="value">{total_qtd_mov:.2f}</div></div>
+                    <div class="card card-red"><div class="label">🔴 Produtos Zerados</div><div class="value">{len(estoque_zero)}</div></div>
+                </div>
+        """
+        
+        if estoque_zero:
+            html += f'<div class="alert-box alert-danger"><strong>🔴 ATENÇÃO - ESTOQUE ZERADO:</strong> {len(estoque_zero)} produto(s) com estoque zerado.</div>'
+        if estoque_baixo:
+            html += f'<div class="alert-box alert-warning"><strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s) com estoque abaixo de 5 unidades.</div>'
+        
+        # Tabela de Produtos
+        html += f"""
+                <div class="section-title">📋 ESTOQUE ATUAL</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Categoria</th>
+                                <th>Produto</th>
+                                <th>CA</th>
+                                <th>BASE</th>
+                                <th>Quantidade</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """
+        
+        if produtos_dict:
+            for p in sorted(produtos_dict, key=lambda x: x.get('produto', '')):
+                qtd = p.get('quantidade', 0)
+                
+                if qtd <= 0:
+                    status = '<span class="status-zero">🔴 ZERADO</span>'
+                elif qtd < 5:
+                    status = '<span class="status-baixo">🟡 BAIXO</span>'
+                elif qtd < 20:
+                    status = '<span class="status-normal">🟢 NORMAL</span>'
+                else:
+                    status = '<span class="status-alto">🔵 ALTO</span>'
+                
+                html += f"""
+                            <tr>
+                                <td>{p.get('id', '')}</td>
+                                <td>{p.get('categoria', '')}</td>
+                                <td><strong>{p.get('produto', '')}</strong></td>
+                                <td>{p.get('ca', 0):.2f}</td>
+                                <td>{p.get('base', 0):.2f}</td>
+                                <td><strong>{qtd:.2f}</strong></td>
+                                <td>{status}</td>
+                            </tr>
+                """
+        else:
+            html += '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Nenhum produto cadastrado.</td></tr>'
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+        """
+        
+        # Movimentações recentes
+        if movimentacoes_dict:
+            html += f"""
+                <div class="section-title">📤 ÚLTIMAS MOVIMENTAÇÕES</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Data</th><th>Produto</th><th>Categoria</th>
+                                <th>Colaborador</th><th>Quantidade</th><th>Tipo</th><th>Responsável</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for m in sorted(movimentacoes_dict, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True)[:30]:
+                data_obj = m.get('data')
+                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
+                tipo = m.get('tipo', 'SAÍDA')
+                badge_class = f'badge-{tipo.lower()}'
+                
+                html += f"""
+                            <tr>
+                                <td>{m.get('id', '')}</td>
+                                <td>{data_str}</td>
+                                <td>{m.get('produto', '')}</td>
+                                <td>{m.get('categoria', '')}</td>
+                                <td>{m.get('colaborador', '')}</td>
+                                <td><strong>{m.get('quantidade', 0):.2f}</strong></td>
+                                <td><span class="badge {badge_class}">{tipo}</span></td>
+                                <td>{m.get('responsavel', '')}</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        # Resumo por Categoria
+        if categorias:
+            html += f"""
+                <div class="section-title">📊 RESUMO POR CATEGORIA</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead><tr><th>Categoria</th><th>Quantidade</th><th>% do Total</th></tr></thead>
+                        <tbody>
+            """
+            total = sum(categorias.values())
+            for cat, qtd in sorted(categorias.items(), key=lambda x: x[1], reverse=True):
+                perc = (qtd / total * 100) if total > 0 else 0
+                html += f'<tr><td><strong>{cat}</strong></td><td>{qtd:.2f}</td><td>{perc:.1f}%</td></tr>'
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        
+        html += f"""
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    def gerar_relatorio_movimentacoes_html(movimentacoes_dict: List[Dict], 
+                                            data_ini=None, 
+                                            data_fim=None,
+                                            tipo_filtro: str = "(Todos)",
+                                            produto_filtro: str = "(Todos)",
+                                            categoria_filtro: str = "(Todos)") -> str:
+        """Gera relatório de movimentações em HTML"""
+        
+        data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        mov_filtradas = movimentacoes_dict.copy()
+        
+        if data_ini:
+            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] >= data_ini]
+        if data_fim:
+            mov_filtradas = [m for m in mov_filtradas if m.get('data') and m['data'] <= data_fim]
+        
+        if tipo_filtro != "(Todos)":
+            mov_filtradas = [m for m in mov_filtradas if m.get('tipo', '').upper() == tipo_filtro.upper()]
+        
+        if produto_filtro != "(Todos)" and produto_filtro:
+            mov_filtradas = [m for m in mov_filtradas if m.get('produto', '').lower() == produto_filtro.lower()]
+        
+        if categoria_filtro != "(Todos)" and categoria_filtro:
+            mov_filtradas = [m for m in mov_filtradas if m.get('categoria', '').lower() == categoria_filtro.lower()]
+        
+        total_mov = len(mov_filtradas)
+        total_qtd = sum(m.get('quantidade', 0) for m in mov_filtradas)
+        
+        entradas = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'ENTRADA']
+        saidas = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'SAÍDA']
+        inventarios = [m for m in mov_filtradas if m.get('tipo', '').upper() == 'INVENTÁRIO']
+        
+        filtros_texto = []
+        if data_ini:
+            filtros_texto.append(f"Data Inicial: {data_ini.strftime('%d/%m/%Y')}")
+        if data_fim:
+            filtros_texto.append(f"Data Final: {data_fim.strftime('%d/%m/%Y')}")
+        if tipo_filtro != "(Todos)":
+            filtros_texto.append(f"Tipo: {tipo_filtro}")
+        if produto_filtro != "(Todos)":
+            filtros_texto.append(f"Produto: {produto_filtro}")
+        if categoria_filtro != "(Todos)":
+            filtros_texto.append(f"Categoria: {categoria_filtro}")
+        
+        filtros_str = " | ".join(filtros_texto) if filtros_texto else "Nenhum filtro aplicado"
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório de Movimentações - Almoxarifado</title>
+            <style>
+                @page {{ size: A4 landscape; margin: 12mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background: white; font-size: 10px; }}
+                .container {{ max-width: 100%; margin: 0 auto; padding: 10px; }}
+                .header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    margin-bottom: 15px;
+                    color: white;
+                }}
+                .header h1 {{ margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }}
+                .header .subtitle {{ font-size: 12px; color: #a0aec0; margin-top: 4px; }}
+                .header .data {{ font-size: 10px; color: #a0aec0; margin-top: 4px; }}
+                
+                .cards {{
+                    display: grid;
+                    grid-template-columns: repeat(5, 1fr);
+                    gap: 10px;
+                    margin-bottom: 15px;
+                }}
+                .card {{
+                    background: #f8f9fc;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    border-left: 4px solid #0078D4;
+                    text-align: center;
+                }}
+                .card .label {{ font-size: 9px; color: #666; text-transform: uppercase; font-weight: 600; }}
+                .card .value {{ font-size: 18px; font-weight: 700; color: #1a1a2e; margin-top: 3px; }}
+                .card .sub {{ font-size: 10px; color: #888; margin-top: 2px; }}
+                .card-green {{ border-left-color: #28a745; }}
+                .card-red {{ border-left-color: #dc3545; }}
+                .card-purple {{ border-left-color: #6B46C1; }}
+                .card-orange {{ border-left-color: #E86C2C; }}
+                
+                .section-title {{ font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; }}
+                
+                table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }}
+                table th {{ background: #2c3e50; color: white; padding: 5px 6px; border: 1px solid #2c3e50; text-align: center; font-weight: 700; }}
+                table td {{ padding: 4px 6px; border: 1px solid #ddd; text-align: center; }}
+                table tr:nth-child(even) {{ background: #f8f9fc; }}
+                
+                .footer {{ margin-top: 15px; padding-top: 8px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 8px; color: #999; }}
+                .filtros {{ background: #f0f2f5; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 10px; }}
+                
+                .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: bold; }}
+                .badge-entrada {{ background: #d4edda; color: #155724; }}
+                .badge-saida {{ background: #f8d7da; color: #721c24; }}
+                .badge-inventario {{ background: #e8d4f8; color: #4a1a6b; }}
+                
+                @media print {{
+                    body {{ margin: 3mm; padding: 0; }}
+                    .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📤 RELATÓRIO DE MOVIMENTAÇÕES</h1>
+                    <div class="subtitle">Almoxarifado - Luvidarte</div>
+                    <div class="data">Gerado em: {data_atual}</div>
+                </div>
+                
+                <div class="filtros">
+                    <strong>📅 Filtros aplicados:</strong> {filtros_str}
+                    <br>
+                    <strong>📊 Total de registros:</strong> {total_mov}
+                </div>
+                
+                <div class="cards">
+                    <div class="card card-orange">
+                        <div class="label">📤 Total</div>
+                        <div class="value">{total_mov}</div>
+                        <div class="sub">{total_qtd:.2f} un</div>
+                    </div>
+                    <div class="card card-green">
+                        <div class="label">📥 Entradas</div>
+                        <div class="value">{len(entradas)}</div>
+                        <div class="sub">{sum(m.get('quantidade', 0) for m in entradas):.2f} un</div>
+                    </div>
+                    <div class="card card-red">
+                        <div class="label">📤 Saídas</div>
+                        <div class="value">{len(saidas)}</div>
+                        <div class="sub">{sum(m.get('quantidade', 0) for m in saidas):.2f} un</div>
+                    </div>
+                    <div class="card card-purple">
+                        <div class="label">📋 Inventários</div>
+                        <div class="value">{len(inventarios)}</div>
+                        <div class="sub">{sum(m.get('quantidade', 0) for m in inventarios):.2f} un</div>
+                    </div>
+                    <div class="card">
+                        <div class="label">📊 Média</div>
+                        <div class="value">{f"{(total_qtd / total_mov):.2f}" if total_mov > 0 else "0.00"}</div>
+                        <div class="sub">un/mov</div>
+                    </div>
+                </div>
+        """
+        
+        if mov_filtradas:
+            html += f"""
+                <div class="section-title">📋 DETALHAMENTO DAS MOVIMENTAÇÕES</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data</th>
+                                <th>Produto</th>
+                                <th>Categoria</th>
+                                <th>Colaborador</th>
+                                <th>Quantidade</th>
+                                <th>Tipo</th>
+                                <th>Responsável</th>
+                                <th>Observação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for m in sorted(mov_filtradas, key=lambda x: x.get('data') if x.get('data') else datetime.min, reverse=True):
+                data_obj = m.get('data')
+                data_str = data_obj.strftime("%d/%m/%Y") if data_obj else "-"
+                tipo = m.get('tipo', 'SAÍDA')
+                badge_class = f'badge-{tipo.lower()}'
+                obs = m.get('obs', '')[:40] + "..." if len(m.get('obs', '')) > 40 else m.get('obs', '')
+                
+                html += f"""
+                            <tr>
+                                <td><strong>{m.get('id', '')}</strong></td>
+                                <td>{data_str}</td>
+                                <td>{m.get('produto', '')}</td>
+                                <td>{m.get('categoria', '')}</td>
+                                <td>{m.get('colaborador', '')}</td>
+                                <td><strong>{m.get('quantidade', 0):.2f}</strong></td>
+                                <td><span class="badge {badge_class}">{tipo}</span></td>
+                                <td>{m.get('responsavel', '')}</td>
+                                <td style="font-size:8px; text-align:left;">{obs or '-'}</td>
+                            </tr>
+                """
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        else:
+            html += """
+                <div style="text-align:center; padding:30px; color:#999; background:#f8f9fa; border-radius:8px;">
+                    📭 Nenhuma movimentação encontrada com os filtros selecionados.
+                </div>
+            """
+        
+        html += f"""
+                <div class="footer">
+                    Relatório gerado automaticamente pelo Sistema TRS Dashboard - Luvidarte<br>
+                    {data_atual}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    def baixar_relatorio(html_content: str, nome_arquivo: str):
+        """Botão para baixar relatório"""
+        st.download_button(
+            label="📥 Baixar Relatório",
+            data=html_content,
+            file_name=nome_arquivo,
+            mime="text/html",
+            use_container_width=True,
+            type="primary"
+        )
     
     # ======================
     # CARREGAR DADOS (PRIORIDADE ABSOLUTA SUPABASE)
