@@ -15719,9 +15719,8 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
     </div>
     """, unsafe_allow_html=True)    
 # ==================================================================================================
-# ALMOXARIFADO - CONTROLE DE ESTOQUE COM PRIORIDADE SUPABASE
-# Google Sheets usado APENAS como fallback em caso de erro
-# VERSÃO COMPLETA
+# ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE (USANDO REQUESTS)
+# VERSÃO COMPLETA - PRIORIDADE ABSOLUTA SUPABASE
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15735,98 +15734,257 @@ elif aba_selecionada == 'ALMOXARIFADO':
     ABA_BASE = 'BASE'
     ABA_MOVIMENTACAO = 'MOVIMENTAÇÃO'
     
-    # ======================
-    # FUNÇÕES DE CONEXÃO SUPABASE
-    # ======================
+    SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
     
-    def get_supabase_client():
-        """Retorna cliente Supabase configurado"""
-        try:
-            from supabase import create_client, Client
-            SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
-            SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
-            return create_client(SUPABASE_URL, SUPABASE_KEY)
-        except Exception as e:
-            print(f"Erro ao conectar Supabase: {e}")
-            return None
+    SUPABASE_HEADERS = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (PRIORIDADE)
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE (USANDO REQUESTS)
     # ======================
     
     @st.cache_data(ttl=300)
     def carregar_produtos_supabase() -> List[Dict]:
-        """Carrega produtos do Supabase - FONTE PRINCIPAL"""
+        """Carrega produtos do Supabase usando requests - FONTE PRINCIPAL"""
         try:
-            print("🔄 Carregando produtos do Supabase...")
-            supabase = get_supabase_client()
-            if supabase is None:
-                print("❌ Supabase não disponível")
+            print("🔄 Carregando produtos do Supabase via requests...")
+            
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?select=*&order=produto.asc",
+                headers=SUPABASE_HEADERS
+            )
+            
+            if response.status_code == 200:
+                dados = response.json()
+                if dados:
+                    produtos = []
+                    for item in dados:
+                        produtos.append({
+                            'id': item.get('produto_id', ''),
+                            'categoria': item.get('categoria', ''),
+                            'produto': item.get('produto', ''),
+                            'ca': float(item.get('ca', 0)),
+                            'base': float(item.get('base', 0)),
+                            'quantidade': float(item.get('quantidade', 0))
+                        })
+                    print(f"✅ {len(produtos)} produtos carregados do Supabase")
+                    return produtos
+                else:
+                    print("⚠️ Nenhum produto encontrado no Supabase")
+                    return []
+            else:
+                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
                 return []
-            
-            response = supabase.table('almoxarifado_base').select('*').order('produto').execute()
-            
-            if hasattr(response, 'data') and response.data:
-                produtos = []
-                for item in response.data:
-                    produtos.append({
-                        'id': item.get('produto_id', ''),
-                        'categoria': item.get('categoria', ''),
-                        'produto': item.get('produto', ''),
-                        'ca': float(item.get('ca', 0)),
-                        'base': float(item.get('base', 0)),
-                        'quantidade': float(item.get('quantidade', 0))
-                    })
-                print(f"✅ {len(produtos)} produtos carregados do Supabase")
-                return produtos
-            print("⚠️ Nenhum produto encontrado no Supabase")
-            return []
-            
+                
         except Exception as e:
-            print(f"❌ Erro ao carregar produtos do Supabase: {e}")
+            print(f"❌ Erro ao carregar produtos: {e}")
             return []
     
     @st.cache_data(ttl=300)
     def carregar_movimentacoes_supabase() -> List[Dict]:
-        """Carrega movimentações do Supabase - FONTE PRINCIPAL"""
+        """Carrega movimentações do Supabase usando requests - FONTE PRINCIPAL"""
         try:
-            print("🔄 Carregando movimentações do Supabase...")
-            supabase = get_supabase_client()
-            if supabase is None:
-                print("❌ Supabase não disponível")
+            print("🔄 Carregando movimentações do Supabase via requests...")
+            
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao?select=*&order=data.desc",
+                headers=SUPABASE_HEADERS
+            )
+            
+            if response.status_code == 200:
+                dados = response.json()
+                if dados:
+                    movimentacoes = []
+                    for item in dados:
+                        data_val = item.get('data')
+                        if data_val and isinstance(data_val, str):
+                            try:
+                                data_val = datetime.strptime(data_val, '%Y-%m-%d')
+                            except:
+                                data_val = None
+                        
+                        movimentacoes.append({
+                            'id': item.get('mov_id', ''),
+                            'data': data_val,
+                            'produto': item.get('produto', ''),
+                            'categoria': item.get('categoria', ''),
+                            'colaborador': item.get('colaborador', ''),
+                            'quantidade': float(item.get('quantidade', 0)),
+                            'obs': item.get('obs', ''),
+                            'responsavel': item.get('responsavel', ''),
+                            'tipo': item.get('tipo', 'SAÍDA')
+                        })
+                    print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
+                    return movimentacoes
+                else:
+                    print("⚠️ Nenhuma movimentação encontrada no Supabase")
+                    return []
+            else:
+                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
                 return []
-            
-            response = supabase.table('almoxarifado_movimentacao').select('*').order('data', desc=True).execute()
-            
-            if hasattr(response, 'data') and response.data:
-                movimentacoes = []
-                for item in response.data:
-                    data_val = item.get('data')
-                    if data_val and isinstance(data_val, str):
-                        try:
-                            data_val = datetime.strptime(data_val, '%Y-%m-%d')
-                        except:
-                            data_val = None
-                    
-                    movimentacoes.append({
-                        'id': item.get('mov_id', ''),
-                        'data': data_val,
-                        'produto': item.get('produto', ''),
-                        'categoria': item.get('categoria', ''),
-                        'colaborador': item.get('colaborador', ''),
-                        'quantidade': float(item.get('quantidade', 0)),
-                        'obs': item.get('obs', ''),
-                        'responsavel': item.get('responsavel', ''),
-                        'tipo': item.get('tipo', 'SAÍDA')
-                    })
-                print(f"✅ {len(movimentacoes)} movimentações carregadas do Supabase")
-                return movimentacoes
-            print("⚠️ Nenhuma movimentação encontrada no Supabase")
-            return []
-            
+                
         except Exception as e:
-            print(f"❌ Erro ao carregar movimentações do Supabase: {e}")
+            print(f"❌ Erro ao carregar movimentações: {e}")
             return []
+    
+    # ======================
+    # FUNÇÕES DE SALVAR NO SUPABASE (USANDO REQUESTS)
+    # ======================
+    
+    def salvar_produto_supabase(produto_dict: Dict) -> tuple:
+        """Salva produto no Supabase usando requests"""
+        try:
+            data = {
+                'produto_id': produto_dict['id'],
+                'categoria': produto_dict['categoria'],
+                'produto': produto_dict['produto'],
+                'ca': produto_dict['ca'],
+                'base': produto_dict['base'],
+                'quantidade': produto_dict['quantidade']
+            }
+            
+            # Verificar se já existe
+            check = requests.get(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{produto_dict['id']}",
+                headers=SUPABASE_HEADERS
+            )
+            
+            if check.status_code == 200 and check.json():
+                # Atualizar
+                response = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{produto_dict['id']}",
+                    json=data,
+                    headers=SUPABASE_HEADERS
+                )
+            else:
+                # Inserir
+                response = requests.post(
+                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base",
+                    json=data,
+                    headers=SUPABASE_HEADERS
+                )
+            
+            if response.status_code in [200, 201, 204]:
+                st.cache_data.clear()
+                return True, f"✅ Produto salvo no Supabase!"
+            else:
+                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
+        """Salva movimentação no Supabase usando requests"""
+        try:
+            data = {
+                'mov_id': mov_dict['id'],
+                'data': mov_dict['data'].isoformat() if mov_dict.get('data') else None,
+                'produto': mov_dict['produto'],
+                'categoria': mov_dict.get('categoria', ''),
+                'colaborador': mov_dict.get('colaborador', ''),
+                'quantidade': mov_dict['quantidade'],
+                'obs': mov_dict.get('obs', ''),
+                'responsavel': mov_dict.get('responsavel', ''),
+                'tipo': mov_dict['tipo']
+            }
+            
+            response = requests.post(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao",
+                json=data,
+                headers=SUPABASE_HEADERS
+            )
+            
+            if response.status_code in [200, 201, 204]:
+                # Atualizar estoque
+                if mov_dict['tipo'] == 'ENTRADA':
+                    delta = mov_dict['quantidade']
+                elif mov_dict['tipo'] == 'SAÍDA':
+                    delta = -mov_dict['quantidade']
+                else:
+                    delta = mov_dict['quantidade']
+                
+                # Buscar produto atual
+                check = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
+                    headers=SUPABASE_HEADERS
+                )
+                
+                if check.status_code == 200 and check.json():
+                    qtd_atual = float(check.json()[0].get('quantidade', 0))
+                    nova_qtd = qtd_atual + delta
+                    requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
+                        json={'quantidade': nova_qtd},
+                        headers=SUPABASE_HEADERS
+                    )
+                
+                st.cache_data.clear()
+                return True, "✅ Movimentação salva no Supabase!"
+            else:
+                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
+        """Salva lote de movimentações no Supabase"""
+        sucessos = 0
+        erros = []
+        
+        for mov in lista_mov:
+            if not mov.get('id') or mov['id'].startswith('TEMP-'):
+                mov['id'] = gerar_id_movimentacao_supabase()
+            
+            sucesso, msg = salvar_movimentacao_supabase(mov)
+            if sucesso:
+                sucessos += 1
+            else:
+                erros.append(msg)
+        
+        if erros:
+            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
+        else:
+            return True, f"✅ {sucessos} movimentações salvas no Supabase!"
+    
+    def gerar_id_movimentacao_supabase() -> str:
+        """Gera ID para movimentação"""
+        try:
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao?select=mov_id&order=mov_id.desc&limit=1",
+                headers=SUPABASE_HEADERS
+            )
+            if response.status_code == 200 and response.json():
+                ultimo_id = response.json()[0].get('mov_id', '')
+                if ultimo_id and ultimo_id.startswith('MOV-'):
+                    try:
+                        num = int(ultimo_id.replace('MOV-', ''))
+                        return f"MOV-{num + 1:03d}"
+                    except:
+                        pass
+        except:
+            pass
+        return f"MOV-{datetime.now().strftime('%H%M%S')}"
+    
+    def excluir_produto_supabase(id_produto: str) -> tuple:
+        """Exclui produto do Supabase"""
+        try:
+            response = requests.delete(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{id_produto}",
+                headers=SUPABASE_HEADERS
+            )
+            
+            if response.status_code in [200, 204]:
+                st.cache_data.clear()
+                return True, f"✅ Produto {id_produto} excluído com sucesso!"
+            else:
+                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
     
     # ======================
     # FUNÇÕES DE CARREGAMENTO DO GOOGLE SHEETS (FALLBACK)
@@ -15836,10 +15994,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
         """Carrega produtos do Google Sheets (APENAS FALLBACK)"""
         produtos = []
         try:
-            print("🔄 FALLBACK: Tentando carregar do Google Sheets...")
+            print("🔄 FALLBACK: Carregando do Google Sheets...")
             client = get_gspread_client()
             if client is None:
-                print("❌ Cliente Google Sheets não disponível")
                 return []
             
             spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
@@ -15847,43 +16004,16 @@ elif aba_selecionada == 'ALMOXARIFADO':
             todos_dados = sheet.get_all_values()
             
             if len(todos_dados) < 2:
-                print("⚠️ Aba BASE vazia")
                 return []
             
             cabecalho = todos_dados[0]
             
-            # Mapear índices das colunas
-            idx_id = None
-            idx_categoria = None
-            idx_produto = None
-            idx_ca = None
-            idx_base = None
-            idx_quantidade = None
-            
-            for i, col in enumerate(cabecalho):
-                col_clean = str(col).strip().upper()
-                if col_clean == 'ID':
-                    idx_id = i
-                elif col_clean == 'CATEGORIA':
-                    idx_categoria = i
-                elif col_clean == 'PRODUTO':
-                    idx_produto = i
-                elif col_clean == 'CA':
-                    idx_ca = i
-                elif col_clean == 'BASE':
-                    idx_base = i
-                elif col_clean == 'QUANTIDADE':
-                    idx_quantidade = i
-            
-            # Fallback para posições
-            if idx_id is None or idx_produto is None:
-                print("⚠️ Colunas não encontradas, usando posições padrão...")
-                idx_id = 0
-                idx_categoria = 1
-                idx_produto = 2
-                idx_ca = 3
-                idx_base = 4
-                idx_quantidade = 5
+            idx_id = 0
+            idx_categoria = 1
+            idx_produto = 2
+            idx_ca = 3
+            idx_base = 4
+            idx_quantidade = 5
             
             def parse_valor(val):
                 if not val or str(val).strip() == '':
@@ -15906,27 +16036,27 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     
                     produtos.append({
                         'id': id_val,
-                        'categoria': str(row[idx_categoria]).strip() if idx_categoria is not None and idx_categoria < len(row) and row[idx_categoria] else "",
+                        'categoria': str(row[idx_categoria]).strip() if idx_categoria < len(row) and row[idx_categoria] else "",
                         'produto': produto_val,
-                        'ca': parse_valor(row[idx_ca]) if idx_ca is not None and idx_ca < len(row) else 0.0,
-                        'base': parse_valor(row[idx_base]) if idx_base is not None and idx_base < len(row) else 0.0,
-                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade is not None and idx_quantidade < len(row) else 0.0
+                        'ca': parse_valor(row[idx_ca]) if idx_ca < len(row) else 0.0,
+                        'base': parse_valor(row[idx_base]) if idx_base < len(row) else 0.0,
+                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade < len(row) else 0.0
                     })
-                except Exception as e:
+                except:
                     continue
             
             print(f"✅ FALLBACK: {len(produtos)} produtos carregados do Google Sheets")
             return produtos
             
         except Exception as e:
-            print(f"❌ FALLBACK: Erro ao carregar do Google Sheets: {e}")
+            print(f"❌ FALLBACK: Erro: {e}")
             return []
     
     def carregar_movimentacoes_google_sheets() -> List[Dict]:
         """Carrega movimentações do Google Sheets (APENAS FALLBACK)"""
         movimentacoes = []
         try:
-            print("🔄 FALLBACK: Tentando carregar movimentações do Google Sheets...")
+            print("🔄 FALLBACK: Carregando movimentações do Google Sheets...")
             client = get_gspread_client()
             if client is None:
                 return []
@@ -15940,48 +16070,15 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             cabecalho = todos_dados[0]
             
-            idx_id = None
-            idx_data = None
-            idx_produto = None
-            idx_categoria = None
-            idx_colaborador = None
-            idx_quantidade = None
-            idx_obs = None
-            idx_responsavel = None
-            idx_tipo = None
-            
-            for i, col in enumerate(cabecalho):
-                col_clean = str(col).strip().upper()
-                if col_clean == 'ID':
-                    idx_id = i
-                elif col_clean == 'DATA':
-                    idx_data = i
-                elif col_clean == 'PRODUTO':
-                    idx_produto = i
-                elif col_clean == 'CATEGORIA':
-                    idx_categoria = i
-                elif col_clean == 'COLABORADOR':
-                    idx_colaborador = i
-                elif col_clean == 'QUANTIDADE':
-                    idx_quantidade = i
-                elif col_clean == 'OBS':
-                    idx_obs = i
-                elif col_clean == 'RESPONSÁVEL':
-                    idx_responsavel = i
-                elif col_clean == 'TIPO':
-                    idx_tipo = i
-            
-            # Fallback para posições
-            if idx_id is None or idx_produto is None:
-                idx_id = 0
-                idx_data = 1
-                idx_produto = 2
-                idx_categoria = 3
-                idx_colaborador = 4
-                idx_quantidade = 5
-                idx_obs = 6
-                idx_responsavel = 7
-                idx_tipo = 8
+            idx_id = 0
+            idx_data = 1
+            idx_produto = 2
+            idx_categoria = 3
+            idx_colaborador = 4
+            idx_quantidade = 5
+            idx_obs = 6
+            idx_responsavel = 7
+            idx_tipo = 8
             
             def parse_data(val):
                 if not val:
@@ -16017,238 +16114,80 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     
                     movimentacoes.append({
                         'id': id_val,
-                        'data': parse_data(row[idx_data]) if idx_data is not None and idx_data < len(row) else None,
+                        'data': parse_data(row[idx_data]) if idx_data < len(row) else None,
                         'produto': produto_val,
-                        'categoria': str(row[idx_categoria]).strip() if idx_categoria is not None and idx_categoria < len(row) and row[idx_categoria] else "",
-                        'colaborador': str(row[idx_colaborador]).strip() if idx_colaborador is not None and idx_colaborador < len(row) and row[idx_colaborador] else "",
-                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade is not None and idx_quantidade < len(row) else 0.0,
-                        'obs': str(row[idx_obs]).strip() if idx_obs is not None and idx_obs < len(row) and row[idx_obs] else "",
-                        'responsavel': str(row[idx_responsavel]).strip() if idx_responsavel is not None and idx_responsavel < len(row) and row[idx_responsavel] else "",
-                        'tipo': str(row[idx_tipo]).strip().upper() if idx_tipo is not None and idx_tipo < len(row) and row[idx_tipo] else "SAÍDA"
+                        'categoria': str(row[idx_categoria]).strip() if idx_categoria < len(row) and row[idx_categoria] else "",
+                        'colaborador': str(row[idx_colaborador]).strip() if idx_colaborador < len(row) and row[idx_colaborador] else "",
+                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade < len(row) else 0.0,
+                        'obs': str(row[idx_obs]).strip() if idx_obs < len(row) and row[idx_obs] else "",
+                        'responsavel': str(row[idx_responsavel]).strip() if idx_responsavel < len(row) and row[idx_responsavel] else "",
+                        'tipo': str(row[idx_tipo]).strip().upper() if idx_tipo < len(row) and row[idx_tipo] else "SAÍDA"
                     })
-                except Exception as e:
+                except:
                     continue
             
-            print(f"✅ FALLBACK: {len(movimentacoes)} movimentações carregadas do Google Sheets")
+            print(f"✅ FALLBACK: {len(movimentacoes)} movimentações carregadas")
             return movimentacoes
             
         except Exception as e:
-            print(f"❌ FALLBACK: Erro ao carregar movimentações: {e}")
+            print(f"❌ FALLBACK: Erro: {e}")
             return []
     
     # ======================
-    # FUNÇÕES DE SALVAR NO SUPABASE (PRIORIDADE)
-    # ======================
-    
-    def salvar_produto_supabase(produto_dict: Dict) -> tuple:
-        """Salva produto no Supabase - PRIORIDADE"""
-        try:
-            supabase = get_supabase_client()
-            if supabase is None:
-                return False, "❌ Erro ao conectar ao Supabase"
-            
-            data = {
-                'produto_id': produto_dict['id'],
-                'categoria': produto_dict['categoria'],
-                'produto': produto_dict['produto'],
-                'ca': produto_dict['ca'],
-                'base': produto_dict['base'],
-                'quantidade': produto_dict['quantidade']
-            }
-            
-            # Verificar se já existe
-            response = supabase.table('almoxarifado_base').select('*').eq('produto_id', produto_dict['id']).execute()
-            
-            if hasattr(response, 'data') and response.data:
-                # Atualizar
-                supabase.table('almoxarifado_base').update(data).eq('produto_id', produto_dict['id']).execute()
-            else:
-                # Inserir
-                supabase.table('almoxarifado_base').insert(data).execute()
-            
-            st.cache_data.clear()
-            return True, f"✅ Produto salvo no Supabase!"
-            
-        except Exception as e:
-            print(f"Erro ao salvar produto no Supabase: {e}")
-            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
-    
-    def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
-        """Salva movimentação no Supabase - PRIORIDADE"""
-        try:
-            supabase = get_supabase_client()
-            if supabase is None:
-                return False, "❌ Erro ao conectar ao Supabase"
-            
-            data = {
-                'mov_id': mov_dict['id'],
-                'data': mov_dict['data'].isoformat() if mov_dict.get('data') else None,
-                'produto': mov_dict['produto'],
-                'categoria': mov_dict.get('categoria', ''),
-                'colaborador': mov_dict.get('colaborador', ''),
-                'quantidade': mov_dict['quantidade'],
-                'obs': mov_dict.get('obs', ''),
-                'responsavel': mov_dict.get('responsavel', ''),
-                'tipo': mov_dict['tipo']
-            }
-            
-            supabase.table('almoxarifado_movimentacao').insert(data).execute()
-            
-            # Atualizar estoque no Supabase
-            if mov_dict['tipo'] == 'ENTRADA':
-                delta = mov_dict['quantidade']
-            elif mov_dict['tipo'] == 'SAÍDA':
-                delta = -mov_dict['quantidade']
-            else:  # INVENTÁRIO
-                delta = mov_dict['quantidade']
-            
-            # Buscar produto atual
-            response = supabase.table('almoxarifado_base').select('quantidade').eq('produto', mov_dict['produto']).execute()
-            if hasattr(response, 'data') and response.data:
-                qtd_atual = float(response.data[0].get('quantidade', 0))
-                nova_qtd = qtd_atual + delta
-                supabase.table('almoxarifado_base').update({'quantidade': nova_qtd}).eq('produto', mov_dict['produto']).execute()
-            
-            st.cache_data.clear()
-            return True, "✅ Movimentação salva no Supabase!"
-            
-        except Exception as e:
-            print(f"Erro ao salvar movimentação no Supabase: {e}")
-            return False, f"❌ Erro ao salvar no Supabase: {str(e)}"
-    
-    def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
-        """Salva lote de movimentações no Supabase - PRIORIDADE"""
-        sucessos = 0
-        erros = []
-        
-        for mov in lista_mov:
-            if not mov.get('id') or mov['id'].startswith('TEMP-'):
-                mov['id'] = gerar_id_movimentacao_supabase()
-            
-            sucesso, msg = salvar_movimentacao_supabase(mov)
-            if sucesso:
-                sucessos += 1
-            else:
-                erros.append(msg)
-        
-        if erros:
-            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
-        else:
-            return True, f"✅ {sucessos} movimentações salvas no Supabase!"
-    
-    def gerar_id_movimentacao_supabase() -> str:
-        """Gera ID para movimentação"""
-        try:
-            supabase = get_supabase_client()
-            if supabase:
-                response = supabase.table('almoxarifado_movimentacao').select('mov_id').order('mov_id', desc=True).limit(1).execute()
-                if hasattr(response, 'data') and response.data:
-                    ultimo_id = response.data[0].get('mov_id', '')
-                    if ultimo_id and ultimo_id.startswith('MOV-'):
-                        try:
-                            num = int(ultimo_id.replace('MOV-', ''))
-                            return f"MOV-{num + 1:03d}"
-                        except:
-                            pass
-        except:
-            pass
-        return f"MOV-{datetime.now().strftime('%H%M%S')}"
-    
-    # ======================
-    # FUNÇÃO DE CARREGAMENTO COM FALLBACK (PRIORIDADE SUPABASE)
-    # ======================
-    
-    def carregar_produtos_com_fallback() -> tuple:
-        """Carrega produtos - PRIORIDADE Supabase, FALLBACK Google Sheets"""
-        
-        # 1. TENTAR SUPABASE PRIMEIRO (SEMPRE)
-        try:
-            produtos = carregar_produtos_supabase()
-            if produtos:
-                return produtos, "Supabase"
-        except Exception as e:
-            print(f"⚠️ Erro no Supabase: {e}")
-        
-        # 2. FALLBACK PARA GOOGLE SHEETS (APENAS SE SUPABASE FALHAR)
-        print("⚠️ Supabase indisponível. Usando Google Sheets como fallback...")
-        try:
-            produtos = carregar_produtos_google_sheets()
-            if produtos:
-                # Tentar sincronizar com Supabase em background
-                try:
-                    print("🔄 Sincronizando fallback com Supabase...")
-                    for p in produtos:
-                        salvar_produto_supabase(p)
-                    print("✅ Sincronização concluída")
-                except Exception as e:
-                    print(f"⚠️ Erro na sincronização: {e}")
-                return produtos, "Google Sheets (fallback)"
-        except Exception as e:
-            print(f"❌ Fallback também falhou: {e}")
-        
-        return [], "Nenhum"
-    
-    def carregar_movimentacoes_com_fallback() -> tuple:
-        """Carrega movimentações - PRIORIDADE Supabase, FALLBACK Google Sheets"""
-        
-        # 1. TENTAR SUPABASE PRIMEIRO (SEMPRE)
-        try:
-            movimentacoes = carregar_movimentacoes_supabase()
-            if movimentacoes:
-                return movimentacoes, "Supabase"
-        except Exception as e:
-            print(f"⚠️ Erro no Supabase: {e}")
-        
-        # 2. FALLBACK PARA GOOGLE SHEETS (APENAS SE SUPABASE FALHAR)
-        print("⚠️ Supabase indisponível. Usando Google Sheets como fallback...")
-        try:
-            movimentacoes = carregar_movimentacoes_google_sheets()
-            if movimentacoes:
-                return movimentacoes, "Google Sheets (fallback)"
-        except Exception as e:
-            print(f"❌ Fallback também falhou: {e}")
-        
-        return [], "Nenhum"
-    
-    # ======================
-    # CARREGAR DADOS COM PRIORIDADE SUPABASE
+    # CARREGAR DADOS (PRIORIDADE ABSOLUTA SUPABASE)
     # ======================
     
     with st.spinner("🔄 Carregando dados do Supabase..."):
-        produtos, fonte_produtos = carregar_produtos_com_fallback()
-        movimentacoes, fonte_mov = carregar_movimentacoes_com_fallback()
+        # Tenta carregar do Supabase usando requests
+        produtos = carregar_produtos_supabase()
         
-        # Mostrar fonte dos dados
+        # Se não conseguiu, tenta Google Sheets como fallback
+        if not produtos:
+            st.warning("⚠️ Supabase indisponível. Usando Google Sheets...")
+            produtos = carregar_produtos_google_sheets()
+            
+            # Se carregou do Sheets, salva no Supabase
+            if produtos:
+                st.info("🔄 Sincronizando dados com o Supabase...")
+                for p in produtos:
+                    salvar_produto_supabase(p)
+                st.success("✅ Dados sincronizados! Recarregando do Supabase...")
+                produtos = carregar_produtos_supabase()
+        
+        # Carrega movimentações
+        movimentacoes = carregar_movimentacoes_supabase()
+        if not movimentacoes:
+            movimentacoes = carregar_movimentacoes_google_sheets()
+            if movimentacoes:
+                for m in movimentacoes:
+                    salvar_movimentacao_supabase(m)
+                movimentacoes = carregar_movimentacoes_supabase()
+        
+        # Mostra resultado
         if produtos:
-            if fonte_produtos == "Supabase":
-                st.success(f"✅ **{len(produtos)} produtos** carregados do Supabase")
-            else:
-                st.warning(f"⚠️ **{len(produtos)} produtos** carregados do {fonte_produtos}")
-                st.info("🔄 Os dados estão sendo sincronizados com o Supabase...")
+            st.success(f"✅ **{len(produtos)} produtos** carregados do Supabase")
         else:
-            st.error("❌ Nenhum dado disponível. Verifique a conexão com Supabase.")
+            st.error("❌ Nenhum dado disponível. Verifique a conexão.")
             # Mostrar diagnóstico rápido
             with st.expander("🔍 Diagnóstico de conexão", expanded=True):
-                supabase = get_supabase_client()
-                if supabase:
-                    st.success("✅ Supabase: Conectado")
-                    try:
-                        response = supabase.table('almoxarifado_base').select('count').limit(1).execute()
-                        st.success("✅ Tabela 'almoxarifado_base' acessível")
-                    except Exception as e:
-                        st.error(f"❌ Erro ao acessar tabela: {e}")
-                else:
-                    st.error("❌ Supabase: Falha na conexão")
+                # Testar Supabase
+                try:
+                    response = requests.get(
+                        f"{SUPABASE_URL}/rest/v1/almoxarifado_base?select=count&limit=1",
+                        headers=SUPABASE_HEADERS
+                    )
+                    if response.status_code == 200:
+                        st.success("✅ Supabase: Conectado")
+                    else:
+                        st.error(f"❌ Supabase: Erro {response.status_code}")
+                except Exception as e:
+                    st.error(f"❌ Supabase: {e}")
                 
+                # Testar Google Sheets
                 try:
                     client = get_gspread_client()
                     if client:
                         st.success("✅ Google Sheets: Conectado")
-                        try:
-                            spreadsheet = client.open_by_key(ID_PLANILHA_ALMOXARIFADO)
-                            st.success(f"✅ Planilha: {spreadsheet.title}")
-                        except Exception as e:
-                            st.error(f"❌ Erro ao abrir planilha: {e}")
                     else:
                         st.error("❌ Google Sheets: Falha na conexão")
                 except Exception as e:
@@ -17121,7 +17060,7 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         
                         if confirmar_excluir:
                             if st.button("🗑️ CONFIRMAR EXCLUSÃO (Supabase)", type="primary", use_container_width=True):
-                                sucesso, msg = excluir_produto(produto_excluir.get('id', ''))
+                                sucesso, msg = excluir_produto_supabase(produto_excluir.get('id', ''))
                                 if sucesso:
                                     st.success(msg)
                                     st.balloons()
