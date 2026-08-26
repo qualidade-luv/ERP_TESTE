@@ -2597,12 +2597,425 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
+# PRENSADOS - VERSÃO COMPLETA E CORRIGIDA
 # ==================================================================================================
 if aba_selecionada == 'PRENSADOS':
-    with st.spinner("Carregando dados..."):
-        df_base = carregar_dados_prensados()
+    
+    # ======================
+    # CONFIGURAÇÃO SUPABASE PARA PRENSADOS
+    # ======================
+    SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
+    
+    SUPABASE_HEADERS = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    TABELA_PRENSADOS = "prensados_trs_industrial"
+    
+    # ======================
+    # FUNÇÃO PARA TESTAR CONEXÃO COM SUPABASE
+    # ======================
+    
+    def testar_supabase_prensados() -> tuple:
+        """Testa a conexão com o Supabase para a tabela de prensados"""
+        try:
+            print("🔄 Testando conexão com Supabase (Prensados)...")
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?select=count&limit=1",
+                headers=SUPABASE_HEADERS,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                dados = response.json()
+                if dados:
+                    return True, f"✅ Conectado! {len(dados)} registros"
+                else:
+                    return True, "⚠️ Conectado, mas sem dados"
+            else:
+                return False, f"❌ Erro {response.status_code}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    # ======================
+    # FUNÇÃO PARA CARREGAR DO SUPABASE (COM CACHE)
+    # ======================
+    
+    @st.cache_data(ttl=1200)
+    def carregar_dados_prensados_supabase() -> pd.DataFrame:
+        """Carrega dados de prensados do Supabase - FONTE PRINCIPAL"""
+        try:
+            print("🔄 Carregando dados de prensados do Supabase...")
+            
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?select=*",
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                dados = response.json()
+                if dados:
+                    df = pd.DataFrame(dados)
+                    
+                    # Mapear colunas do Supabase (snake_case) para o formato do dashboard
+                    colunas_mapeadas = {
+                        'data': 'DATA',
+                        'turno': 'TURNO',
+                        'referencia': 'REFERÊNCIA',
+                        'produzido': 'PRODUZIDO',
+                        'aprovado': 'APROVADO',
+                        'embalado': 'EMBALADO',
+                        'trs_100': 'TRS 100%',
+                        'refugado': 'REFUGADO',
+                        'boqueta': 'BOQUETA',
+                        'ap_tempera': 'AP_TEMPERA',
+                        'd_tempera': 'D_TEMPERA',
+                        'horas_tempera': 'HORAS_TEMPERA',
+                        'meta_tempera': 'META_TEMPERA',
+                        'trs_tempera': 'TRS_TEMPERA',
+                        'aud_tempera': 'AUD_TEMPERA',
+                        'manu_tempera': 'MANU_TEMPERA',
+                        'parada_tempera': 'PARADA_TEMPERA',
+                        'horas_totais': 'HORAS_TOTAIS',
+                        'acertos': 'ACERTOS',
+                        'manut': 'MANUT',
+                        'analise': 'ANALISE',
+                        'fifo': 'FIFO'
+                    }
+                    
+                    # Renomear colunas existentes
+                    for old, new in colunas_mapeadas.items():
+                        if old in df.columns:
+                            df = df.rename(columns={old: new})
+                    
+                    # Converter DATA para datetime
+                    if 'DATA' in df.columns:
+                        df['DATA'] = pd.to_datetime(df['DATA'])
+                        df = df.dropna(subset=['DATA'])
+                    
+                    # Converter colunas numéricas
+                    colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO']
+                    for col in colunas_numericas:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                    
+                    # Adicionar coluna ANO_MES se não existir
+                    if 'DATA' in df.columns:
+                        df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
+                        df['DIA_SEMANA'] = df['DATA'].dt.day_name()
+                        df['SEMANA'] = df['DATA'].dt.isocalendar().week
+                        df['IS_SABADO'] = df['DATA'].dt.dayofweek == 5
+                    
+                    # Processar colunas de tempo
+                    for col in df.columns:
+                        col_upper = str(col).upper()
+                        if 'ACERTO' in col_upper and 'MIN' not in col_upper:
+                            df['ACERTOS_MIN'] = df[col].apply(converter_tempo_para_minutos)
+                        if 'MANUT' in col_upper and 'MIN' not in col_upper:
+                            df['MANUT_MIN'] = df[col].apply(converter_tempo_para_minutos)
+                        if 'HORAS TOTAIS' in col_upper or 'HORA TOTAL' in col_upper:
+                            df['HORAS_TOTAIS_MIN'] = df[col].apply(converter_tempo_para_minutos)
+                    
+                    if 'ACERTOS_MIN' in df.columns:
+                        df['ACERTOS_MIN_AJUSTADO'] = df.apply(
+                            lambda row: max(0, row['ACERTOS_MIN'] - 165) if row['IS_SABADO'] else row['ACERTOS_MIN'], axis=1
+                        )
+                    
+                    print(f"✅ {len(df)} registros carregados do Supabase (Prensados)")
+                    return df
+                else:
+                    print("⚠️ Nenhum dado encontrado no Supabase (Prensados)")
+                    return pd.DataFrame()
+            else:
+                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
+                return pd.DataFrame()
+                
+        except Exception as e:
+            print(f"❌ Erro ao carregar dados de prensados: {e}")
+            return pd.DataFrame()
+    
+    # ======================
+    # FUNÇÃO PARA CARREGAR DO GOOGLE SHEETS (FALLBACK)
+    # ======================
+    
+    def carregar_dados_prensados_google_sheets() -> pd.DataFrame:
+        """Carrega dados de prensados do Google Sheets - APENAS FALLBACK"""
+        try:
+            print("🔄 FALLBACK: Carregando dados de prensados do Google Sheets...")
+            client = get_gspread_client()
+            if client is None:
+                return pd.DataFrame()
+            
+            sheet = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO).worksheet('TRS_INDUSTRIAL')
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return pd.DataFrame()
+            
+            cabecalho = todos_dados[1]
+            valores = todos_dados[2:]
+            df = pd.DataFrame(valores, columns=cabecalho)
+            df.columns = df.columns.str.strip().str.upper()
+            
+            # Processamento dos dados igual ao original
+            if 'DATA' in df.columns:
+                df['DATA'] = df['DATA'].apply(converter_data_br)
+                df = df.dropna(subset=['DATA'])
+            
+            if 'APROVADO FINAL' in df.columns:
+                df = df.rename(columns={'APROVADO FINAL': 'EMBALADO'})
+            
+            colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO', 'BOQUETA']
+            for col in colunas_numericas:
+                if col in df.columns:
+                    df[col] = df[col].apply(converter_numero_br)
+            
+            df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
+            df['DIA_SEMANA'] = df['DATA'].dt.day_name()
+            df['SEMANA'] = df['DATA'].dt.isocalendar().week
+            df['IS_SABADO'] = df['DATA'].dt.dayofweek == 5
+            
+            # Processar colunas de tempo
+            for col in df.columns:
+                col_upper = str(col).upper()
+                if 'ACERTO' in col_upper and 'MIN' not in col_upper:
+                    df['ACERTOS_MIN'] = df[col].apply(converter_tempo_para_minutos)
+                if 'MANUT' in col_upper and 'MIN' not in col_upper:
+                    df['MANUT_MIN'] = df[col].apply(converter_tempo_para_minutos)
+                if 'HORAS TOTAIS' in col_upper or 'HORA TOTAL' in col_upper:
+                    df['HORAS_TOTAIS_MIN'] = df[col].apply(converter_tempo_para_minutos)
+            
+            if 'ACERTOS_MIN' in df.columns:
+                df['ACERTOS_MIN_AJUSTADO'] = df.apply(
+                    lambda row: max(0, row['ACERTOS_MIN'] - 165) if row['IS_SABADO'] else row['ACERTOS_MIN'], axis=1
+                )
+            
+            print(f"✅ FALLBACK: {len(df)} registros carregados do Google Sheets (Prensados)")
+            return df
+            
+        except Exception as e:
+            print(f"❌ FALLBACK: Erro: {e}")
+            return pd.DataFrame()
+    
+    # ======================
+    # FUNÇÃO PARA SALVAR REGISTRO NO SUPABASE
+    # ======================
+    
+    def salvar_registro_prensado_supabase(registro: dict) -> tuple:
+        """Salva um registro de prensado no Supabase (INSERT ou UPDATE)"""
+        try:
+            # Mapear para snake_case (formato do Supabase)
+            data = {
+                'data': registro.get('DATA'),
+                'turno': registro.get('TURNO'),
+                'referencia': registro.get('REFERÊNCIA'),
+                'produzido': float(registro.get('PRODUZIDO', 0)),
+                'aprovado': float(registro.get('APROVADO', 0)),
+                'embalado': float(registro.get('EMBALADO', 0)),
+                'trs_100': float(registro.get('TRS 100%', 0)),
+                'refugado': float(registro.get('REFUGADO', 0)),
+                'boqueta': registro.get('BOQUETA'),
+                'ap_tempera': float(registro.get('AP_TEMPERA', 0)) if registro.get('AP_TEMPERA') else None,
+                'd_tempera': registro.get('D_TEMPERA'),
+                'horas_tempera': registro.get('HORAS_TEMPERA'),
+                'meta_tempera': float(registro.get('META_TEMPERA', 0)) if registro.get('META_TEMPERA') else None,
+                'trs_tempera': float(registro.get('TRS_TEMPERA', 0)) if registro.get('TRS_TEMPERA') else None,
+                'aud_tempera': float(registro.get('AUD_TEMPERA', 0)) if registro.get('AUD_TEMPERA') else None,
+                'manu_tempera': registro.get('MANU_TEMPERA'),
+                'parada_tempera': registro.get('PARADA_TEMPERA'),
+                'horas_totais': registro.get('HORAS_TOTAIS'),
+                'acertos': registro.get('ACERTOS'),
+                'manut': registro.get('MANUT'),
+                'analise': registro.get('ANALISE'),
+                'fifo': registro.get('FIFO')
+            }
+            
+            # Remover campos None
+            data = {k: v for k, v in data.items() if v is not None}
+            
+            # Verificar se já existe (pela data + referência + turno)
+            data_str = registro.get('DATA')
+            if isinstance(data_str, datetime):
+                data_str = data_str.strftime('%Y-%m-%d')
+            elif isinstance(data_str, pd.Timestamp):
+                data_str = data_str.strftime('%Y-%m-%d')
+            
+            ref = registro.get('REFERÊNCIA', '')
+            turno = registro.get('TURNO', '')
+            
+            check = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?data=eq.{data_str}&referencia=eq.{ref}&turno=eq.{turno}",
+                headers=SUPABASE_HEADERS
+            )
+            
+            if check.status_code == 200 and check.json():
+                # Atualizar
+                response = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?data=eq.{data_str}&referencia=eq.{ref}&turno=eq.{turno}",
+                    json=data,
+                    headers=SUPABASE_HEADERS
+                )
+            else:
+                # Inserir
+                response = requests.post(
+                    f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}",
+                    json=data,
+                    headers=SUPABASE_HEADERS
+                )
+            
+            if response.status_code in [200, 201, 204]:
+                return True, "✅ Registro salvo no Supabase!"
+            else:
+                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    # ======================
+    # FUNÇÃO PARA SINCRONIZAR DADOS
+    # ======================
+    
+    def sincronizar_prensados_para_supabase(df: pd.DataFrame) -> tuple:
+        """Sincroniza dados do Google Sheets para o Supabase"""
+        if df.empty:
+            return False, "❌ Nenhum dado para sincronizar"
+        
+        sucessos = 0
+        erros = []
+        
+        for idx, row in df.iterrows():
+            try:
+                registro = row.to_dict()
+                sucesso, msg = salvar_registro_prensado_supabase(registro)
+                if sucesso:
+                    sucessos += 1
+                else:
+                    erros.append(msg)
+                if idx % 50 == 0 and idx > 0:
+                    print(f"  Progresso: {idx}/{len(df)}")
+            except Exception as e:
+                erros.append(str(e))
+        
+        if erros:
+            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
+        else:
+            return True, f"✅ {sucessos} registros sincronizados no Supabase!"
+    
+    # ======================
+    # FUNÇÃO PARA VERIFICAR SE HÁ REGISTROS NO SUPABASE
+    # ======================
+    
+    def verificar_registros_supabase() -> int:
+        """Verifica quantos registros existem no Supabase"""
+        try:
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?select=count",
+                headers=SUPABASE_HEADERS,
+                timeout=5
+            )
+            if response.status_code == 200:
+                dados = response.json()
+                return len(dados) if dados else 0
+            return 0
+        except:
+            return 0
+    
+    # ======================
+    # CARREGAR DADOS (PRIORIDADE ABSOLUTA SUPABASE)
+    # ======================
+    
+    with st.spinner("🔄 Carregando dados de prensados..."):
+        # Testar Supabase primeiro
+        supabase_ok, msg = testar_supabase_prensados()
+        
+        if supabase_ok:
+            # Tenta carregar do Supabase
+            df_base = carregar_dados_prensados_supabase()
+            
+            if df_base.empty:
+                st.warning("⚠️ Supabase conectado, mas sem dados. Usando Google Sheets...")
+                df_base = carregar_dados_prensados_google_sheets()
+                
+                if not df_base.empty:
+                    st.info("🔄 Sincronizando dados com o Supabase...")
+                    with st.spinner("Sincronizando..."):
+                        sucesso, msg_sync = sincronizar_prensados_para_supabase(df_base)
+                        if sucesso:
+                            st.success("✅ Dados sincronizados! Recarregando do Supabase...")
+                            df_base = carregar_dados_prensados_supabase()
+                        else:
+                            st.warning(f"⚠️ {msg_sync}")
+        else:
+            st.warning(f"⚠️ Supabase: {msg}. Usando Google Sheets...")
+            df_base = carregar_dados_prensados_google_sheets()
+            
+            if not df_base.empty:
+                st.info("🔄 Tentando sincronizar com o Supabase...")
+                try:
+                    with st.spinner("Sincronizando..."):
+                        sucesso, msg_sync = sincronizar_prensados_para_supabase(df_base)
+                        if sucesso:
+                            st.success("✅ Dados sincronizados com o Supabase!")
+                        else:
+                            st.warning(f"⚠️ {msg_sync}")
+                except Exception as e:
+                    st.warning(f"⚠️ Erro na sincronização: {e}")
+                st.warning("⚠️ Dados carregados do Google Sheets (fallback)")
+    
+    # Mostrar resultado
+    if not df_base.empty:
+        fonte = "Supabase" if supabase_ok and not carregar_dados_prensados_supabase().empty else "Google Sheets (fallback)"
+        if fonte == "Supabase":
+            st.success(f"✅ **{len(df_base)} registros** carregados do Supabase (Prensados)")
+        else:
+            st.warning(f"⚠️ **{len(df_base)} registros** carregados do {fonte}")
+    else:
+        st.error("❌ Nenhum dado disponível. Verifique a conexão.")
+        with st.expander("🔍 Diagnóstico de conexão", expanded=True):
+            # Testar Supabase
+            try:
+                response = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?select=count&limit=1",
+                    headers=SUPABASE_HEADERS,
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    st.success("✅ Supabase: Conectado")
+                else:
+                    st.error(f"❌ Supabase: Erro {response.status_code}")
+            except Exception as e:
+                st.error(f"❌ Supabase: {e}")
+            
+            # Testar Google Sheets
+            try:
+                client = get_gspread_client()
+                if client:
+                    st.success("✅ Google Sheets: Conectado")
+                else:
+                    st.error("❌ Google Sheets: Falha na conexão")
+            except Exception as e:
+                st.error(f"❌ Google Sheets: {e}")
+        
+        # Botão para forçar recarregamento
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            if st.button("🔄 Forçar recarregamento do Google Sheets", use_container_width=True, type="primary"):
+                with st.spinner("Carregando do Google Sheets..."):
+                    df_base = carregar_dados_prensados_google_sheets()
+                    if not df_base.empty:
+                        st.success(f"✅ {len(df_base)} registros carregados do Google Sheets")
+                        st.rerun()
+                    else:
+                        st.error("❌ Não foi possível carregar os dados do Google Sheets")
+        st.stop()
 
+    # ===== CONTINUA COM O PROCESSAMENTO NORMAL DOS DADOS =====
+    
     if df_base.empty:
         st.warning("Não foi possível carregar os dados.")
         st.stop()
@@ -2617,7 +3030,6 @@ if aba_selecionada == 'PRENSADOS':
             df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
 
     # ===== NOVA COLUNA: TEMPERADO =====
-    # A coluna AP_TEMPERA já está no DataFrame, basta usá-la
     if 'AP_TEMPERA' in df_base_calc.columns:
         df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['AP_TEMPERA'], errors='coerce').fillna(0)
     else:
@@ -2642,7 +3054,6 @@ if aba_selecionada == 'PRENSADOS':
         'PROCESSOS ANTERIORES T'
     ]
     
-    # Mapear colunas existentes no DataFrame
     defeitos_tempera_existentes = []
     for col_def in colunas_defeitos_tempera:
         for col_df in df_base_calc.columns:
@@ -2658,7 +3069,6 @@ if aba_selecionada == 'PRENSADOS':
         'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
     ]
     
-    # Mapear colunas existentes no DataFrame
     defeitos_embalagem_existentes = []
     for col_def in colunas_defeitos_embalagem:
         for col_df in df_base_calc.columns:
@@ -2666,7 +3076,7 @@ if aba_selecionada == 'PRENSADOS':
                 defeitos_embalagem_existentes.append(col_df)
                 break
     
-    # Melhores TRS histórico (mantido)
+    # Melhores TRS histórico
     melhores_trs_historico = {}
     if 'REFERÊNCIA' in df_base_calc.columns:
         for ref in df_base_calc['REFERÊNCIA'].unique():
@@ -2686,7 +3096,7 @@ if aba_selecionada == 'PRENSADOS':
         referencia = st.text_input("Referência (parte do código)", key="prensados_ref")
         prensa_tipo = st.selectbox("Tipo de prensa", ["(Todos)", "Semi-Automática", "Automática"], key="prensados_tipo")
         
-        # NOVO: Filtro por faixa de TRS
+        # Filtro por faixa de TRS
         st.markdown("---")
         st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_yellow']};'>▸ Filtro TRS</div>", unsafe_allow_html=True)
         faixa_trs = st.selectbox(
@@ -2747,7 +3157,7 @@ if aba_selecionada == 'PRENSADOS':
     # ===== PAGE HEADER =====
     render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
 
-    # ===== KPIs (7 cards - incluindo TEMPERADO e TRS divididos) =====
+    # ===== KPIs (7 cards) =====
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
     with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
@@ -2758,7 +3168,7 @@ if aba_selecionada == 'PRENSADOS':
         trs_primeira_cor = THEME['accent_lime'] if trs_primeira_escolha >= 85 else THEME['accent_orange'] if trs_primeira_escolha >= 70 else THEME['accent_red']
         render_kpi_card("TRS 1ª Escolha", f"{trs_primeira_escolha:.1f}%", trs_primeira_cor, "◎")
     with c7:
-        trs_final_cor = THEME['accent_yellow'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
+        trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
         render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
 
     # ===== TABELA DE PRODUÇÃO COM COLUNA TEMPERADO =====
@@ -2796,7 +3206,6 @@ if aba_selecionada == 'PRENSADOS':
         if 'TRS FINAL (%)' in df_display.columns:
             df_display['TRS FINAL (%)'] = df_display['TRS FINAL (%)'].apply(lambda x: f"{x:.2f}%")
 
-        # Colunas para exibição - incluindo TEMPERADO após APROVADO
         colunas_exibir = ['DATA', 'REFERÊNCIA', 'TURNO', 'PRODUZIDO', 'APROVADO', 'TEMPERADO', 'TRS 100%', 'EMBALADO', 'REFUGADO', 'TRS 1ª ESCOLHA (%)', 'TRS FINAL (%)']
         if 'ANALISE' in df_display.columns:
             colunas_exibir.append('ANALISE')
@@ -2816,7 +3225,6 @@ if aba_selecionada == 'PRENSADOS':
             if col in df.columns:
                 colunas_agg[col] = 'sum'
         
-        # Adicionar TEMPERADO se existir
         if 'TEMPERADO' in df.columns:
             colunas_agg['TEMPERADO'] = 'sum'
         
@@ -3530,19 +3938,16 @@ if aba_selecionada == 'PRENSADOS':
         st.markdown("<hr>", unsafe_allow_html=True)
         render_section_header("Defeitos Setor de Têmpera", "🔥", THEME['accent_orange'])
         
-        # Calcular somatório dos defeitos de têmpera
         df_def_temp = df[defeitos_tempera_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
         df_def_temp_sum = df_def_temp.sum().sort_values(ascending=False)
         df_def_temp_sum = df_def_temp_sum[df_def_temp_sum > 0]
         
         if not df_def_temp_sum.empty:
-            # Gráfico de barras (sem pizza)
             altura_grafico_temp = max(4, len(df_def_temp_sum) * 0.35)
             
             fig, ax = plt.subplots(figsize=(12, altura_grafico_temp), facecolor=THEME['bg_card'])
             apply_chart_style(ax, fig, "Defeitos Setor de Têmpera — Somatório", ylabel="Quantidade", accent=THEME['accent_orange'])
             
-            # Definir cores personalizadas para defeitos de têmpera
             cores_temp = ['#E86C2C' if 'RESFRIAMENTO' in idx or 'EMPENADA' in idx else 
                          '#FF6B35' if 'IMPACTO' in idx else 
                          '#FFB900' if 'QUARENTENA' in idx else 
@@ -3572,7 +3977,6 @@ if aba_selecionada == 'PRENSADOS':
             total_def_temp = df_def_temp_sum.sum()
             st.caption(f"🔥 **Total de defeitos do Setor de Têmpera:** {int(total_def_temp):,}".replace(",","."))
             
-            # Tabela detalhada (SEM GRÁFICO DE PIZZA)
             with st.expander("📊 Ver tabela detalhada de defeitos da Têmpera", expanded=False):
                 tabela_temp = pd.DataFrame({
                     'Defeito': df_def_temp_sum.index,
@@ -3589,19 +3993,16 @@ if aba_selecionada == 'PRENSADOS':
         st.markdown("<hr>", unsafe_allow_html=True)
         render_section_header("Defeitos da Embalagem", "📦", THEME['accent_lime'])
         
-        # Calcular somatório dos defeitos de embalagem
         df_def_emb = df[defeitos_embalagem_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
         df_def_emb_sum = df_def_emb.sum().sort_values(ascending=False)
         df_def_emb_sum = df_def_emb_sum[df_def_emb_sum > 0]
         
         if not df_def_emb_sum.empty:
-            # Gráfico de barras
             altura_grafico_emb = max(4, len(df_def_emb_sum) * 0.35)
             
             fig, ax = plt.subplots(figsize=(12, altura_grafico_emb), facecolor=THEME['bg_card'])
             apply_chart_style(ax, fig, "Defeitos da Embalagem — Somatório", ylabel="Quantidade", accent=THEME['accent_lime'])
             
-            # Definir cores personalizadas para defeitos de embalagem
             cores_emb = ['#107C10' if 'BOLHA' in idx or 'PEDRA' in idx else 
                          '#0078D4' if 'TRINCA' in idx or 'RUGA' in idx else 
                          '#E86C2C' if 'CORTE' in idx or 'DOBRA' in idx else 
@@ -3633,7 +4034,6 @@ if aba_selecionada == 'PRENSADOS':
             total_def_emb = df_def_emb_sum.sum()
             st.caption(f"📦 **Total de defeitos da Embalagem:** {int(total_def_emb):,}".replace(",","."))
             
-            # Tabela detalhada
             with st.expander("📊 Ver tabela detalhada de defeitos da Embalagem", expanded=False):
                 tabela_emb = pd.DataFrame({
                     'Defeito': df_def_emb_sum.index,
@@ -3643,7 +4043,6 @@ if aba_selecionada == 'PRENSADOS':
                 tabela_emb['% do Total'] = tabela_emb['% do Total'].astype(str) + '%'
                 st.dataframe(tabela_emb, use_container_width=True, hide_index=True)
                 
-                # Gráfico de pizza dos defeitos de embalagem
                 if len(df_def_emb_sum) > 1:
                     st.markdown("**📈 Distribuição dos Defeitos da Embalagem**")
                     top5_emb = df_def_emb_sum.head(5)
@@ -3687,6 +4086,7 @@ if aba_selecionada == 'PRENSADOS':
     </div>
     """, unsafe_allow_html=True)
 
+# ===== FIM DO MÓDULO PRENSADOS =====
 # ==================================================================================================
 # SOPRO
 # ==================================================================================================
