@@ -24,7 +24,6 @@ from datetime import datetime, timedelta, date, time as dt_time
 from functools import wraps
 import plotly.express as px
 import plotly.graph_objects as go
-import requests  # <-- ADICIONE ESTA LINHA
 
 # ======================
 # FUNÇÃO PARA LIMPAR CACHE E RECARREGAR
@@ -2598,211 +2597,17 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO SUPABASE (FONTE PRINCIPAL)
+# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
 # ==================================================================================================
-
 if aba_selecionada == 'PRENSADOS':
-    
-    # ======================
-    # CONFIGURAÇÃO SUPABASE
-    # ======================
-    SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
-    
-    SUPABASE_HEADERS = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    TABELA_PRENSADOS = "trs_industrial"  # Nome correto da tabela no Supabase
-    
-    # ======================
-    # FUNÇÃO PARA CARREGAR DO SUPABASE
-    # ======================
-    
-    @st.cache_data(ttl=600)  # Cache de 10 minutos
-    def carregar_dados_prensados_supabase() -> pd.DataFrame:
-        """Carrega dados de prensados diretamente do Supabase"""
-        try:
-            print("🔄 Carregando dados de prensados do Supabase...")
-            
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/{TABELA_PRENSADOS}?select=*&order=data.desc",
-                headers=SUPABASE_HEADERS,
-                timeout=15
-            )
-            
-            if response.status_code == 200:
-                dados = response.json()
-                if dados:
-                    df = pd.DataFrame(dados)
-                    
-                    # Mapear colunas do Supabase para o formato do dashboard
-                    colunas_mapeadas = {
-                        'data': 'DATA',
-                        'turno': 'TURNO',
-                        'referencia': 'REFERÊNCIA',
-                        'produzido': 'PRODUZIDO',
-                        'aprovado': 'APROVADO',
-                        'embalado': 'EMBALADO',
-                        'trs_100': 'TRS 100%',
-                        'refugado': 'REFUGADO',
-                        'boqueta': 'BOQUETA',
-                        'ap_tempera': 'AP_TEMPERA',
-                        'd_tempera': 'D_TEMPERA',
-                        'horas_tempera': 'HORAS_TEMPERA',
-                        'meta_tempera': 'META_TEMPERA',
-                        'trs_tempera': 'TRS_TEMPERA',
-                        'aud_tempera': 'AUD_TEMPERA',
-                        'manu_tempera': 'MANU_TEMPERA',
-                        'parada_tempera': 'PARADA_TEMPERA',
-                        'horas_totais': 'HORAS_TOTAIS',
-                        'acertos': 'ACERTOS',
-                        'manut': 'MANUT',
-                        'analise': 'ANALISE',
-                        'fifo': 'FIFO'
-                    }
-                    
-                    # Renomear colunas existentes
-                    for old, new in colunas_mapeadas.items():
-                        if old in df.columns:
-                            df = df.rename(columns={old: new})
-                    
-                    # Converter DATA para datetime
-                    if 'DATA' in df.columns:
-                        df['DATA'] = pd.to_datetime(df['DATA'])
-                        df = df.dropna(subset=['DATA'])
-                    
-                    # Converter colunas numéricas
-                    colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO']
-                    for col in colunas_numericas:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                    
-                    # Adicionar colunas auxiliares
-                    if 'DATA' in df.columns:
-                        df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
-                        df['DIA_SEMANA'] = df['DATA'].dt.day_name()
-                        df['SEMANA'] = df['DATA'].dt.isocalendar().week
-                        df['IS_SABADO'] = df['DATA'].dt.dayofweek == 5
-                    
-                    # Processar colunas de tempo
-                    for col in df.columns:
-                        col_upper = str(col).upper()
-                        if 'ACERTO' in col_upper and 'MIN' not in col_upper:
-                            df['ACERTOS_MIN'] = df[col].apply(converter_tempo_para_minutos)
-                        if 'MANUT' in col_upper and 'MIN' not in col_upper:
-                            df['MANUT_MIN'] = df[col].apply(converter_tempo_para_minutos)
-                        if 'HORAS TOTAIS' in col_upper or 'HORA TOTAL' in col_upper:
-                            df['HORAS_TOTAIS_MIN'] = df[col].apply(converter_tempo_para_minutos)
-                    
-                    if 'ACERTOS_MIN' in df.columns:
-                        df['ACERTOS_MIN_AJUSTADO'] = df.apply(
-                            lambda row: max(0, row['ACERTOS_MIN'] - 165) if row['IS_SABADO'] else row['ACERTOS_MIN'], axis=1
-                        )
-                    
-                    print(f"✅ {len(df)} registros carregados do Supabase")
-                    return df
-                else:
-                    print("⚠️ Nenhum dado encontrado no Supabase")
-                    return pd.DataFrame()
-            else:
-                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
-                return pd.DataFrame()
-                
-        except Exception as e:
-            print(f"❌ Erro ao carregar dados: {e}")
-            return pd.DataFrame()
-    
-    # ======================
-    # FUNÇÃO PARA CARREGAR DO GOOGLE SHEETS (FALLBACK)
-    # ======================
-    
-    def carregar_dados_prensados_google_sheets() -> pd.DataFrame:
-        """Carrega dados do Google Sheets como fallback"""
-        try:
-            print("🔄 FALLBACK: Carregando do Google Sheets...")
-            client = get_gspread_client()
-            if client is None:
-                return pd.DataFrame()
-            
-            sheet = client.open_by_key(ID_PLANILHA_PRENSADOS_SOPRO).worksheet('TRS_INDUSTRIAL')
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                return pd.DataFrame()
-            
-            cabecalho = todos_dados[1]
-            valores = todos_dados[2:]
-            df = pd.DataFrame(valores, columns=cabecalho)
-            df.columns = df.columns.str.strip().str.upper()
-            
-            # Processamento dos dados
-            if 'DATA' in df.columns:
-                df['DATA'] = df['DATA'].apply(converter_data_br)
-                df = df.dropna(subset=['DATA'])
-            
-            if 'APROVADO FINAL' in df.columns:
-                df = df.rename(columns={'APROVADO FINAL': 'EMBALADO'})
-            
-            colunas_numericas = ['PRODUZIDO', 'APROVADO', 'EMBALADO', 'TRS 100%', 'REFUGADO', 'BOQUETA']
-            for col in colunas_numericas:
-                if col in df.columns:
-                    df[col] = df[col].apply(converter_numero_br)
-            
-            df['ANO_MES'] = df['DATA'].dt.to_period('M').astype(str)
-            df['DIA_SEMANA'] = df['DATA'].dt.day_name()
-            df['SEMANA'] = df['DATA'].dt.isocalendar().week
-            df['IS_SABADO'] = df['DATA'].dt.dayofweek == 5
-            
-            for col in df.columns:
-                col_upper = str(col).upper()
-                if 'ACERTO' in col_upper and 'MIN' not in col_upper:
-                    df['ACERTOS_MIN'] = df[col].apply(converter_tempo_para_minutos)
-                if 'MANUT' in col_upper and 'MIN' not in col_upper:
-                    df['MANUT_MIN'] = df[col].apply(converter_tempo_para_minutos)
-                if 'HORAS TOTAIS' in col_upper or 'HORA TOTAL' in col_upper:
-                    df['HORAS_TOTAIS_MIN'] = df[col].apply(converter_tempo_para_minutos)
-            
-            if 'ACERTOS_MIN' in df.columns:
-                df['ACERTOS_MIN_AJUSTADO'] = df.apply(
-                    lambda row: max(0, row['ACERTOS_MIN'] - 165) if row['IS_SABADO'] else row['ACERTOS_MIN'], axis=1
-                )
-            
-            print(f"✅ FALLBACK: {len(df)} registros carregados do Google Sheets")
-            return df
-            
-        except Exception as e:
-            print(f"❌ FALLBACK: Erro: {e}")
-            return pd.DataFrame()
-    
-    # ======================
-    # CARREGAR DADOS (PRIORIDADE SUPABASE)
-    # ======================
-    
-    with st.spinner("🔄 Carregando dados de prensados do Supabase..."):
-        # Tenta carregar do Supabase
-        df_base = carregar_dados_prensados_supabase()
-        
-        # Se falhar, tenta Google Sheets
-        if df_base.empty:
-            st.warning("⚠️ Supabase sem dados. Carregando do Google Sheets...")
-            df_base = carregar_dados_prensados_google_sheets()
-            
-            if not df_base.empty:
-                st.info(f"✅ {len(df_base)} registros carregados do Google Sheets (fallback)")
-            else:
-                st.error("❌ Nenhum dado disponível.")
-                st.stop()
-        else:
-            st.success(f"✅ **{len(df_base)} registros** carregados do Supabase")
-    
+    with st.spinner("Carregando dados..."):
+        df_base = carregar_dados_prensados()
+
     if df_base.empty:
         st.warning("Não foi possível carregar os dados.")
         st.stop()
 
-    # ===== PROCESSAMENTO DOS DADOS =====
+    # ===== PROCESSAMENTO INICIAL DOS DADOS =====
     df_base_calc = df_base.copy()
     
     # Converter colunas numéricas
@@ -2811,7 +2616,8 @@ if aba_selecionada == 'PRENSADOS':
         if col in df_base_calc.columns:
             df_base_calc[col] = pd.to_numeric(df_base_calc[col], errors='coerce').fillna(0)
 
-    # Coluna TEMPERADO
+    # ===== NOVA COLUNA: TEMPERADO =====
+    # A coluna AP_TEMPERA já está no DataFrame, basta usá-la
     if 'AP_TEMPERA' in df_base_calc.columns:
         df_base_calc['TEMPERADO'] = pd.to_numeric(df_base_calc['AP_TEMPERA'], errors='coerce').fillna(0)
     else:
@@ -2829,13 +2635,14 @@ if aba_selecionada == 'PRENSADOS':
         df_base_calc['TRS 1ª ESCOLHA (%)'] = 0
         df_base_calc['TRS FINAL (%)'] = 0
 
-    # ===== IDENTIFICAR COLUNAS DE DEFEITOS =====
+    # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE TÊMPERA =====
     colunas_defeitos_tempera = [
         'EMPENADA', 'OVALIZADA T', 'QUEBRA RESFRIAMENTO T', 'EMPENADA T',
         'QUEBRA T', 'IMPACTO T', 'QUARENTENA T', 'TESTE FURAÇÃO T',
         'PROCESSOS ANTERIORES T'
     ]
     
+    # Mapear colunas existentes no DataFrame
     defeitos_tempera_existentes = []
     for col_def in colunas_defeitos_tempera:
         for col_df in df_base_calc.columns:
@@ -2843,6 +2650,7 @@ if aba_selecionada == 'PRENSADOS':
                 defeitos_tempera_existentes.append(col_df)
                 break
 
+    # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE EMBALAGEM =====
     colunas_defeitos_embalagem = [
         'BOLHA E', 'PEDRA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
         'DOBRA E', 'FARINHA E', 'QUEBRA E', 'ARREADO E', 'VIDRO GRUDADO E',
@@ -2850,6 +2658,7 @@ if aba_selecionada == 'PRENSADOS':
         'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
     ]
     
+    # Mapear colunas existentes no DataFrame
     defeitos_embalagem_existentes = []
     for col_def in colunas_defeitos_embalagem:
         for col_df in df_base_calc.columns:
@@ -2857,7 +2666,7 @@ if aba_selecionada == 'PRENSADOS':
                 defeitos_embalagem_existentes.append(col_df)
                 break
     
-    # Melhores TRS histórico
+    # Melhores TRS histórico (mantido)
     melhores_trs_historico = {}
     if 'REFERÊNCIA' in df_base_calc.columns:
         for ref in df_base_calc['REFERÊNCIA'].unique():
@@ -2869,14 +2678,7 @@ if aba_selecionada == 'PRENSADOS':
 
     # ===== SIDEBAR FILTROS =====
     with st.sidebar:
-        st.markdown(f"""
-        <div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;
-            text-transform:uppercase;color:{THEME['accent_cyan']};
-            margin:20px 0 10px;border-top:1px solid {THEME['border_bright']};
-            padding-top:16px'>▸ Filtros · Prensados
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_cyan']};margin:20px 0 10px;border-top:1px solid {THEME['border_bright']};padding-top:16px'>▸ Filtros · Prensados</div>", unsafe_allow_html=True)
         filtro_melhores_trs = st.checkbox("Melhores TRS por Referência", value=False)
         data_ini = st.date_input("Data inicial", value=None, key="prensados_data_ini")
         data_fim = st.date_input("Data final", value=None, key="prensados_data_fim")
@@ -2884,13 +2686,9 @@ if aba_selecionada == 'PRENSADOS':
         referencia = st.text_input("Referência (parte do código)", key="prensados_ref")
         prensa_tipo = st.selectbox("Tipo de prensa", ["(Todos)", "Semi-Automática", "Automática"], key="prensados_tipo")
         
+        # NOVO: Filtro por faixa de TRS
         st.markdown("---")
-        st.markdown(f"""
-        <div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;
-            text-transform:uppercase;color:{THEME['accent_yellow']};'>▸ Filtro TRS
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:{THEME['accent_yellow']};'>▸ Filtro TRS</div>", unsafe_allow_html=True)
         faixa_trs = st.selectbox(
             "Faixa de TRS Final",
             ["(Todas)", "Excelente (>85%)", "Bom (70-85%)", "Regular (50-70%)", "Crítico (<50%)"],
@@ -2918,6 +2716,7 @@ if aba_selecionada == 'PRENSADOS':
         elif "Auto" in prensa_tipo:
             df = df[df['BOQUETA'] == 2]
     
+    # Filtro por faixa de TRS
     if faixa_trs != "(Todas)" and 'TRS FINAL (%)' in df.columns:
         if faixa_trs == "Excelente (>85%)":
             df = df[df['TRS FINAL (%)'] > 85]
@@ -2948,7 +2747,7 @@ if aba_selecionada == 'PRENSADOS':
     # ===== PAGE HEADER =====
     render_page_header("PRENSADOS", f"Industrial · {len(df):,} registros carregados · Atualizado {get_horario_brasilia()}", THEME['accent_cyan'])
 
-    # ===== KPIs (7 cards) =====
+    # ===== KPIs (7 cards - incluindo TEMPERADO e TRS divididos) =====
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     with c1: render_kpi_card("Produzido", f"{total_prod:,}".replace(",","."), THEME['accent_cyan'], "◈")
     with c2: render_kpi_card("Aprovado", f"{total_apro:,}".replace(",","."), THEME['accent_lime'], "◈")
@@ -2959,10 +2758,10 @@ if aba_selecionada == 'PRENSADOS':
         trs_primeira_cor = THEME['accent_lime'] if trs_primeira_escolha >= 85 else THEME['accent_orange'] if trs_primeira_escolha >= 70 else THEME['accent_red']
         render_kpi_card("TRS 1ª Escolha", f"{trs_primeira_escolha:.1f}%", trs_primeira_cor, "◎")
     with c7:
-        trs_final_cor = THEME['accent_lime'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
+        trs_final_cor = THEME['accent_yellow'] if trs_final_total >= 85 else THEME['accent_orange'] if trs_final_total >= 70 else THEME['accent_red']
         render_kpi_card("TRS Final", f"{trs_final_total:.1f}%", trs_final_cor, "◎")
 
-    # ===== TABELA DE PRODUÇÃO =====
+    # ===== TABELA DE PRODUÇÃO COM COLUNA TEMPERADO =====
     render_section_header("Tabela de Produção", "▸")
 
     if not df.empty:
@@ -2975,11 +2774,7 @@ if aba_selecionada == 'PRENSADOS':
     df_sorted = df.sort_values(by="DATA", ascending=False).reset_index(drop=True)
 
     if filtro_melhores_trs and not df_sorted.empty and 'REFERÊNCIA' in df_sorted.columns:
-        df_sorted = df_sorted[df_sorted.apply(
-            lambda row: row['REFERÊNCIA'] in melhores_trs_historico and 
-            abs(row['TRS FINAL (%)'] - melhores_trs_historico[row['REFERÊNCIA']]) < 0.01, 
-            axis=1
-        )].reset_index(drop=True)
+        df_sorted = df_sorted[df_sorted.apply(lambda row: row['REFERÊNCIA'] in melhores_trs_historico and abs(row['TRS FINAL (%)'] - melhores_trs_historico[row['REFERÊNCIA']]) < 0.01, axis=1)].reset_index(drop=True)
         if not df_sorted.empty:
             st.info(f"Exibindo {len(df_sorted)} registro(s) — Melhor TRS Final Histórico por referência")
         else:
@@ -3001,6 +2796,7 @@ if aba_selecionada == 'PRENSADOS':
         if 'TRS FINAL (%)' in df_display.columns:
             df_display['TRS FINAL (%)'] = df_display['TRS FINAL (%)'].apply(lambda x: f"{x:.2f}%")
 
+        # Colunas para exibição - incluindo TEMPERADO após APROVADO
         colunas_exibir = ['DATA', 'REFERÊNCIA', 'TURNO', 'PRODUZIDO', 'APROVADO', 'TEMPERADO', 'TRS 100%', 'EMBALADO', 'REFUGADO', 'TRS 1ª ESCOLHA (%)', 'TRS FINAL (%)']
         if 'ANALISE' in df_display.columns:
             colunas_exibir.append('ANALISE')
@@ -3020,6 +2816,7 @@ if aba_selecionada == 'PRENSADOS':
             if col in df.columns:
                 colunas_agg[col] = 'sum'
         
+        # Adicionar TEMPERADO se existir
         if 'TEMPERADO' in df.columns:
             colunas_agg['TEMPERADO'] = 'sum'
         
@@ -3068,12 +2865,8 @@ if aba_selecionada == 'PRENSADOS':
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown(f"""
-        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;
-            text-transform:uppercase;color:{THEME['text_muted']};margin-bottom:8px">
-            ▸ Semi-Automática (Manual)
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;
+            text-transform:uppercase;color:{THEME['text_muted']};margin-bottom:8px">▸ Semi-Automática (Manual)</div>""", unsafe_allow_html=True)
         if 'BOQUETA' in df.columns:
             df_manual = df[df['BOQUETA'] == 1]
             if not df_manual.empty:
@@ -3092,12 +2885,8 @@ if aba_selecionada == 'PRENSADOS':
                 st.info("Sem dados para Prensa Manual")
 
     with col2:
-        st.markdown(f"""
-        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;
-            text-transform:uppercase;color:{THEME['text_muted']};margin-bottom:8px">
-            ▸ Automática
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;
+            text-transform:uppercase;color:{THEME['text_muted']};margin-bottom:8px">▸ Automática</div>""", unsafe_allow_html=True)
         if 'BOQUETA' in df.columns:
             df_auto = df[df['BOQUETA'] == 2]
             if not df_auto.empty:
@@ -3120,6 +2909,7 @@ if aba_selecionada == 'PRENSADOS':
     # ===== ANÁLISE DE PARADAS =====
     render_section_header("Análise de Paradas", "▸")
 
+    # 1. HORAS TRABALHADAS PRODUTIVAS
     horas_trabalhadas_produtivas = 0
     if 'HORAS_TOTAIS_MIN' in df.columns:
         horas_trabalhadas_produtivas = df['HORAS_TOTAIS_MIN'].sum()
@@ -3131,12 +2921,14 @@ if aba_selecionada == 'PRENSADOS':
                 horas_trabalhadas_produtivas = df['HORAS_TOTAIS_MIN'].sum()
                 break
 
+    # 2. ERROS DE PROCESSO
     total_acertos = 0
     if 'ACERTOS_MIN' in df.columns:
         def filtrar_acertos(val):
             if val == 165:
                 return 0
             return val
+        
         total_acertos = df['ACERTOS_MIN'].apply(filtrar_acertos).sum()
     else:
         for col in df.columns:
@@ -3146,6 +2938,7 @@ if aba_selecionada == 'PRENSADOS':
                 total_acertos = df['ACERTOS_MIN'].apply(filtrar_acertos).sum()
                 break
 
+    # 3. MANUTENÇÃO
     total_manut = 0
     if 'MANUT_MIN' in df.columns:
         total_manut = df['MANUT_MIN'].sum()
@@ -3157,15 +2950,30 @@ if aba_selecionada == 'PRENSADOS':
                 total_manut = df['MANUT_MIN'].sum()
                 break
 
+    horas_produtivas = max(0, horas_trabalhadas_produtivas - (total_acertos + total_manut))
+
+    # Cards de paradas
     p1, p2, p3 = st.columns(3)
     with p1: 
-        render_kpi_card("Horas Trabalhadas Produtivas", minutos_para_horas_str(horas_trabalhadas_produtivas), THEME['accent_lime'])
+        render_kpi_card(
+            "Horas Trabalhadas Produtivas", 
+            minutos_para_horas_str(horas_trabalhadas_produtivas), 
+            THEME['accent_lime']
+        )
     with p2: 
-        render_kpi_card("Erros Processo", minutos_para_horas_str(total_acertos), THEME['accent_yellow'])
+        render_kpi_card(
+            "Erros Processo", 
+            minutos_para_horas_str(total_acertos), 
+            THEME['accent_yellow']
+        )
     with p3: 
-        render_kpi_card("Manutenção", minutos_para_horas_str(total_manut), THEME['accent_red'])
+        render_kpi_card(
+            "Manutenção", 
+            minutos_para_horas_str(total_manut), 
+            THEME['accent_red']
+        )
 
-    # ===== GRÁFICO DE BARRAS EMPILHADAS =====
+    # Gráfico de barras empilhadas
     col1, col2 = st.columns(2)
 
     with col1:
@@ -3263,7 +3071,7 @@ if aba_selecionada == 'PRENSADOS':
         else:
             st.info("Sem dados de tempo para exibir")
 
-    # ===== GRÁFICOS MENSAIS =====
+    # ===== GRÁFICOS MENSAIS MANUAL E AUTOMÁTICA =====
     st.markdown("<hr>", unsafe_allow_html=True)
     render_section_header("📊 Evolução Mensal de Erros e Manutenção por Tipo de Prensa", "▸")
 
@@ -3722,16 +3530,19 @@ if aba_selecionada == 'PRENSADOS':
         st.markdown("<hr>", unsafe_allow_html=True)
         render_section_header("Defeitos Setor de Têmpera", "🔥", THEME['accent_orange'])
         
+        # Calcular somatório dos defeitos de têmpera
         df_def_temp = df[defeitos_tempera_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
         df_def_temp_sum = df_def_temp.sum().sort_values(ascending=False)
         df_def_temp_sum = df_def_temp_sum[df_def_temp_sum > 0]
         
         if not df_def_temp_sum.empty:
+            # Gráfico de barras (sem pizza)
             altura_grafico_temp = max(4, len(df_def_temp_sum) * 0.35)
             
             fig, ax = plt.subplots(figsize=(12, altura_grafico_temp), facecolor=THEME['bg_card'])
             apply_chart_style(ax, fig, "Defeitos Setor de Têmpera — Somatório", ylabel="Quantidade", accent=THEME['accent_orange'])
             
+            # Definir cores personalizadas para defeitos de têmpera
             cores_temp = ['#E86C2C' if 'RESFRIAMENTO' in idx or 'EMPENADA' in idx else 
                          '#FF6B35' if 'IMPACTO' in idx else 
                          '#FFB900' if 'QUARENTENA' in idx else 
@@ -3761,6 +3572,7 @@ if aba_selecionada == 'PRENSADOS':
             total_def_temp = df_def_temp_sum.sum()
             st.caption(f"🔥 **Total de defeitos do Setor de Têmpera:** {int(total_def_temp):,}".replace(",","."))
             
+            # Tabela detalhada (SEM GRÁFICO DE PIZZA)
             with st.expander("📊 Ver tabela detalhada de defeitos da Têmpera", expanded=False):
                 tabela_temp = pd.DataFrame({
                     'Defeito': df_def_temp_sum.index,
@@ -3777,16 +3589,19 @@ if aba_selecionada == 'PRENSADOS':
         st.markdown("<hr>", unsafe_allow_html=True)
         render_section_header("Defeitos da Embalagem", "📦", THEME['accent_lime'])
         
+        # Calcular somatório dos defeitos de embalagem
         df_def_emb = df[defeitos_embalagem_existentes].apply(pd.to_numeric, errors='coerce').fillna(0)
         df_def_emb_sum = df_def_emb.sum().sort_values(ascending=False)
         df_def_emb_sum = df_def_emb_sum[df_def_emb_sum > 0]
         
         if not df_def_emb_sum.empty:
+            # Gráfico de barras
             altura_grafico_emb = max(4, len(df_def_emb_sum) * 0.35)
             
             fig, ax = plt.subplots(figsize=(12, altura_grafico_emb), facecolor=THEME['bg_card'])
             apply_chart_style(ax, fig, "Defeitos da Embalagem — Somatório", ylabel="Quantidade", accent=THEME['accent_lime'])
             
+            # Definir cores personalizadas para defeitos de embalagem
             cores_emb = ['#107C10' if 'BOLHA' in idx or 'PEDRA' in idx else 
                          '#0078D4' if 'TRINCA' in idx or 'RUGA' in idx else 
                          '#E86C2C' if 'CORTE' in idx or 'DOBRA' in idx else 
@@ -3818,6 +3633,7 @@ if aba_selecionada == 'PRENSADOS':
             total_def_emb = df_def_emb_sum.sum()
             st.caption(f"📦 **Total de defeitos da Embalagem:** {int(total_def_emb):,}".replace(",","."))
             
+            # Tabela detalhada
             with st.expander("📊 Ver tabela detalhada de defeitos da Embalagem", expanded=False):
                 tabela_emb = pd.DataFrame({
                     'Defeito': df_def_emb_sum.index,
@@ -3827,6 +3643,7 @@ if aba_selecionada == 'PRENSADOS':
                 tabela_emb['% do Total'] = tabela_emb['% do Total'].astype(str) + '%'
                 st.dataframe(tabela_emb, use_container_width=True, hide_index=True)
                 
+                # Gráfico de pizza dos defeitos de embalagem
                 if len(df_def_emb_sum) > 1:
                     st.markdown("**📈 Distribuição dos Defeitos da Embalagem**")
                     top5_emb = df_def_emb_sum.head(5)
@@ -3869,8 +3686,6 @@ if aba_selecionada == 'PRENSADOS':
         TRS DASHBOARD · PRENSADOS · {get_horario_brasilia()}
     </div>
     """, unsafe_allow_html=True)
-
-# ===== FIM DO MÓDULO PRENSADOS =====
 
 # ==================================================================================================
 # SOPRO
