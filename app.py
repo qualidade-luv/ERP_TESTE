@@ -2598,8 +2598,9 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COMPLETA E CORRIGIDA
+# PRENSADOS - VERSÃO COMPLETA CORRIGIDA (COM IF EM VEZ DE ELIF)
 # ==================================================================================================
+
 if aba_selecionada == 'PRENSADOS':
     
     # ======================
@@ -2938,6 +2939,7 @@ if aba_selecionada == 'PRENSADOS':
             # Tenta carregar do Supabase
             df_base = carregar_dados_prensados_supabase()
             
+            # Se não houver dados no Supabase, tenta carregar do Google Sheets e sincronizar
             if df_base.empty:
                 st.warning("⚠️ Supabase conectado, mas sem dados. Usando Google Sheets...")
                 df_base = carregar_dados_prensados_google_sheets()
@@ -4088,6 +4090,7 @@ if aba_selecionada == 'PRENSADOS':
     """, unsafe_allow_html=True)
 
 # ===== FIM DO MÓDULO PRENSADOS =====
+
 # ==================================================================================================
 # SOPRO
 # ==================================================================================================
