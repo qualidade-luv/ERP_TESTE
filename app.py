@@ -7211,21 +7211,23 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO KANBAN - RENDERIZAÇÃO CORRIGIDA
+# FECHAMENTO TURNO - VERSÃO KANBAN CORRIGIDA (SEM DRAG-AND-DROP, SEM BUG DE HTML)
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
-    render_page_header("FECHAMENTO DE TURNO", 
-                       f"Kanban de Produção · Atualizado {get_horario_brasilia()}", 
+    import textwrap
+
+    render_page_header("FECHAMENTO DE TURNO",
+                       f"Kanban de Produção · Atualizado {get_horario_brasilia()}",
                        THEME['accent_purple'])
-    
+
     # ======================
     # CONFIGURAÇÕES
     # ======================
     NOME_PLANILHA_KANBAN = 'Fechamento diario'
     ABA_KANBAN = 'KANBAN'
-    
+
     # ======================
-    # CLASSES DE DADOS
+    # CLASSE DE DADOS
     # ======================
     @dataclass
     class OrdemProducao:
@@ -7241,1055 +7243,439 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         prioridade: int = 2
         observacao: str = ""
         linha: Optional[int] = None
-    
-    # ======================
-    # STATUS KANBAN
-    # ======================
+
     STATUS_KANBAN = [
-        {"key": "A_PRODUZIR", "label": "A Produzir", "icon": "📋", "color": "#6c757d"},
-        {"key": "PRODUZINDO", "label": "Produzindo", "icon": "⚙️", "color": "#0078D4"},
-        {"key": "QUALIDADE", "label": "Qualidade", "icon": "🔍", "color": "#FFB900"},
-        {"key": "CONFERIDO", "label": "Conferido", "icon": "✅", "color": "#107C10"},
-        {"key": "CONCLUIDO", "label": "Concluído", "icon": "🏁", "color": "#28a745"},
-        {"key": "ARMAZENADO", "label": "Armazenado", "icon": "📦", "color": "#6B46C1"},
+        {"key": "A_PRODUZIR",  "label": "A Produzir",  "icon": "📋", "color": "#6c757d"},
+        {"key": "PRODUZINDO",  "label": "Produzindo",  "icon": "⚙️", "color": "#0078D4"},
+        {"key": "QUALIDADE",   "label": "Qualidade",   "icon": "🔍", "color": "#FFB900"},
+        {"key": "CONFERIDO",   "label": "Conferido",   "icon": "✅", "color": "#107C10"},
+        {"key": "CONCLUIDO",   "label": "Concluído",   "icon": "🏁", "color": "#28a745"},
+        {"key": "ARMAZENADO",  "label": "Armazenado",  "icon": "📦", "color": "#6B46C1"},
     ]
-    
-    # ======================
-    # INICIALIZAR SESSION STATE
-    # ======================
-    if 'ordens_kanban' not in st.session_state:
-        st.session_state.ordens_kanban = []
-    
-    if 'kanban_editando' not in st.session_state:
-        st.session_state.kanban_editando = None
-    
-    if 'kanban_mostrar_novo' not in st.session_state:
-        st.session_state.kanban_mostrar_novo = False
-    
-    if 'kanban_carregado' not in st.session_state:
-        st.session_state.kanban_carregado = False
-    
-    # ======================
-    # CSS PARA KANBAN
-    # ======================
-    st.markdown("""
-    <style>
-    .kanban-container {
-        display: flex;
-        gap: 16px;
-        overflow-x: auto;
-        padding: 12px 4px 20px 4px;
-        min-height: 500px;
-        align-items: flex-start;
-    }
-    
-    .kanban-column {
-        min-width: 220px;
-        max-width: 260px;
-        flex: 1;
-        background: #f4f5f7;
-        border-radius: 12px;
-        padding: 12px 10px;
-        border: 1px solid #e0e4e8;
-        min-height: 400px;
-        display: flex;
-        flex-direction: column;
-    }
-    
-    .kanban-column-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-bottom: 10px;
-        border-bottom: 2px solid #e0e4e8;
-        margin-bottom: 10px;
-    }
-    
-    .kanban-column-title {
-        font-family: 'Rajdhani', sans-serif;
-        font-size: 14px;
-        font-weight: 700;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    
-    .kanban-column-count {
-        background: #e0e4e8;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 600;
-        color: #555;
-    }
-    
-    .kanban-card {
-        background: white;
-        border-radius: 8px;
-        padding: 12px 14px;
-        margin-bottom: 8px;
-        border-left: 4px solid #0078D4;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-        cursor: grab;
-        transition: all 0.2s ease;
-        position: relative;
-        user-select: none;
-    }
-    
-    .kanban-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-        border-left-width: 5px;
-    }
-    
-    .kanban-card:active {
-        cursor: grabbing;
-    }
-    
-    .kanban-card-id {
-        font-size: 10px;
-        font-weight: 700;
-        color: #0078D4;
-        font-family: 'JetBrains Mono', monospace;
-        margin-bottom: 4px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
-    
-    .kanban-card-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: #1a1a2e;
-        margin-bottom: 4px;
-        line-height: 1.3;
-    }
-    
-    .kanban-card-desc {
-        font-size: 11px;
-        color: #666;
-        margin-bottom: 6px;
-        line-height: 1.3;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
-    
-    .kanban-card-meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 10px;
-        color: #888;
-        margin-top: 6px;
-        padding-top: 6px;
-        border-top: 1px solid #f0f0f0;
-        flex-wrap: wrap;
-        gap: 4px;
-    }
-    
-    .kanban-card-meta .qtd {
-        font-weight: 700;
-        color: #0078D4;
-    }
-    
-    .kanban-card-meta .cliente {
-        color: #666;
-    }
-    
-    .kanban-card-badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 9px;
-        font-weight: 700;
-        color: white;
-    }
-    
-    .kanban-card-actions {
-        display: flex;
-        gap: 6px;
-        margin-top: 8px;
-        justify-content: flex-end;
-        border-top: 1px solid #f0f0f0;
-        padding-top: 6px;
-    }
-    
-    .kanban-card-actions button {
-        background: none;
-        border: none;
-        cursor: pointer;
-        font-size: 14px;
-        padding: 2px 6px;
-        border-radius: 4px;
-        transition: background 0.2s;
-        color: #555;
-    }
-    
-    .kanban-card-actions button:hover {
-        background: #f0f0f0;
-        color: #0078D4;
-    }
-    
-    .kanban-empty {
-        text-align: center;
-        padding: 30px 10px;
-        color: #aaa;
-        font-size: 12px;
-        border: 2px dashed #e0e4e8;
-        border-radius: 8px;
-        background: #fafafa;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    
-    .kanban-empty .icon {
-        font-size: 28px;
-        margin-bottom: 8px;
-        opacity: 0.5;
-    }
-    
-    .kanban-empty .text {
-        font-size: 11px;
-        color: #999;
-    }
-    
-    .kanban-drop-zone {
-        border: 2px dashed transparent;
-        border-radius: 8px;
-        padding: 4px;
-        transition: all 0.2s ease;
-        min-height: 60px;
-        flex: 1;
-    }
-    
-    .kanban-drop-zone.drag-over {
-        border-color: #0078D4;
-        background: rgba(0,120,212,0.08);
-    }
-    
-    .kanban-toolbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 16px;
-        padding: 12px 16px;
-        background: white;
-        border-radius: 10px;
-        border: 1px solid #e0e4e8;
-    }
-    
-    @media (max-width: 1200px) {
-        .kanban-column {
-            min-width: 180px;
-            max-width: 220px;
-        }
-    }
-    
-    @media (max-width: 768px) {
-        .kanban-container {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        .kanban-column {
-            max-width: 100%;
-            min-width: unset;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    STATUS_KEYS = [s["key"] for s in STATUS_KANBAN]
 
     # ======================
-    # FUNÇÃO PARA CARREGAR DADOS
+    # SESSION STATE
     # ======================
-    
+    if 'kanban_ordens' not in st.session_state:
+        st.session_state.kanban_ordens = []
+    if 'kanban_carregado' not in st.session_state:
+        st.session_state.kanban_carregado = False
+    if 'kanban_mostrar_novo' not in st.session_state:
+        st.session_state.kanban_mostrar_novo = False
+    if 'kanban_editando' not in st.session_state:
+        st.session_state.kanban_editando = None
+
+    # ======================
+    # CSS (dedentado -> nunca vira bloco de código no markdown)
+    # ======================
+    st.markdown(textwrap.dedent("""
+    <style>
+    .kanban-container { display:flex; gap:14px; overflow-x:auto; padding:8px 2px 16px 2px; align-items:flex-start; }
+    .kanban-column { min-width:220px; max-width:260px; flex:1; background:#f4f5f7; border-radius:12px;
+        padding:10px 8px; border:1px solid #e0e4e8; min-height:200px; }
+    .kanban-column-header { display:flex; align-items:center; justify-content:space-between;
+        padding-bottom:8px; border-bottom:2px solid #e0e4e8; margin-bottom:8px; }
+    .kanban-column-title { font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700;
+        color:#1a1a2e; display:flex; align-items:center; gap:6px; }
+    .kanban-column-count { background:#e0e4e8; padding:2px 9px; border-radius:12px; font-size:11px;
+        font-weight:600; color:#555; }
+    .kanban-card { background:white; border-radius:8px; padding:10px 12px; margin-bottom:8px;
+        border-left:4px solid #0078D4; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+    .kanban-card-id { font-size:10px; font-weight:700; color:#0078D4; font-family:'JetBrains Mono',monospace;
+        margin-bottom:4px; display:flex; align-items:center; justify-content:space-between; }
+    .kanban-card-title { font-size:13px; font-weight:600; color:#1a1a2e; margin-bottom:4px; line-height:1.3; }
+    .kanban-card-desc { font-size:11px; color:#666; margin-bottom:6px; }
+    .kanban-card-meta { display:flex; justify-content:space-between; font-size:10px; color:#888;
+        margin-top:4px; padding-top:6px; border-top:1px solid #f0f0f0; flex-wrap:wrap; gap:4px; }
+    .kanban-card-meta .qtd { font-weight:700; color:#0078D4; }
+    .kanban-badge { display:inline-block; padding:2px 9px; border-radius:12px; font-size:9px; font-weight:700; color:white; }
+    .kanban-empty { text-align:center; padding:22px 8px; color:#aaa; font-size:11px; border:2px dashed #e0e4e8;
+        border-radius:8px; background:#fafafa; }
+    </style>
+    """), unsafe_allow_html=True)
+
+    # ======================
+    # FUNÇÕES DE ACESSO A DADOS
+    # ======================
     def carregar_ordens_kanban() -> List[OrdemProducao]:
-        """Carrega ordens da aba KANBAN da planilha 'Fechamento diario'"""
         ordens = []
         try:
             client = get_gspread_client()
             if client is None:
-                st.error("❌ Erro ao conectar ao Google Sheets")
-                return criar_ordens_demo()
-            
+                return criar_ordens_demo_kanban()
             try:
                 spreadsheet = client.open(NOME_PLANILHA_KANBAN)
-            except Exception as e:
-                st.warning(f"⚠️ Planilha '{NOME_PLANILHA_KANBAN}' não encontrada.")
-                st.info("💡 Criando nova planilha com este nome...")
-                try:
-                    spreadsheet = client.create(NOME_PLANILHA_KANBAN)
-                    st.success(f"✅ Planilha '{NOME_PLANILHA_KANBAN}' criada com sucesso!")
-                except Exception as e2:
-                    st.error(f"❌ Erro ao criar planilha: {str(e2)}")
-                    return criar_ordens_demo()
-            
+            except Exception:
+                spreadsheet = client.create(NOME_PLANILHA_KANBAN)
+
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
-            except Exception as e:
-                st.info(f"📝 Criando aba '{ABA_KANBAN}'...")
-                cabecalho = ["ID", "REFERENCIA", "DESCRICAO", "QUANTIDADE", "CLIENTE", 
-                            "DATA_INICIO", "DATA_PREVISTA", "STATUS", "TURNO", "PRIORIDADE", "OBSERVACAO"]
-                try:
-                    sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
-                    sheet.append_row(cabecalho)
-                    st.success(f"✅ Aba '{ABA_KANBAN}' criada com sucesso!")
-                except Exception as e2:
-                    st.error(f"❌ Erro ao criar aba: {str(e2)}")
-                    return criar_ordens_demo()
-            
-            try:
-                todos_dados = sheet.get_all_values()
-            except Exception as e:
-                st.error(f"❌ Erro ao ler dados: {str(e)}")
-                return criar_ordens_demo()
-            
+            except Exception:
+                sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
+                sheet.append_row(["ID","REFERENCIA","DESCRICAO","QUANTIDADE","CLIENTE",
+                                   "DATA_INICIO","DATA_PREVISTA","STATUS","TURNO","PRIORIDADE","OBSERVACAO"])
+                return []
+
+            todos_dados = sheet.get_all_values()
             if len(todos_dados) < 2:
-                st.info("📭 Nenhuma ordem encontrada. Criando ordens de demonstração...")
-                return criar_ordens_demo()
-            
+                return []
+
             for idx, row in enumerate(todos_dados[1:], start=2):
                 if len(row) < 5:
                     continue
-                
                 try:
-                    ordem = OrdemProducao()
-                    ordem.id = row[0].strip() if len(row) > 0 and row[0] else f"ORD-{idx:03d}"
-                    ordem.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
-                    ordem.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
-                    
+                    o = OrdemProducao()
+                    o.id = row[0].strip() if row[0] else f"ORD-{idx:03d}"
+                    o.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
+                    o.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
                     try:
-                        qtd_val = row[3].strip() if len(row) > 3 and row[3] else "0"
-                        ordem.quantidade = int(float(qtd_val.replace(',', '.')))
+                        o.quantidade = int(float(str(row[3]).replace(',', '.'))) if len(row) > 3 and row[3] else 0
                     except:
-                        ordem.quantidade = 0
-                    
-                    ordem.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
-                    ordem.data_inicio_str = row[5].strip() if len(row) > 5 and row[5] else ""
-                    ordem.data_prevista_str = row[6].strip() if len(row) > 6 and row[6] else ""
-                    
+                        o.quantidade = 0
+                    o.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
+                    o.data_inicio_str = row[5].strip() if len(row) > 5 and row[5] else ""
+                    o.data_prevista_str = row[6].strip() if len(row) > 6 and row[6] else ""
                     status_val = row[7].strip() if len(row) > 7 and row[7] else ""
-                    status_keys = [s["key"] for s in STATUS_KANBAN]
-                    ordem.status = status_val if status_val in status_keys else "A_PRODUZIR"
-                    
-                    ordem.turno = row[8].strip() if len(row) > 8 and row[8] else ""
-                    
+                    o.status = status_val if status_val in STATUS_KEYS else "A_PRODUZIR"
+                    o.turno = row[8].strip() if len(row) > 8 and row[8] else ""
                     try:
-                        prio_val = int(row[9]) if len(row) > 9 and row[9] else 2
-                        ordem.prioridade = prio_val if prio_val in [1, 2, 3] else 2
+                        p = int(row[9]) if len(row) > 9 and row[9] else 2
+                        o.prioridade = p if p in [1, 2, 3] else 2
                     except:
-                        ordem.prioridade = 2
-                    
-                    ordem.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
-                    ordem.linha = idx
-                    
-                    ordens.append(ordem)
-                except Exception as e:
+                        o.prioridade = 2
+                    o.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
+                    o.linha = idx
+                    ordens.append(o)
+                except:
                     continue
-            
-            if not ordens:
-                st.info("📋 Criando ordens de demonstração...")
-                ordens_demo = criar_ordens_demo()
-                for ordem in ordens_demo:
-                    try:
-                        dados = [
-                            ordem.id, ordem.referencia, ordem.descricao, str(ordem.quantidade),
-                            ordem.cliente, ordem.data_inicio_str, ordem.data_prevista_str,
-                            ordem.status, ordem.turno, str(ordem.prioridade), ordem.observacao
-                        ]
-                        sheet.append_row(dados)
-                    except:
-                        pass
-                return ordens_demo
-            
+
             return ordens
-            
         except Exception as e:
-            st.error(f"❌ Erro ao carregar ordens: {str(e)}")
-            return criar_ordens_demo()
-    
-    def criar_ordens_demo() -> List[OrdemProducao]:
-        """Cria ordens de demonstração"""
+            st.error(f"❌ Erro ao carregar ordens: {e}")
+            return criar_ordens_demo_kanban()
+
+    def criar_ordens_demo_kanban() -> List[OrdemProducao]:
         hoje = datetime.now().strftime("%d/%m/%Y")
         semana = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
-        
         return [
-            OrdemProducao(
-                id="ORD-001",
-                referencia="9013",
-                descricao="Jarra 901 G",
-                quantidade=1000,
-                cliente="Luvidarte Indust",
-                data_inicio_str=hoje,
-                data_prevista_str=semana,
-                status="A_PRODUZIR",
-                turno="Manhã",
-                prioridade=1,
-                observacao="Produção inicial"
-            ),
-            OrdemProducao(
-                id="ORD-002",
-                referencia="9014",
-                descricao="Taça 901 T",
-                quantidade=800,
-                cliente="Vidraçaria Central",
-                data_inicio_str=(datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y"),
-                data_prevista_str=(datetime.now() + timedelta(days=5)).strftime("%d/%m/%Y"),
-                status="PRODUZINDO",
-                turno="Tarde",
-                prioridade=2,
-                observacao="Em produção - 40% concluído"
-            ),
-            OrdemProducao(
-                id="ORD-003",
-                referencia="9015",
-                descricao="Prato 901 P",
-                quantidade=500,
-                cliente="Decoração Luxo",
-                data_inicio_str=(datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
-                data_prevista_str=(datetime.now() + timedelta(days=3)).strftime("%d/%m/%Y"),
-                status="QUALIDADE",
-                turno="Noite",
-                prioridade=1,
-                observacao="Aguardando inspeção"
-            ),
-            OrdemProducao(
-                id="ORD-004",
-                referencia="9016",
-                descricao="Copo 901 C",
-                quantidade=1200,
-                cliente="Indústria Beta",
-                data_inicio_str=(datetime.now() - timedelta(days=3)).strftime("%d/%m/%Y"),
-                data_prevista_str=(datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y"),
-                status="CONFERIDO",
-                turno="Manhã",
-                prioridade=2,
-                observacao="Aguardando liberação"
-            ),
-            OrdemProducao(
-                id="ORD-005",
-                referencia="9017",
-                descricao="Vaso 901 V",
-                quantidade=300,
-                cliente="Arquitetura Moderna",
-                data_inicio_str=(datetime.now() - timedelta(days=4)).strftime("%d/%m/%Y"),
-                data_prevista_str=(datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y"),
-                status="CONCLUIDO",
-                turno="Tarde",
-                prioridade=3,
-                observacao="Concluído"
-            ),
-            OrdemProducao(
-                id="ORD-006",
-                referencia="9018",
-                descricao="Travessa 901 T",
-                quantidade=200,
-                cliente="Estoque Interno",
-                data_inicio_str=(datetime.now() - timedelta(days=5)).strftime("%d/%m/%Y"),
-                data_prevista_str=(datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
-                status="ARMAZENADO",
-                turno="Noite",
-                prioridade=3,
-                observacao="Estoque disponível"
-            ),
+            OrdemProducao(id="ORD-001", referencia="9013", descricao="Jarra 901 G", quantidade=1000,
+                          cliente="Luvidarte Indust", data_inicio_str=hoje, data_prevista_str=semana,
+                          status="A_PRODUZIR", turno="Manhã", prioridade=1, observacao="Produção inicial"),
         ]
-    
-    def salvar_ordem_kanban(ordem: OrdemProducao, eh_alteracao: bool = False) -> tuple:
-        """Salva ordem na planilha"""
+
+    def salvar_ordem_kanban(o: OrdemProducao, eh_alteracao: bool = False) -> tuple:
         try:
             client = get_gspread_client()
             if client is None:
                 return False, "❌ Erro ao conectar ao Google Sheets"
-            
             try:
                 spreadsheet = client.open(NOME_PLANILHA_KANBAN)
-            except:
+            except Exception:
                 spreadsheet = client.create(NOME_PLANILHA_KANBAN)
-            
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
-            except:
-                cabecalho = ["ID", "REFERENCIA", "DESCRICAO", "QUANTIDADE", "CLIENTE", 
-                            "DATA_INICIO", "DATA_PREVISTA", "STATUS", "TURNO", "PRIORIDADE", "OBSERVACAO"]
+            except Exception:
                 sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
-                sheet.append_row(cabecalho)
-            
-            dados = [
-                ordem.id,
-                ordem.referencia,
-                ordem.descricao,
-                str(ordem.quantidade),
-                ordem.cliente,
-                ordem.data_inicio_str,
-                ordem.data_prevista_str,
-                ordem.status,
-                ordem.turno,
-                str(ordem.prioridade),
-                ordem.observacao
-            ]
-            
-            if eh_alteracao and ordem.linha:
+                sheet.append_row(["ID","REFERENCIA","DESCRICAO","QUANTIDADE","CLIENTE",
+                                   "DATA_INICIO","DATA_PREVISTA","STATUS","TURNO","PRIORIDADE","OBSERVACAO"])
+
+            dados = [o.id, o.referencia, o.descricao, str(o.quantidade), o.cliente,
+                     o.data_inicio_str, o.data_prevista_str, o.status, o.turno,
+                     str(o.prioridade), o.observacao]
+
+            if eh_alteracao and o.linha:
                 for col, valor in enumerate(dados, start=1):
-                    sheet.update_cell(ordem.linha, col, valor)
+                    sheet.update_cell(o.linha, col, valor)
             else:
                 sheet.append_row(dados)
-            
-            st.cache_data.clear()
+
             return True, "✅ Ordem salva com sucesso!"
-            
         except Exception as e:
-            return False, f"❌ Erro ao salvar: {str(e)}"
-    
-    def excluir_ordem_kanban(ordem: OrdemProducao) -> tuple:
-        """Exclui ordem da planilha"""
+            return False, f"❌ Erro ao salvar: {e}"
+
+    def excluir_ordem_kanban(o: OrdemProducao) -> tuple:
         try:
             client = get_gspread_client()
             if client is None:
                 return False, "❌ Erro ao conectar"
-            
             spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
-            
-            if ordem.linha:
-                sheet.delete_rows(ordem.linha)
-                st.cache_data.clear()
+            if o.linha:
+                sheet.delete_rows(o.linha)
                 return True, "✅ Ordem excluída com sucesso!"
-            
             return False, "❌ Linha não encontrada"
-            
         except Exception as e:
-            return False, f"❌ Erro ao excluir: {str(e)}"
-    
-    def atualizar_status_ordem(id_ordem: str, novo_status: str) -> tuple:
-        """Atualiza apenas o status de uma ordem"""
+            return False, f"❌ Erro ao excluir: {e}"
+
+    def mover_status_kanban(o: OrdemProducao, novo_status: str) -> tuple:
         try:
             client = get_gspread_client()
             if client is None:
                 return False, "❌ Erro ao conectar"
-            
             spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
-            
-            cell = sheet.find(id_ordem, in_column=1)
+            cell = sheet.find(o.id, in_column=1)
             if cell:
                 sheet.update_cell(cell.row, 8, novo_status)
-                st.cache_data.clear()
                 return True, "✅ Status atualizado!"
-            
             return False, "❌ Ordem não encontrada"
-            
         except Exception as e:
-            return False, f"❌ Erro: {str(e)}"
-    
-    # ======================
-    # JAVASCRIPT PARA DRAG AND DROP
-    # ======================
-    st.markdown("""
-    <script>
-    function onDragStart(event) {
-        const card = event.target.closest('.kanban-card');
-        if (!card) return;
-        
-        const id = card.dataset.id;
-        const origem = card.dataset.origem;
-        
-        event.dataTransfer.setData('text/plain', JSON.stringify({
-            id: id,
-            origem: origem
-        }));
-        
-        event.dataTransfer.effectAllowed = 'move';
-        card.style.opacity = '0.5';
-        card.style.transform = 'scale(0.95)';
-    }
-    
-    function onDragEnd(event) {
-        const card = event.target.closest('.kanban-card');
-        if (card) {
-            card.style.opacity = '1';
-            card.style.transform = 'scale(1)';
-        }
-    }
-    
-    function onDragOver(event) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        const dropZone = event.target.closest('.kanban-drop-zone');
-        if (dropZone) {
-            dropZone.classList.add('drag-over');
-        }
-    }
-    
-    function onDragLeave(event) {
-        const dropZone = event.target.closest('.kanban-drop-zone');
-        if (dropZone) {
-            dropZone.classList.remove('drag-over');
-        }
-    }
-    
-    function onDrop(event) {
-        event.preventDefault();
-        
-        const dropZone = event.target.closest('.kanban-drop-zone');
-        if (dropZone) {
-            dropZone.classList.remove('drag-over');
-        }
-        
-        const column = event.target.closest('.kanban-column');
-        if (!column) return;
-        
-        const destino = column.querySelector('.kanban-drop-zone')?.id?.replace('drop-', '');
-        if (!destino) return;
-        
-        try {
-            const data = JSON.parse(event.dataTransfer.getData('text/plain'));
-            const origem = data.origem;
-            const id = data.id;
-            
-            if (origem === destino) return;
-            
-            const params = new URLSearchParams(window.location.search);
-            params.set('kanban_acao', 'mover');
-            params.set('kanban_id', id);
-            params.set('kanban_origem', origem);
-            params.set('kanban_destino', destino);
-            
-            window.location.search = params.toString();
-            
-        } catch (e) {
-            console.error('Erro ao processar drop:', e);
-        }
-    }
-    
-    document.addEventListener('DOMContentLoaded', function() {
-        const cards = document.querySelectorAll('.kanban-card');
-        cards.forEach(card => {
-            card.addEventListener('dragstart', onDragStart);
-            card.addEventListener('dragend', onDragEnd);
-        });
-        
-        const dropZones = document.querySelectorAll('.kanban-drop-zone');
-        dropZones.forEach(zone => {
-            zone.addEventListener('dragover', onDragOver);
-            zone.addEventListener('dragleave', onDragLeave);
-            zone.addEventListener('drop', onDrop);
-        });
-    });
-    </script>
-    """, unsafe_allow_html=True)
-    
-    # ======================
-    # PROCESSAR AÇÕES DO KANBAN
-    # ======================
-    params = st.query_params
-    if params.get("kanban_acao") == "mover":
-        id_ordem = params.get("kanban_id")
-        destino = params.get("kanban_destino")
-        
-        if id_ordem and destino:
-            with st.spinner("🔄 Movendo ordem..."):
-                sucesso, msg = atualizar_status_ordem(id_ordem, destino)
-                if sucesso:
-                    st.success(f"✅ Ordem {id_ordem} movida para {destino}")
-                else:
-                    st.error(msg)
-            
-            st.query_params.clear()
-            st.rerun()
-    
-    # ======================
-    # CARREGAR DADOS
-    # ======================
-    if not st.session_state.kanban_carregado or st.session_state.get('forcar_recarregar', False):
+            return False, f"❌ Erro: {e}"
+
+    def recarregar_kanban():
+        st.session_state.kanban_ordens = carregar_ordens_kanban()
+        st.session_state.kanban_carregado = True
+
+    if not st.session_state.kanban_carregado:
         with st.spinner("🔄 Carregando ordens de produção..."):
-            st.session_state.ordens_kanban = carregar_ordens_kanban()
-            st.session_state.kanban_carregado = True
-            st.session_state.forcar_recarregar = False
-    
-    ordens = st.session_state.ordens_kanban
-    
+            recarregar_kanban()
+
+    ordens = st.session_state.kanban_ordens
+
     # ======================
     # TOOLBAR
     # ======================
     total_ordens = len(ordens)
     total_produzindo = len([o for o in ordens if o.status == "PRODUZINDO"])
     total_concluido = len([o for o in ordens if o.status in ["CONCLUIDO", "ARMAZENADO"]])
-    
-    st.markdown(f"""
-    <div class="kanban-toolbar">
-        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-            <span style="font-weight:700; color:#1a1a2e; font-size:16px;">📋 Kanban de Produção</span>
-            <span style="font-size:12px; color:#888;">|</span>
-            <span style="font-size:12px; color:#666;">
-                📊 Total: <strong>{total_ordens}</strong> ordens
-            </span>
-            <span style="font-size:12px; color:#666;">
-                ⚙️ Em produção: <strong>{total_produzindo}</strong>
-            </span>
-            <span style="font-size:12px; color:#666;">
-                ✅ Concluídos: <strong>{total_concluido}</strong>
-            </span>
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    """, unsafe_allow_html=True)
-    
-    col_tb1, col_tb2 = st.columns([1, 1])
+
+    col_tb1, col_tb2, col_tb3, col_tb4 = st.columns([2, 1, 1, 1])
     with col_tb1:
+        st.markdown(
+            f"📊 Total: **{total_ordens}** · ⚙️ Em produção: **{total_produzindo}** · "
+            f"✅ Concluídos: **{total_concluido}**"
+        )
+    with col_tb2:
+        pass
+    with col_tb3:
         if st.button("➕ Nova Ordem", use_container_width=True, type="primary"):
             st.session_state.kanban_mostrar_novo = True
             st.session_state.kanban_editando = None
             st.rerun()
-    
-    with col_tb2:
+    with col_tb4:
         if st.button("🔄 Atualizar", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state.forcar_recarregar = True
-            st.session_state.kanban_carregado = False
+            recarregar_kanban()
             st.rerun()
-    
-    st.markdown("</div></div>", unsafe_allow_html=True)
-    
+
     # ======================
-    # FORMULÁRIO NOVA/EDITAR ORDEM
+    # FORMULÁRIO NOVA / EDITAR ORDEM
     # ======================
     if st.session_state.kanban_mostrar_novo:
         st.markdown("---")
-        
         editando = st.session_state.kanban_editando
-        
-        if editando:
-            st.markdown(f"### ✏️ Editando Ordem: {editando.id}")
-        else:
-            st.markdown("### ➕ Nova Ordem de Produção")
-        
+        st.markdown(f"### {'✏️ Editando Ordem: ' + editando.id if editando else '➕ Nova Ordem de Produção'}")
+
         with st.form("form_kanban_ordem"):
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 if editando:
                     id_ordem = st.text_input("ID", value=editando.id, disabled=True)
                 else:
                     proximo_id = f"ORD-{len(ordens) + 1:03d}"
                     id_ordem = st.text_input("ID", value=proximo_id, disabled=True)
-                
-                referencia = st.text_input(
-                    "Referência*", 
-                    value=editando.referencia if editando else "",
-                    placeholder="Ex: 9013"
-                )
-                
-                descricao = st.text_area(
-                    "Descrição*",
-                    value=editando.descricao if editando else "",
-                    height=80,
-                    placeholder="Ex: Jarra 901 G"
-                )
-                
-                cliente = st.text_input(
-                    "Cliente",
-                    value=editando.cliente if editando else "",
-                    placeholder="Ex: Luvidarte Indust"
-                )
-            
+
+                referencia = st.text_input("Referência*", value=editando.referencia if editando else "",
+                                            placeholder="Ex: 9013")
+                descricao = st.text_area("Descrição*", value=editando.descricao if editando else "",
+                                          height=80, placeholder="Ex: Jarra 901 G")
+                cliente = st.text_input("Cliente", value=editando.cliente if editando else "",
+                                         placeholder="Ex: Luvidarte Indust")
+
             with col2:
-                quantidade = st.number_input(
-                    "Quantidade*",
-                    min_value=1,
-                    value=editando.quantidade if editando else 1,
-                    step=1
-                )
-                
+                quantidade = st.number_input("Quantidade*", min_value=1,
+                                              value=editando.quantidade if editando else 1, step=1)
+
                 if editando and editando.data_prevista_str:
                     try:
-                        data_prevista_default = datetime.strptime(editando.data_prevista_str, "%d/%m/%Y")
+                        data_prevista_default = datetime.strptime(editando.data_prevista_str, "%d/%m/%Y").date()
                     except:
                         data_prevista_default = datetime.now().date() + timedelta(days=7)
                 else:
                     data_prevista_default = datetime.now().date() + timedelta(days=7)
-                
-                data_prevista = st.date_input(
-                    "Data Prevista",
-                    value=data_prevista_default,
-                    key="kanban_data_prevista"
-                )
-                
-                turno = st.selectbox(
-                    "Turno",
-                    options=["", "Manhã", "Tarde", "Noite"],
-                    index=["", "Manhã", "Tarde", "Noite"].index(editando.turno) if editando and editando.turno in ["", "Manhã", "Tarde", "Noite"] else 0
-                )
-                
-                prioridade = st.selectbox(
-                    "Prioridade",
-                    options=[1, 2, 3],
-                    format_func=lambda x: {1: "🔴 Alta", 2: "🟡 Média", 3: "🟢 Baixa"}[x],
-                    index=1 if not editando else [1, 2, 3].index(editando.prioridade) if editando.prioridade in [1, 2, 3] else 1
-                )
-                
-                status_inicial = st.selectbox(
-                    "Status Inicial",
-                    options=[s["key"] for s in STATUS_KANBAN],
-                    format_func=lambda x: next((s["label"] for s in STATUS_KANBAN if s["key"] == x), x),
-                    index=0 if not editando else [s["key"] for s in STATUS_KANBAN].index(editando.status) if editando.status in [s["key"] for s in STATUS_KANBAN] else 0
-                )
-            
-            observacao = st.text_area(
-                "Observação",
-                value=editando.observacao if editando else "",
-                height=60,
-                placeholder="Observações adicionais..."
-            )
-            
+
+                data_prevista = st.date_input("Data Prevista", value=data_prevista_default)
+
+                turnos_opts = ["", "Manhã", "Tarde", "Noite"]
+                turno = st.selectbox("Turno", options=turnos_opts,
+                                      index=turnos_opts.index(editando.turno) if editando and editando.turno in turnos_opts else 0)
+
+                prioridade = st.selectbox("Prioridade", options=[1, 2, 3],
+                                           format_func=lambda x: {1: "🔴 Alta", 2: "🟡 Média", 3: "🟢 Baixa"}[x],
+                                           index=(editando.prioridade - 1) if editando and editando.prioridade in [1,2,3] else 1)
+
+                status_inicial = st.selectbox("Status Inicial", options=STATUS_KEYS,
+                                               format_func=lambda x: next(s["label"] for s in STATUS_KANBAN if s["key"] == x),
+                                               index=STATUS_KEYS.index(editando.status) if editando and editando.status in STATUS_KEYS else 0)
+
+            observacao = st.text_area("Observação", value=editando.observacao if editando else "", height=60)
+
             st.markdown("---")
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-            
             with col_btn2:
-                submitted = st.form_submit_button(
-                    "💾 SALVAR ORDEM",
-                    type="primary",
-                    use_container_width=True
-                )
-            
+                submitted = st.form_submit_button("💾 SALVAR ORDEM", type="primary", use_container_width=True)
+
             if submitted:
-                if not referencia or not referencia.strip():
+                if not referencia.strip():
                     st.error("❌ Informe a referência!")
-                elif not descricao or not descricao.strip():
+                elif not descricao.strip():
                     st.error("❌ Informe a descrição!")
                 elif quantidade <= 0:
                     st.error("❌ A quantidade deve ser maior que zero!")
                 else:
-                    nova_ordem = OrdemProducao(
+                    nova = OrdemProducao(
                         id=id_ordem if editando else f"ORD-{len(ordens) + 1:03d}",
                         referencia=referencia.strip(),
                         descricao=descricao.strip(),
                         quantidade=quantidade,
-                        cliente=cliente.strip() if cliente else "",
-                        data_inicio_str=datetime.now().strftime("%d/%m/%Y"),
+                        cliente=cliente.strip(),
+                        data_inicio_str=datetime.now().strftime("%d/%m/%Y") if not editando else editando.data_inicio_str,
                         data_prevista_str=data_prevista.strftime("%d/%m/%Y"),
                         status=status_inicial,
-                        turno=turno if turno else "",
+                        turno=turno,
                         prioridade=prioridade,
-                        observacao=observacao.strip() if observacao else "",
+                        observacao=observacao.strip(),
                         linha=editando.linha if editando else None
                     )
-                    
-                    sucesso, msg = salvar_ordem_kanban(nova_ordem, eh_alteracao=editando is not None)
-                    
+                    sucesso, msg = salvar_ordem_kanban(nova, eh_alteracao=editando is not None)
                     if sucesso:
                         st.success(msg)
-                        st.balloons()
                         st.session_state.kanban_mostrar_novo = False
                         st.session_state.kanban_editando = None
-                        st.session_state.forcar_recarregar = True
-                        st.session_state.kanban_carregado = False
+                        recarregar_kanban()
                         st.rerun()
                     else:
                         st.error(msg)
-        
-        if st.button("❌ Cancelar", use_container_width=True):
+
+        if st.button("❌ Cancelar", use_container_width=True, key="btn_cancelar_form_kanban"):
             st.session_state.kanban_mostrar_novo = False
             st.session_state.kanban_editando = None
             st.rerun()
-        
+
         st.markdown("---")
-    
+
     # ======================
-    # RENDERIZAR KANBAN - VERSÃO CORRIGIDA
+    # RENDERIZAÇÃO DO KANBAN
     # ======================
-    
-    def renderizar_cartao_kanban(ordem: OrdemProducao, status_key: str):
-        """Renderiza um cartão individual do Kanban com HTML válido"""
-        
-        # Cores e labels das prioridades
+    def renderizar_cartao(o: OrdemProducao, status_key: str, idx_coluna: int):
         prioridade_cores = {1: "#dc3545", 2: "#ffc107", 3: "#28a745"}
         prioridade_labels = {1: "Alta", 2: "Média", 3: "Baixa"}
-        prioridade_cor = prioridade_cores.get(ordem.prioridade, "#6c757d")
-        prioridade_label = prioridade_labels.get(ordem.prioridade, "Média")
-        
-        # Status da coluna
+        prioridade_cor = prioridade_cores.get(o.prioridade, "#6c757d")
+        prioridade_label = prioridade_labels.get(o.prioridade, "Média")
+
         status_info = next((s for s in STATUS_KANBAN if s["key"] == status_key), None)
         cor_borda = status_info["color"] if status_info else "#0078D4"
-        
-        # Data prevista formatada
-        data_prevista = ordem.data_prevista_str if ordem.data_prevista_str else "-"
-        
-        # HTML do cartão - TODAS AS TAGS FECHADAS
-        card_html = f'''
-        <div class="kanban-card" 
-             style="border-left-color: {cor_borda};"
-             draggable="true"
-             data-id="{ordem.id}"
-             data-origem="{status_key}"
-             ondragstart="onDragStart(event)"
-             ondragend="onDragEnd(event)">
-            
+        data_prevista = o.data_prevista_str if o.data_prevista_str else "-"
+
+        card_html = textwrap.dedent(f"""
+        <div class="kanban-card" style="border-left-color: {cor_borda};">
             <div class="kanban-card-id">
-                <span>{ordem.id}</span>
-                <span class="kanban-card-badge" style="background: {prioridade_cor};">
-                    {prioridade_label}
-                </span>
+                <span>{o.id}</span>
+                <span class="kanban-badge" style="background: {prioridade_cor};">{prioridade_label}</span>
             </div>
-            
-            <div class="kanban-card-title">
-                {ordem.referencia or "Sem referência"} - {ordem.descricao or "Sem descrição"}
-            </div>
-            
-            <div class="kanban-card-desc">
-                Cliente: {ordem.cliente or "N/A"}
-            </div>
-            
+            <div class="kanban-card-title">{o.referencia or "Sem ref."} - {o.descricao or "Sem descrição"}</div>
+            <div class="kanban-card-desc">Cliente: {o.cliente or "N/A"}</div>
             <div class="kanban-card-meta">
-                <span class="qtd">📦 {ordem.quantidade} un</span>
+                <span class="qtd">📦 {o.quantidade} un</span>
                 <span>📅 {data_prevista}</span>
             </div>
-            
-            <div class="kanban-card-actions">
-                <button onclick="document.getElementById(&#39;btn_editar_{ordem.id}&#39;).click();" title="Editar">✏️</button>
-                <button onclick="document.getElementById(&#39;btn_excluir_{ordem.id}&#39;).click();" title="Excluir">🗑️</button>
-            </div>
         </div>
-        '''
-        
-        # Renderizar o HTML
+        """).strip()
+
         st.markdown(card_html, unsafe_allow_html=True)
-        
-        # Botões de ação (escondidos)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✏️", key=f"btn_editar_{ordem.id}", help="Editar ordem"):
-                st.session_state.kanban_editando = ordem
+
+        # ---- Ações do card: mover / editar / excluir ----
+        c_prev, c_edit, c_del, c_next = st.columns([1, 1, 1, 1])
+
+        pos_atual = STATUS_KEYS.index(status_key)
+
+        with c_prev:
+            if pos_atual > 0:
+                if st.button("◀", key=f"prev_{o.id}_{idx_coluna}", help="Mover para etapa anterior", use_container_width=True):
+                    novo_status = STATUS_KEYS[pos_atual - 1]
+                    sucesso, msg = mover_status_kanban(o, novo_status)
+                    if sucesso:
+                        recarregar_kanban()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        with c_edit:
+            if st.button("✏️", key=f"edit_{o.id}_{idx_coluna}", help="Editar ordem", use_container_width=True):
+                st.session_state.kanban_editando = o
                 st.session_state.kanban_mostrar_novo = True
                 st.rerun()
-        
-        with col2:
-            if st.button("🗑️", key=f"btn_excluir_{ordem.id}", help="Excluir ordem"):
-                sucesso, msg = excluir_ordem_kanban(ordem)
+
+        with c_del:
+            if st.button("🗑️", key=f"del_{o.id}_{idx_coluna}", help="Excluir ordem", use_container_width=True):
+                sucesso, msg = excluir_ordem_kanban(o)
                 if sucesso:
                     st.success(msg)
-                    st.session_state.forcar_recarregar = True
-                    st.session_state.kanban_carregado = False
+                    recarregar_kanban()
                     st.rerun()
                 else:
                     st.error(msg)
-    
-    def renderizar_coluna_kanban(status_key: str, ordens: List[OrdemProducao]):
-        """Renderiza uma coluna do Kanban"""
-        
-        status_info = next((s for s in STATUS_KANBAN if s["key"] == status_key), None)
-        if not status_info:
-            return
-        
-        label = status_info["label"]
-        icon = status_info["icon"]
-        color = status_info["color"]
-        count = len(ordens)
-        
-        # Abrir coluna
-        st.markdown(f'''
-        <div class="kanban-column" style="border-top: 3px solid {color};">
-            <div class="kanban-column-header">
-                <div class="kanban-column-title">
-                    <span>{icon}</span>
-                    <span>{label}</span>
-                </div>
-                <div class="kanban-column-count">{count}</div>
-            </div>
-            <div class="kanban-drop-zone" 
-                 id="drop-{status_key}"
-                 ondrop="onDrop(event)"
-                 ondragover="onDragOver(event)"
-                 ondragleave="onDragLeave(event)">
-        ''', unsafe_allow_html=True)
-        
-        # Renderizar cartões ou estado vazio
-        if ordens:
-            for ordem in ordens:
-                renderizar_cartao_kanban(ordem, status_key)
-        else:
-            st.markdown(f'''
-            <div class="kanban-empty">
-                <div class="icon">📭</div>
-                <div class="text">Arraste aqui a ordem de produção ...</div>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        # Fechar coluna
-        st.markdown('</div></div>', unsafe_allow_html=True)
-    
-    def renderizar_kanban(ordens: List[OrdemProducao]):
-        """Renderiza o Kanban completo"""
-        
-        # Agrupar ordens por status
-        ordens_por_status = {status["key"]: [] for status in STATUS_KANBAN}
-        for ordem in ordens:
-            if ordem.status in ordens_por_status:
-                ordens_por_status[ordem.status].append(ordem)
-        
-        # Abrir container
-        st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
-        
-        # Criar colunas
-        cols = st.columns(len(STATUS_KANBAN), gap="small")
-        
-        # Renderizar cada coluna
-        for i, (col, status) in enumerate(zip(cols, STATUS_KANBAN)):
-            with col:
-                renderizar_coluna_kanban(status["key"], ordens_por_status.get(status["key"], []))
-        
-        # Fechar container
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Renderizar Kanban
+
+        with c_next:
+            if pos_atual < len(STATUS_KEYS) - 1:
+                if st.button("▶", key=f"next_{o.id}_{idx_coluna}", help="Mover para próxima etapa", use_container_width=True):
+                    novo_status = STATUS_KEYS[pos_atual + 1]
+                    sucesso, msg = mover_status_kanban(o, novo_status)
+                    if sucesso:
+                        recarregar_kanban()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
     if ordens:
-        renderizar_kanban(ordens)
+        ordens_por_status = {s["key"]: [] for s in STATUS_KANBAN}
+        for o in ordens:
+            if o.status in ordens_por_status:
+                ordens_por_status[o.status].append(o)
+
+        cols = st.columns(len(STATUS_KANBAN), gap="small")
+        for idx_coluna, (col, status) in enumerate(zip(cols, STATUS_KANBAN)):
+            with col:
+                lista_ordens = ordens_por_status.get(status["key"], [])
+                header_html = textwrap.dedent(f"""
+                <div class="kanban-column-header">
+                    <div class="kanban-column-title"><span>{status["icon"]}</span><span>{status["label"]}</span></div>
+                    <div class="kanban-column-count">{len(lista_ordens)}</div>
+                </div>
+                """).strip()
+                st.markdown(header_html, unsafe_allow_html=True)
+
+                if lista_ordens:
+                    for o in lista_ordens:
+                        renderizar_cartao(o, status["key"], idx_coluna)
+                else:
+                    st.markdown(textwrap.dedent("""
+                    <div class="kanban-empty">📭 Nenhuma ordem</div>
+                    """).strip(), unsafe_allow_html=True)
     else:
         st.info("📭 Nenhuma ordem de produção encontrada.")
         if st.button("➕ Criar ordens de demonstração"):
-            st.session_state.forcar_recarregar = True
-            st.session_state.kanban_carregado = False
+            recarregar_kanban()
             st.rerun()
-    
+
     # ======================
-    # LEGENDA E INSTRUÇÕES
+    # LEGENDA
     # ======================
     with st.expander("ℹ️ Como usar o Kanban", expanded=False):
         st.markdown("""
-        ### 📋 Instruções de uso
-        
-        **Arrastar e Soltar:**
-        1. Clique e segure em qualquer cartão de ordem de produção
-        2. Arraste o cartão para a coluna desejada
-        3. Solte o cartão para movê-lo automaticamente
-        
+        **Movimentação:** use os botões **◀** e **▶** em cada card para mover a ordem entre as etapas.
+
         **Ações por cartão:**
-        - ✏️ **Editar**: Altera os dados da ordem
-        - 🗑️ **Excluir**: Remove a ordem do sistema
-        
-        **Status disponíveis:**
-        - 📋 **A Produzir**: Ordens aguardando início
-        - ⚙️ **Produzindo**: Ordens em produção
-        - 🔍 **Qualidade**: Ordens em inspeção de qualidade
-        - ✅ **Conferido**: Ordens conferidas
-        - 🏁 **Concluído**: Ordens finalizadas
-        - 📦 **Armazenado**: Ordens armazenadas
-        
-        **Prioridades:**
-        - 🔴 **Alta**: Prioridade máxima
-        - 🟡 **Média**: Prioridade normal
-        - 🟢 **Baixa**: Prioridade baixa
+        - ◀ / ▶ — move para a etapa anterior/seguinte
+        - ✏️ Editar — altera os dados da ordem
+        - 🗑️ Excluir — remove a ordem do sistema
+
+        **Etapas:** A Produzir → Produzindo → Qualidade → Conferido → Concluído → Armazenado
+
+        **Prioridades:** 🔴 Alta · 🟡 Média · 🟢 Baixa
         """)
-    
-    # ======================
-    # FOOTER
-    # ======================
+
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
         font-family:'JetBrains Mono',monospace;font-size:10px;
