@@ -7211,7 +7211,7 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE) - USANDO NOME DA PLANILHA
+# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE) - COM ESTRUTURA CORRETA DA PLANILHA
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
     render_page_header("FECHAMENTO DE TURNO", 
@@ -7219,7 +7219,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                        THEME['accent_purple'])
     
     # ======================
-    # CONFIGURAÇÕES - USANDO NOME DA PLANILHA
+    # CONFIGURAÇÕES - USANDO A PLANILHA EXISTENTE
     # ======================
     NOME_PLANILHA_KANBAN = 'Fechamento diario'
     ABA_KANBAN = 'KANBAN'
@@ -7265,9 +7265,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     
     if 'kanban_mostrar_novo' not in st.session_state:
         st.session_state.kanban_mostrar_novo = False
-    
-    if 'kanban_erro_carregamento' not in st.session_state:
-        st.session_state.kanban_erro_carregamento = False
     
     # ======================
     # CSS PARA KANBAN
@@ -7500,13 +7497,27 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     """, unsafe_allow_html=True)
 
     # ======================
-    # FUNÇÕES DE CARREGAMENTO - USANDO NOME DA PLANILHA
+    # FUNÇÃO PARA CARREGAR DADOS DA PLANILHA KANBAN
     # ======================
     
     @retry_on_quota()
     @st.cache_data(ttl=300)
     def carregar_ordens_kanban() -> List[OrdemProducao]:
-        """Carrega ordens de produção usando o nome da planilha"""
+        """
+        Carrega ordens da aba KANBAN da planilha 'Fechamento diario'
+        Estrutura esperada:
+        A: ID (ex: ORD-007)
+        B: Referência (ex: 9013)
+        C: Descrição (ex: Jarra 901 G)
+        D: Quantidade (ex: 1000)
+        E: Cliente (ex: Luvidarte Indust)
+        F: Data Início (ex: 09/09/2026)
+        G: Data Prevista (ex: 16/09/2026)
+        H: Status (ex: A_PRODUZIR)
+        I: Turno (ex: Manhã)
+        J: Prioridade (ex: 1)
+        K: Observação (ex: chama)
+        """
         ordens = []
         try:
             client = get_gspread_client()
@@ -7528,7 +7539,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     st.error(f"❌ Erro ao criar planilha: {str(e2)}")
                     return criar_ordens_demo()
             
-            # Verificar se a aba existe
+            # Verificar se a aba KANBAN existe
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
             except Exception as e:
@@ -7543,7 +7554,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     st.error(f"❌ Erro ao criar aba: {str(e2)}")
                     return criar_ordens_demo()
             
-            # Ler dados
+            # Ler dados da planilha
             try:
                 todos_dados = sheet.get_all_values()
             except Exception as e:
@@ -7554,54 +7565,68 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 st.info("📭 Nenhuma ordem encontrada. Criando ordens de demonstração...")
                 return criar_ordens_demo()
             
-            # Processar linhas
+            # Processar cada linha (pular cabeçalho)
             for idx, row in enumerate(todos_dados[1:], start=2):
-                if len(row) < 4:
+                if len(row) < 5:
                     continue
                 
                 try:
                     ordem = OrdemProducao()
                     
-                    id_val = row[0].strip() if len(row) > 0 and row[0] else ""
-                    ordem.id = id_val if id_val else f"ORD-{idx:03d}"
+                    # Coluna A: ID
+                    ordem.id = row[0].strip() if len(row) > 0 and row[0] else f"ORD-{idx:03d}"
                     
+                    # Coluna B: Referência
                     ordem.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
+                    
+                    # Coluna C: Descrição
                     ordem.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
                     
+                    # Coluna D: Quantidade
                     try:
                         qtd_val = row[3].strip() if len(row) > 3 and row[3] else "0"
                         ordem.quantidade = int(float(qtd_val.replace(',', '.')))
                     except:
                         ordem.quantidade = 0
                     
+                    # Coluna E: Cliente
                     ordem.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
                     
+                    # Coluna F: Data Início
                     if len(row) > 5 and row[5]:
                         ordem.data_inicio = converter_data_br(row[5])
                     
+                    # Coluna G: Data Prevista
                     if len(row) > 6 and row[6]:
                         ordem.data_prevista = converter_data_br(row[6])
                     
+                    # Coluna H: Status
                     status_val = row[7].strip() if len(row) > 7 and row[7] else ""
                     status_keys = [s["key"] for s in STATUS_KANBAN]
                     ordem.status = status_val if status_val in status_keys else "A_PRODUZIR"
                     
+                    # Coluna I: Turno
                     ordem.turno = row[8].strip() if len(row) > 8 and row[8] else ""
                     
+                    # Coluna J: Prioridade
                     try:
                         prio_val = int(row[9]) if len(row) > 9 and row[9] else 2
                         ordem.prioridade = prio_val if prio_val in [1, 2, 3] else 2
                     except:
                         ordem.prioridade = 2
                     
+                    # Coluna K: Observação
                     ordem.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
+                    
+                    # Guardar linha para edição/exclusão
                     ordem.linha = idx
                     
                     ordens.append(ordem)
                 except Exception as e:
+                    print(f"Erro ao processar linha {idx}: {e}")
                     continue
             
-            # Se não houver ordens, criar demo e salvar
+            # Se não houver ordens, criar demo
             if not ordens:
                 st.info("📋 Criando ordens de demonstração...")
                 ordens_demo = criar_ordens_demo()
@@ -7627,45 +7652,45 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             return criar_ordens_demo()
     
     def criar_ordens_demo() -> List[OrdemProducao]:
-        """Cria ordens de demonstração"""
+        """Cria ordens de demonstração com dados realistas"""
         
         hoje = datetime.now().date()
         
         ordens_demo = [
             OrdemProducao(
                 id="ORD-001",
-                referencia="REF-VIDRO-001",
-                descricao="Vidros temperados 8mm para fachada",
-                quantidade=150,
-                cliente="Construtora Alpha",
+                referencia="9013",
+                descricao="Jarra 901 G",
+                quantidade=1000,
+                cliente="Luvidarte Indust",
                 data_inicio=datetime.combine(hoje, dt_time(8, 0)),
-                data_prevista=datetime.combine(hoje + timedelta(days=2), dt_time(17, 0)),
+                data_prevista=datetime.combine(hoje + timedelta(days=7), dt_time(17, 0)),
                 status="A_PRODUZIR",
                 turno="Manhã",
                 prioridade=1,
-                observacao="Prioridade alta - entrega urgente"
+                observacao="Produção inicial"
             ),
             OrdemProducao(
                 id="ORD-002",
-                referencia="REF-VIDRO-002",
-                descricao="Vidros laminados 10mm para janelas",
-                quantidade=85,
+                referencia="9014",
+                descricao="Taça 901 T",
+                quantidade=800,
                 cliente="Vidraçaria Central",
                 data_inicio=datetime.combine(hoje - timedelta(days=1), dt_time(10, 0)),
-                data_prevista=datetime.combine(hoje + timedelta(days=3), dt_time(17, 0)),
+                data_prevista=datetime.combine(hoje + timedelta(days=5), dt_time(17, 0)),
                 status="PRODUZINDO",
                 turno="Tarde",
                 prioridade=2,
-                observacao="Produção em andamento - 30% concluído"
+                observacao="Em produção - 40% concluído"
             ),
             OrdemProducao(
                 id="ORD-003",
-                referencia="REF-VIDRO-003",
-                descricao="Espelhos 6mm com bisel",
-                quantidade=45,
+                referencia="9015",
+                descricao="Prato 901 P",
+                quantidade=500,
                 cliente="Decoração Luxo",
                 data_inicio=datetime.combine(hoje - timedelta(days=2), dt_time(14, 0)),
-                data_prevista=datetime.combine(hoje + timedelta(days=1), dt_time(12, 0)),
+                data_prevista=datetime.combine(hoje + timedelta(days=3), dt_time(12, 0)),
                 status="QUALIDADE",
                 turno="Noite",
                 prioridade=1,
@@ -7673,22 +7698,22 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             ),
             OrdemProducao(
                 id="ORD-004",
-                referencia="REF-VIDRO-004",
-                descricao="Vidros serigrafados 6mm",
-                quantidade=120,
+                referencia="9016",
+                descricao="Copo 901 C",
+                quantidade=1200,
                 cliente="Indústria Beta",
                 data_inicio=datetime.combine(hoje - timedelta(days=3), dt_time(9, 0)),
-                data_prevista=datetime.combine(hoje, dt_time(18, 0)),
+                data_prevista=datetime.combine(hoje + timedelta(days=2), dt_time(18, 0)),
                 status="CONFERIDO",
                 turno="Manhã",
                 prioridade=2,
-                observacao="Aguardando liberação para armazenamento"
+                observacao="Aguardando liberação"
             ),
             OrdemProducao(
                 id="ORD-005",
-                referencia="REF-VIDRO-005",
-                descricao="Vidros curvos 12mm",
-                quantidade=30,
+                referencia="9017",
+                descricao="Vaso 901 V",
+                quantidade=300,
                 cliente="Arquitetura Moderna",
                 data_inicio=datetime.combine(hoje - timedelta(days=4), dt_time(7, 0)),
                 data_prevista=datetime.combine(hoje - timedelta(days=1), dt_time(16, 0)),
@@ -7699,8 +7724,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             ),
             OrdemProducao(
                 id="ORD-006",
-                referencia="REF-VIDRO-006",
-                descricao="Vidros temperados 4mm (estoque)",
+                referencia="9018",
+                descricao="Travessa 901 T",
                 quantidade=200,
                 cliente="Estoque Interno",
                 data_inicio=datetime.combine(hoje - timedelta(days=5), dt_time(8, 0)),
@@ -7708,7 +7733,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="ARMAZENADO",
                 turno="Noite",
                 prioridade=3,
-                observacao="Estoque disponível para distribuição"
+                observacao="Estoque disponível"
             ),
         ]
         
@@ -7790,8 +7815,10 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
             
+            # Buscar pela coluna ID (coluna A)
             cell = sheet.find(id_ordem, in_column=1)
             if cell:
+                # Coluna H = STATUS (coluna 8)
                 sheet.update_cell(cell.row, 8, novo_status)
                 st.cache_data.clear()
                 return True, "✅ Status atualizado!"
@@ -7899,7 +7926,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     """, unsafe_allow_html=True)
     
     # ======================
-    # PROCESSAR AÇÕES DO KANBAN
+    # PROCESSAR AÇÕES DO KANBAN VIA QUERY PARAMS
     # ======================
     params = st.query_params
     if params.get("kanban_acao") == "mover":
@@ -7988,20 +8015,20 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 referencia = st.text_input(
                     "Referência*", 
                     value=editando.referencia if editando else "",
-                    placeholder="Ex: REF-001"
+                    placeholder="Ex: 9013"
                 )
                 
                 descricao = st.text_area(
                     "Descrição*",
                     value=editando.descricao if editando else "",
                     height=80,
-                    placeholder="Descrição da ordem de produção"
+                    placeholder="Ex: Jarra 901 G"
                 )
                 
                 cliente = st.text_input(
                     "Cliente",
                     value=editando.cliente if editando else "",
-                    placeholder="Nome do cliente"
+                    placeholder="Ex: Luvidarte Indust"
                 )
             
             with col2:
@@ -8026,9 +8053,9 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 
                 prioridade = st.selectbox(
                     "Prioridade",
-                    options=[3, 2, 1],
-                    format_func=lambda x: {3: "🟢 Baixa", 2: "🟡 Média", 1: "🔴 Alta"}[x],
-                    index=2 if not editando else [3, 2, 1].index(editando.prioridade) if editando.prioridade in [1, 2, 3] else 2
+                    options=[1, 2, 3],
+                    format_func=lambda x: {1: "🔴 Alta", 2: "🟡 Média", 3: "🟢 Baixa"}[x],
+                    index=1 if not editando else [1, 2, 3].index(editando.prioridade) if editando.prioridade in [1, 2, 3] else 1
                 )
                 
                 status_inicial = st.selectbox(
@@ -8131,11 +8158,11 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             </div>
             
             <div class="kanban-card-title">
-                {ordem.referencia or "Sem referência"}
+                {ordem.referencia or "Sem referência"} - {ordem.descricao or "Sem descrição"}
             </div>
             
             <div class="kanban-card-desc">
-                {ordem.descricao or "Sem descrição"}
+                Cliente: {ordem.cliente or "N/A"}
             </div>
             
             <div class="kanban-card-meta">
