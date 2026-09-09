@@ -7211,7 +7211,7 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE) - SEM CACHE PROBLEMÁTICO
+# FECHAMENTO TURNO - VERSÃO KANBAN - RENDERIZAÇÃO CORRIGIDA
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
     render_page_header("FECHAMENTO DE TURNO", 
@@ -7225,7 +7225,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     ABA_KANBAN = 'KANBAN'
     
     # ======================
-    # CLASSES DE DADOS (USANDO DATACLASSES SIMPLES)
+    # CLASSES DE DADOS
     # ======================
     @dataclass
     class OrdemProducao:
@@ -7234,7 +7234,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         descricao: str = ""
         quantidade: int = 0
         cliente: str = ""
-        data_inicio_str: str = ""  # Usar string em vez de datetime
+        data_inicio_str: str = ""
         data_prevista_str: str = ""
         status: str = "A_PRODUZIR"
         turno: str = ""
@@ -7353,6 +7353,10 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         color: #0078D4;
         font-family: 'JetBrains Mono', monospace;
         margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
     }
     
     .kanban-card-title {
@@ -7398,8 +7402,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     
     .kanban-card-badge {
         display: inline-block;
-        padding: 1px 10px;
-        border-radius: 10px;
+        padding: 2px 10px;
+        border-radius: 12px;
         font-size: 9px;
         font-weight: 700;
         color: white;
@@ -7408,8 +7412,10 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     .kanban-card-actions {
         display: flex;
         gap: 6px;
-        margin-top: 6px;
+        margin-top: 8px;
         justify-content: flex-end;
+        border-top: 1px solid #f0f0f0;
+        padding-top: 6px;
     }
     
     .kanban-card-actions button {
@@ -7420,10 +7426,12 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         padding: 2px 6px;
         border-radius: 4px;
         transition: background 0.2s;
+        color: #555;
     }
     
     .kanban-card-actions button:hover {
         background: #f0f0f0;
+        color: #0078D4;
     }
     
     .kanban-empty {
@@ -7500,13 +7508,11 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     """, unsafe_allow_html=True)
 
     # ======================
-    # FUNÇÃO PARA CARREGAR DADOS - SEM CACHE PROBLEMÁTICO
+    # FUNÇÃO PARA CARREGAR DADOS
     # ======================
     
     def carregar_ordens_kanban() -> List[OrdemProducao]:
-        """
-        Carrega ordens da aba KANBAN da planilha 'Fechamento diario'
-        """
+        """Carrega ordens da aba KANBAN da planilha 'Fechamento diario'"""
         ordens = []
         try:
             client = get_gspread_client()
@@ -7514,10 +7520,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 st.error("❌ Erro ao conectar ao Google Sheets")
                 return criar_ordens_demo()
             
-            # Abrir planilha pelo NOME
             try:
                 spreadsheet = client.open(NOME_PLANILHA_KANBAN)
-                st.success(f"✅ Conectado à planilha: {NOME_PLANILHA_KANBAN}")
             except Exception as e:
                 st.warning(f"⚠️ Planilha '{NOME_PLANILHA_KANBAN}' não encontrada.")
                 st.info("💡 Criando nova planilha com este nome...")
@@ -7528,7 +7532,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     st.error(f"❌ Erro ao criar planilha: {str(e2)}")
                     return criar_ordens_demo()
             
-            # Verificar se a aba KANBAN existe
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
             except Exception as e:
@@ -7543,7 +7546,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     st.error(f"❌ Erro ao criar aba: {str(e2)}")
                     return criar_ordens_demo()
             
-            # Ler dados da planilha
             try:
                 todos_dados = sheet.get_all_values()
             except Exception as e:
@@ -7554,82 +7556,58 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 st.info("📭 Nenhuma ordem encontrada. Criando ordens de demonstração...")
                 return criar_ordens_demo()
             
-            # Processar cada linha (pular cabeçalho)
             for idx, row in enumerate(todos_dados[1:], start=2):
                 if len(row) < 5:
                     continue
                 
                 try:
                     ordem = OrdemProducao()
-                    
-                    # Coluna A: ID
                     ordem.id = row[0].strip() if len(row) > 0 and row[0] else f"ORD-{idx:03d}"
-                    
-                    # Coluna B: Referência
                     ordem.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
-                    
-                    # Coluna C: Descrição
                     ordem.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
                     
-                    # Coluna D: Quantidade
                     try:
                         qtd_val = row[3].strip() if len(row) > 3 and row[3] else "0"
                         ordem.quantidade = int(float(qtd_val.replace(',', '.')))
                     except:
                         ordem.quantidade = 0
                     
-                    # Coluna E: Cliente
                     ordem.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
-                    
-                    # Coluna F: Data Início (string)
                     ordem.data_inicio_str = row[5].strip() if len(row) > 5 and row[5] else ""
-                    
-                    # Coluna G: Data Prevista (string)
                     ordem.data_prevista_str = row[6].strip() if len(row) > 6 and row[6] else ""
                     
-                    # Coluna H: Status
                     status_val = row[7].strip() if len(row) > 7 and row[7] else ""
                     status_keys = [s["key"] for s in STATUS_KANBAN]
                     ordem.status = status_val if status_val in status_keys else "A_PRODUZIR"
                     
-                    # Coluna I: Turno
                     ordem.turno = row[8].strip() if len(row) > 8 and row[8] else ""
                     
-                    # Coluna J: Prioridade
                     try:
                         prio_val = int(row[9]) if len(row) > 9 and row[9] else 2
                         ordem.prioridade = prio_val if prio_val in [1, 2, 3] else 2
                     except:
                         ordem.prioridade = 2
                     
-                    # Coluna K: Observação
                     ordem.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
-                    
-                    # Guardar linha para edição/exclusão
                     ordem.linha = idx
                     
                     ordens.append(ordem)
                 except Exception as e:
-                    print(f"Erro ao processar linha {idx}: {e}")
                     continue
             
-            # Se não houver ordens, criar demo e salvar
             if not ordens:
                 st.info("📋 Criando ordens de demonstração...")
                 ordens_demo = criar_ordens_demo()
-                # Salvar ordens demo na planilha
                 for ordem in ordens_demo:
                     try:
                         dados = [
                             ordem.id, ordem.referencia, ordem.descricao, str(ordem.quantidade),
-                            ordem.cliente,
-                            ordem.data_inicio_str,
-                            ordem.data_prevista_str,
+                            ordem.cliente, ordem.data_inicio_str, ordem.data_prevista_str,
                             ordem.status, ordem.turno, str(ordem.prioridade), ordem.observacao
                         ]
                         sheet.append_row(dados)
-                    except Exception as e:
-                        print(f"Erro ao salvar ordem demo: {e}")
+                    except:
+                        pass
                 return ordens_demo
             
             return ordens
@@ -7640,11 +7618,10 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     
     def criar_ordens_demo() -> List[OrdemProducao]:
         """Cria ordens de demonstração"""
-        
         hoje = datetime.now().strftime("%d/%m/%Y")
         semana = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
         
-        ordens_demo = [
+        return [
             OrdemProducao(
                 id="ORD-001",
                 referencia="9013",
@@ -7682,7 +7659,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="QUALIDADE",
                 turno="Noite",
                 prioridade=1,
-                observacao="Aguardando inspeção de qualidade"
+                observacao="Aguardando inspeção"
             ),
             OrdemProducao(
                 id="ORD-004",
@@ -7708,7 +7685,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="CONCLUIDO",
                 turno="Tarde",
                 prioridade=3,
-                observacao="Concluído - aguardando armazenagem"
+                observacao="Concluído"
             ),
             OrdemProducao(
                 id="ORD-006",
@@ -7724,8 +7701,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 observacao="Estoque disponível"
             ),
         ]
-        
-        return ordens_demo
     
     def salvar_ordem_kanban(ordem: OrdemProducao, eh_alteracao: bool = False) -> tuple:
         """Salva ordem na planilha"""
@@ -7767,7 +7742,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             else:
                 sheet.append_row(dados)
             
-            # Limpar cache do cliente, mas não o cache do streamlit
             st.cache_data.clear()
             return True, "✅ Ordem salva com sucesso!"
             
@@ -7804,10 +7778,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
             
-            # Buscar pela coluna ID (coluna A)
             cell = sheet.find(id_ordem, in_column=1)
             if cell:
-                # Coluna H = STATUS (coluna 8)
                 sheet.update_cell(cell.row, 8, novo_status)
                 st.cache_data.clear()
                 return True, "✅ Status atualizado!"
@@ -7936,7 +7908,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     # ======================
     # CARREGAR DADOS
     # ======================
-    # Carregar apenas se não estiver carregado ou se forçar recarregamento
     if not st.session_state.kanban_carregado or st.session_state.get('forcar_recarregar', False):
         with st.spinner("🔄 Carregando ordens de produção..."):
             st.session_state.ordens_kanban = carregar_ordens_kanban()
@@ -8036,9 +8007,17 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     step=1
                 )
                 
+                if editando and editando.data_prevista_str:
+                    try:
+                        data_prevista_default = datetime.strptime(editando.data_prevista_str, "%d/%m/%Y")
+                    except:
+                        data_prevista_default = datetime.now().date() + timedelta(days=7)
+                else:
+                    data_prevista_default = datetime.now().date() + timedelta(days=7)
+                
                 data_prevista = st.date_input(
                     "Data Prevista",
-                    value=datetime.strptime(editando.data_prevista_str, "%d/%m/%Y") if editando and editando.data_prevista_str else datetime.now().date() + timedelta(days=7),
+                    value=data_prevista_default,
                     key="kanban_data_prevista"
                 )
                 
@@ -8123,21 +8102,27 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         st.markdown("---")
     
     # ======================
-    # RENDERIZAR KANBAN
+    # RENDERIZAR KANBAN - VERSÃO CORRIGIDA
     # ======================
     
     def renderizar_cartao_kanban(ordem: OrdemProducao, status_key: str):
-        """Renderiza um cartão individual do Kanban"""
+        """Renderiza um cartão individual do Kanban com HTML válido"""
         
+        # Cores e labels das prioridades
         prioridade_cores = {1: "#dc3545", 2: "#ffc107", 3: "#28a745"}
-        prioridade_labels = {1: "🔴 Alta", 2: "🟡 Média", 3: "🟢 Baixa"}
+        prioridade_labels = {1: "Alta", 2: "Média", 3: "Baixa"}
         prioridade_cor = prioridade_cores.get(ordem.prioridade, "#6c757d")
         prioridade_label = prioridade_labels.get(ordem.prioridade, "Média")
         
+        # Status da coluna
         status_info = next((s for s in STATUS_KANBAN if s["key"] == status_key), None)
         cor_borda = status_info["color"] if status_info else "#0078D4"
         
-        st.markdown(f"""
+        # Data prevista formatada
+        data_prevista = ordem.data_prevista_str if ordem.data_prevista_str else "-"
+        
+        # HTML do cartão - TODAS AS TAGS FECHADAS
+        card_html = f'''
         <div class="kanban-card" 
              style="border-left-color: {cor_borda};"
              draggable="true"
@@ -8147,8 +8132,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
              ondragend="onDragEnd(event)">
             
             <div class="kanban-card-id">
-                {ordem.id}
-                <span class="kanban-card-badge" style="background: {prioridade_cor}; margin-left: 6px;">
+                <span>{ordem.id}</span>
+                <span class="kanban-card-badge" style="background: {prioridade_cor};">
                     {prioridade_label}
                 </span>
             </div>
@@ -8158,22 +8143,25 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             </div>
             
             <div class="kanban-card-desc">
-                Cliente: {ordem.cliente or "N/A"} | Data: {ordem.data_prevista_str}
+                Cliente: {ordem.cliente or "N/A"}
             </div>
             
             <div class="kanban-card-meta">
                 <span class="qtd">📦 {ordem.quantidade} un</span>
-                <span class="cliente">🏢 {ordem.cliente or "-"}</span>
-                <span>📅 {ordem.data_prevista_str}</span>
+                <span>📅 {data_prevista}</span>
             </div>
             
             <div class="kanban-card-actions">
-                <button onclick="document.getElementById('btn_editar_{ordem.id}').click();" title="Editar">✏️</button>
-                <button onclick="document.getElementById('btn_excluir_{ordem.id}').click();" title="Excluir">🗑️</button>
+                <button onclick="document.getElementById(&#39;btn_editar_{ordem.id}&#39;).click();" title="Editar">✏️</button>
+                <button onclick="document.getElementById(&#39;btn_excluir_{ordem.id}&#39;).click();" title="Excluir">🗑️</button>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        '''
         
+        # Renderizar o HTML
+        st.markdown(card_html, unsafe_allow_html=True)
+        
+        # Botões de ação (escondidos)
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✏️", key=f"btn_editar_{ordem.id}", help="Editar ordem"):
@@ -8204,7 +8192,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         color = status_info["color"]
         count = len(ordens)
         
-        st.markdown(f"""
+        # Abrir coluna
+        st.markdown(f'''
         <div class="kanban-column" style="border-top: 3px solid {color};">
             <div class="kanban-column-header">
                 <div class="kanban-column-title">
@@ -8218,37 +8207,44 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                  ondrop="onDrop(event)"
                  ondragover="onDragOver(event)"
                  ondragleave="onDragLeave(event)">
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
         
+        # Renderizar cartões ou estado vazio
         if ordens:
             for ordem in ordens:
                 renderizar_cartao_kanban(ordem, status_key)
         else:
-            st.markdown(f"""
+            st.markdown(f'''
             <div class="kanban-empty">
                 <div class="icon">📭</div>
                 <div class="text">Arraste aqui a ordem de produção ...</div>
             </div>
-            """, unsafe_allow_html=True)
+            ''', unsafe_allow_html=True)
         
-        st.markdown("</div></div>", unsafe_allow_html=True)
+        # Fechar coluna
+        st.markdown('</div></div>', unsafe_allow_html=True)
     
     def renderizar_kanban(ordens: List[OrdemProducao]):
         """Renderiza o Kanban completo"""
         
+        # Agrupar ordens por status
         ordens_por_status = {status["key"]: [] for status in STATUS_KANBAN}
         for ordem in ordens:
             if ordem.status in ordens_por_status:
                 ordens_por_status[ordem.status].append(ordem)
         
+        # Abrir container
         st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
         
+        # Criar colunas
         cols = st.columns(len(STATUS_KANBAN), gap="small")
         
+        # Renderizar cada coluna
         for i, (col, status) in enumerate(zip(cols, STATUS_KANBAN)):
             with col:
                 renderizar_coluna_kanban(status["key"], ordens_por_status.get(status["key"], []))
         
+        # Fechar container
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Renderizar Kanban
