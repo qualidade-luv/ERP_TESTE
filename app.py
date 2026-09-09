@@ -7211,1481 +7211,939 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO GOOGLE SHEETS (COM TRS BRUTO + ARs/RMs) - COM RELATÓRIO
+# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE)
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
-    render_page_header("FECHAMENTO DE TURNO", f"Controle de Produção · Atualizado {get_horario_brasilia()}", THEME['accent_purple'])
+    render_page_header("FECHAMENTO DE TURNO", 
+                       f"Kanban de Produção · Atualizado {get_horario_brasilia()}", 
+                       THEME['accent_purple'])
     
     # ======================
-    # CONFIGURAÇÕES DAS PLANILHAS ONLINE
+    # CONFIGURAÇÕES
     # ======================
-    ID_PLANILHA_FECHAMENTO = '1_HkKTRCSg24wDJ47v5wSd-UPBkbalLd6plV9IvlTY64'
-    ID_PLANILHA_FALTAS = '1D4Wqixy60ZW5WPqO026rc1PTHjlVboq9ka0I3VktzDs'
-    
-    NOME_ABA_PRODUCAO = "PRODUÇÕES"
-    NOME_ABA_CHECKLIST = "CHECK"
-    NOME_ABA_FALTAS = "Controle de Faltas"
+    ID_PLANILHA_KANBAN = '1_HkKTRCSg24wDJ47v5wSd-UPBkbalLd6plV9IvlTY64'
+    ABA_KANBAN = 'KANBAN'
     
     # ======================
-    # FUNÇÕES AUXILIARES
+    # CLASSES DE DADOS
     # ======================
-    def converter_data_sheets(data_str):
-        """Converte string de data do Google Sheets para objeto date"""
-        if data_str is None:
-            return None
-        if isinstance(data_str, (datetime, pd.Timestamp, date)):
-            return data_str.date() if hasattr(data_str, 'date') else data_str
-        
-        data_str = str(data_str).strip()
-        
-        formatos = [
-            "%d/%m/%Y",
-            "%Y-%m-%d", 
-            "%d-%m-%Y",
-            "%m/%d/%Y",
-        ]
-        
-        for fmt in formatos:
-            try:
-                return datetime.strptime(data_str, fmt).date()
-            except:
-                continue
-        
-        return None
+    @dataclass
+    class OrdemProducao:
+        id: str = ""
+        referencia: str = ""
+        descricao: str = ""
+        quantidade: int = 0
+        cliente: str = ""
+        data_inicio: Optional[datetime] = None
+        data_prevista: Optional[datetime] = None
+        status: str = "A_PRODUZIR"  # A_PRODUZIR, PRODUZINDO, QUALIDADE, CONFERIDO, CONCLUIDO, ARMAZENADO
+        turno: str = ""
+        prioridade: int = 0  # 1=Alta, 2=Média, 3=Baixa
+        observacao: str = ""
+        linha: Optional[int] = None
     
-    def time_to_str_ft(t):
-        if t is None:
-            return ""
-        return str(t) if t else ""
+    # ======================
+    # STATUS KANBAN
+    # ======================
+    STATUS_KANBAN = [
+        {"key": "A_PRODUZIR", "label": "A Produzir", "icon": "📋", "color": "#6c757d"},
+        {"key": "PRODUZINDO", "label": "Produzindo", "icon": "⚙️", "color": "#0078D4"},
+        {"key": "QUALIDADE", "label": "Qualidade", "icon": "🔍", "color": "#FFB900"},
+        {"key": "CONFERIDO", "label": "Conferido", "icon": "✅", "color": "#107C10"},
+        {"key": "CONCLUIDO", "label": "Concluído", "icon": "🏁", "color": "#28a745"},
+        {"key": "ARMAZENADO", "label": "Armazenado", "icon": "📦", "color": "#6B46C1"},
+    ]
     
-    def str_time_to_minutes_ft(time_str: str) -> int:
-        try:
-            if not time_str or time_str == "00:00":
-                return 0
-            parts = time_str.split(":")
-            if len(parts) >= 2:
-                hours = int(parts[0]) if parts[0].isdigit() else 0
-                minutes = int(parts[1]) if parts[1].isdigit() else 0
-                return hours * 60 + minutes
-            return 0
-        except:
-            return 0
+    # ======================
+    # INICIALIZAR SESSION STATE
+    # ======================
+    if 'ordens_kanban' not in st.session_state:
+        st.session_state.ordens_kanban = []
     
-    def minutos_para_horas_str(minutos):
-        if pd.isna(minutos) or minutos is None or minutos == 0:
-            return "00:00"
-        horas = int(minutos) // 60
-        mins = int(minutos) % 60
-        return f"{horas:02d}:{mins:02d}"
+    if 'kanban_arrastando' not in st.session_state:
+        st.session_state.kanban_arrastando = None
     
-    def get_turno_por_horario(inicio_str, fim_str, is_sabado=False):
-        """
-        Determina o turno com base nos horários de início e fim
-        Manhã: 06:00 até 14:00
-        Tarde: 14:00 até 22:00
-        Noite: 22:00 até 06:00 (próximo dia)
-        
-        Para sábado:
-        Manhã: 06:00 até 11:00
-        Tarde: 11:00 até 16:00
-        Sem turno Noite
-        """
-        try:
-            if not inicio_str or not fim_str:
-                return "Não definido"
-            
-            # Extrair horas
-            if ':' in inicio_str:
-                h_inicio = int(inicio_str.split(':')[0])
-                m_inicio = int(inicio_str.split(':')[1]) if len(inicio_str.split(':')) > 1 else 0
-            else:
-                return "Não definido"
-            
-            if ':' in fim_str:
-                h_fim = int(fim_str.split(':')[0])
-                m_fim = int(fim_str.split(':')[1]) if len(fim_str.split(':')) > 1 else 0
-            else:
-                return "Não definido"
-            
-            minutos_inicio = h_inicio * 60 + m_inicio
-            minutos_fim = h_fim * 60 + m_fim
-            
-            if is_sabado:
-                # Sábado: Manhã 06:00-11:00, Tarde 11:00-16:00
-                if 360 <= minutos_inicio < 660:  # 06:00 até 11:00
-                    return "Manhã"
-                elif 660 <= minutos_inicio < 960:  # 11:00 até 16:00
-                    return "Tarde"
-                else:
-                    return "Fora do horário"
-            else:
-                # Dias normais
-                if 360 <= minutos_inicio < 840:  # 06:00 até 14:00
-                    return "Manhã"
-                elif 840 <= minutos_inicio < 1320:  # 14:00 até 22:00
-                    return "Tarde"
-                elif minutos_inicio >= 1320 or minutos_inicio < 360:  # 22:00 até 06:00
-                    return "Noite"
-                else:
-                    return "Fora do horário"
-                    
-        except Exception as e:
-            return "Não definido"
+    if 'kanban_origem' not in st.session_state:
+        st.session_state.kanban_origem = None
     
-    def get_carinha_trs(trs_value):
-        """Retorna a carinha baseada no TRS Bruto"""
-        if trs_value >= 100:
-            return "😊"
-        elif trs_value >= 80:
-            return "🙂"
-        else:
-            return "😢"
+    if 'kanban_destino' not in st.session_state:
+        st.session_state.kanban_destino = None
     
+    if 'kanban_editando' not in st.session_state:
+        st.session_state.kanban_editando = None
+    
+    if 'kanban_mostrar_novo' not in st.session_state:
+        st.session_state.kanban_mostrar_novo = False
+    
+    # ======================
+    # CSS PARA KANBAN
+    # ======================
+    st.markdown("""
+    <style>
+    /* Kanban Container */
+    .kanban-container {
+        display: flex;
+        gap: 16px;
+        overflow-x: auto;
+        padding: 12px 4px 20px 4px;
+        min-height: 500px;
+        align-items: flex-start;
+    }
+    
+    /* Kanban Column */
+    .kanban-column {
+        min-width: 220px;
+        max-width: 260px;
+        flex: 1;
+        background: #f4f5f7;
+        border-radius: 12px;
+        padding: 12px 10px;
+        border: 1px solid #e0e4e8;
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .kanban-column-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e0e4e8;
+        margin-bottom: 10px;
+    }
+    
+    .kanban-column-title {
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .kanban-column-count {
+        background: #e0e4e8;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #555;
+    }
+    
+    /* Kanban Card */
+    .kanban-card {
+        background: white;
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        border-left: 4px solid #0078D4;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        cursor: grab;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+    
+    .kanban-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        border-left-width: 5px;
+    }
+    
+    .kanban-card:active {
+        cursor: grabbing;
+    }
+    
+    .kanban-card-id {
+        font-size: 10px;
+        font-weight: 700;
+        color: #0078D4;
+        font-family: 'JetBrains Mono', monospace;
+        margin-bottom: 4px;
+    }
+    
+    .kanban-card-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1a1a2e;
+        margin-bottom: 4px;
+        line-height: 1.3;
+    }
+    
+    .kanban-card-desc {
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 6px;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    
+    .kanban-card-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 10px;
+        color: #888;
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid #f0f0f0;
+    }
+    
+    .kanban-card-meta .qtd {
+        font-weight: 700;
+        color: #0078D4;
+    }
+    
+    .kanban-card-meta .cliente {
+        color: #666;
+    }
+    
+    .kanban-card-badge {
+        display: inline-block;
+        padding: 1px 10px;
+        border-radius: 10px;
+        font-size: 9px;
+        font-weight: 700;
+        color: white;
+    }
+    
+    .kanban-card-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+        justify-content: flex-end;
+    }
+    
+    .kanban-card-actions button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+    
+    .kanban-card-actions button:hover {
+        background: #f0f0f0;
+    }
+    
+    /* Empty state */
+    .kanban-empty {
+        text-align: center;
+        padding: 30px 10px;
+        color: #aaa;
+        font-size: 12px;
+        border: 2px dashed #e0e4e8;
+        border-radius: 8px;
+        background: #fafafa;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .kanban-empty .icon {
+        font-size: 28px;
+        margin-bottom: 8px;
+        opacity: 0.5;
+    }
+    
+    .kanban-empty .text {
+        font-size: 11px;
+        color: #999;
+    }
+    
+    /* Drop zone */
+    .kanban-drop-zone {
+        border: 2px dashed transparent;
+        border-radius: 8px;
+        padding: 4px;
+        transition: all 0.2s ease;
+        min-height: 60px;
+    }
+    
+    .kanban-drop-zone.drag-over {
+        border-color: #0078D4;
+        background: rgba(0,120,212,0.05);
+    }
+    
+    /* Toolbar */
+    .kanban-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        background: white;
+        border-radius: 10px;
+        border: 1px solid #e0e4e8;
+    }
+    
+    /* Responsive */
+    @media (max-width: 1200px) {
+        .kanban-column {
+            min-width: 180px;
+            max-width: 220px;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .kanban-container {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .kanban-column {
+            max-width: 100%;
+            min-width: unset;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     # ======================
     # FUNÇÕES DE CARREGAMENTO
     # ======================
-    @st.cache_data(ttl=1200)
-    def carregar_producoes_fechamento(data_selecionada: date):
-        """Carrega produções do Google Sheets"""
-        producoes = []
-        try:
-            client = get_gspread_client()
-            if client is None:
-                st.error("❌ Erro ao conectar ao Google Sheets")
-                return producoes
-            
-            spreadsheet = client.open("Fechamento diario")
-            sheet = spreadsheet.worksheet(NOME_ABA_PRODUCAO)
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                return producoes
-            
-            for row in todos_dados[1:]:
-                if len(row) < 2:
-                    continue
-                
-                data_str = row[1] if len(row) > 1 else ""
-                data_registro = converter_data_sheets(data_str)
-                
-                if data_registro and data_registro == data_selecionada:
-                    try:
-                        produzido_val = int(float(row[5])) if len(row) > 5 and row[5] else 0
-                    except:
-                        produzido_val = 0
-                    
-                    try:
-                        meta_val = int(float(row[7])) if len(row) > 7 and row[7] else 0
-                    except:
-                        meta_val = 0
-                    
-                    # TRS BRUTO = (Produzido / Meta) * 100
-                    trs_bruto = round((produzido_val / meta_val * 100), 1) if meta_val > 0 else 0
-                    
-                    # Verificar se é sábado (data_registro é um date)
-                    is_sabado = False
-                    if data_registro and hasattr(data_registro, 'weekday'):
-                        is_sabado = data_registro.weekday() == 5  # Sábado = 5
-                    
-                    inicio = row[3] if len(row) > 3 else ""
-                    fim = row[4] if len(row) > 4 else ""
-                    
-                    # Determinar turno baseado nos horários
-                    turno_calculado = get_turno_por_horario(inicio, fim, is_sabado)
-                    
-                    producoes.append({
-                        'id': row[0] if len(row) > 0 else "",
-                        'data': data_registro,
-                        'referencia': row[2] if len(row) > 2 else "",
-                        'inicio': inicio,
-                        'fim': fim,
-                        'produzido': produzido_val,
-                        'observacoes': row[6] if len(row) > 6 else "",
-                        'meta': meta_val,
-                        'id_prog': row[8] if len(row) > 8 else "",
-                        'justificativa': row[9] if len(row) > 9 else "",
-                        'setup': row[10] if len(row) > 10 else "",
-                        'manut': row[11] if len(row) > 11 else "",
-                        'trs_bruto': trs_bruto,
-                        'turno': turno_calculado
-                    })
-            
-        except Exception as e:
-            st.error(f"Erro ao carregar produções: {e}")
-        
-        return producoes
     
-    @st.cache_data(ttl=1200)
-    def carregar_checklists_fechamento(data_selecionada: date):
-        """Carrega checklists do Google Sheets"""
-        checklists = {"manha": False, "tarde": False, "noite": False}
-        detalhes = []
-        
+    @retry_on_quota()
+    @st.cache_data(ttl=300)
+    def carregar_ordens_kanban() -> List[OrdemProducao]:
+        """Carrega ordens de produção do Google Sheets"""
+        ordens = []
         try:
             client = get_gspread_client()
             if client is None:
-                return checklists, detalhes
+                return ordens
             
-            spreadsheet = client.open("Fechamento diario")
-            sheet = spreadsheet.worksheet(NOME_ABA_CHECKLIST)
-            todos_dados = sheet.get_all_values()
+            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
             
-            if len(todos_dados) < 2:
-                return checklists, detalhes
-            
-            for row in todos_dados[1:]:
-                if len(row) < 2 or not row[0]:
-                    continue
-                
-                data_registro = converter_data_sheets(row[0])
-                if data_registro and data_registro == data_selecionada:
-                    turno = str(row[1]).lower().strip() if len(row) > 1 else ""
-                    if turno in checklists:
-                        checklists[turno] = True
-                    detalhes.append({
-                        'turno': row[1] if len(row) > 1 else "",
-                        'faltas': row[2] if len(row) > 2 else "",
-                        'temp_forno': row[4] if len(row) > 4 else "",
-                        'temp_obs': row[5] if len(row) > 5 else "",
-                        'aspecto_vidro': row[6] if len(row) > 6 else "",
-                        'aspecto_obs': row[7] if len(row) > 7 else ""
-                    })
-            
-        except Exception as e:
-            st.error(f"Erro ao carregar checklists: {e}")
-        
-        return checklists, detalhes
-    
-    @st.cache_data(ttl=1200)
-    def carregar_faltas_fechamento(data_selecionada: date):
-        """Carrega faltas do Google Sheets"""
-        faltas = []
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return faltas
-            
-            sheet = client.open_by_key(ID_PLANILHA_FALTAS).worksheet(NOME_ABA_FALTAS)
-            todos_dados = sheet.get_all_values()
-            
-            if len(todos_dados) < 2:
-                return faltas
-            
-            for row in todos_dados[1:]:
-                if len(row) < 7:
-                    continue
-                
-                data_falta = converter_data_sheets(row[6]) if len(row) > 6 else None
-                
-                if data_falta and data_falta == data_selecionada:
-                    faltas.append({
-                        'id': row[1] if len(row) > 1 else "",
-                        'chapa': row[2] if len(row) > 2 else "",
-                        'nome': row[3] if len(row) > 3 else "",
-                        'motivo': row[4] if len(row) > 4 else "",
-                        'horas': row[5] if len(row) > 5 else "",
-                        'justificativa': row[7] if len(row) > 7 else ""
-                    })
-            
-        except Exception as e:
-            st.error(f"Erro ao carregar faltas: {e}")
-        
-        return faltas
-    
-    @st.cache_data(ttl=1200)
-    def carregar_ars_rms_fechamento(data_selecionada: date):
-        """Carrega ARs e RMs das planilhas existentes filtradas por data"""
-        ars = []
-        rms = []
-        
-        try:
-            client = get_gspread_client()
-            if client is None:
-                return ars, rms
-            
-            # ======================
-            # CARREGAR ARs (Aviso de Rejeição)
-            # ======================
             try:
-                sheet_ar = client.open_by_key(ID_PLANILHA_AR).worksheet(ABA_AR)
-                todos_dados_ar = sheet_ar.get_all_values()
-                
-                if len(todos_dados_ar) >= 2:
-                    for row in todos_dados_ar[1:]:
-                        if len(row) < 5:
-                            continue
-                        
-                        data_ar_str = row[1] if len(row) > 1 else ""
-                        data_ar = converter_data_sheets(data_ar_str)
-                        
-                        if data_ar and data_ar == data_selecionada:
-                            ars.append({
-                                'tipo': 'AR',
-                                'numero': row[0] if len(row) > 0 else "",
-                                'data_abertura': data_ar,
-                                'hora': row[2] if len(row) > 2 else "",
-                                'codigo': row[3] if len(row) > 3 else "",
-                                'emissor': row[4] if len(row) > 4 else "",
-                                'referencia': row[5] if len(row) > 5 else "",
-                                'decisao': row[6] if len(row) > 6 else "",
-                                'descricao': row[7] if len(row) > 7 else "",
-                                'status': row[8] if len(row) > 8 else "ABERTO",
-                                'disposicao': row[9] if len(row) > 9 else "",
-                                'data_fechamento': converter_data_sheets(row[10]) if len(row) > 10 and row[10] else None,
-                                'turno': row[11] if len(row) > 11 else "",
-                                'setor_destino': 'Qualidade',
-                                'responsavel': row[4] if len(row) > 4 else ""
-                            })
-            except Exception as e:
-                pass
+                sheet = spreadsheet.worksheet(ABA_KANBAN)
+            except:
+                # Criar aba se não existir
+                cabecalho = ["ID", "REFERENCIA", "DESCRICAO", "QUANTIDADE", "CLIENTE", 
+                            "DATA_INICIO", "DATA_PREVISTA", "STATUS", "TURNO", "PRIORIDADE", "OBSERVACAO"]
+                sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
+                sheet.append_row(cabecalho)
+                return ordens
             
-            # ======================
-            # CARREGAR RMs (Requisição de Manutenção)
-            # ======================
-            try:
-                sheet_rm = client.open_by_key(ID_PLANILHA_AR).worksheet(ABA_RM)
-                todos_dados_rm = sheet_rm.get_all_values()
-                
-                if len(todos_dados_rm) >= 2:
-                    for row in todos_dados_rm[1:]:
-                        if len(row) < 10:
-                            continue
-                        
-                        data_rm_str = row[1] if len(row) > 1 else ""
-                        data_rm = converter_data_sheets(data_rm_str)
-                        
-                        if data_rm and data_rm == data_selecionada:
-                            rms.append({
-                                'tipo': 'RM',
-                                'numero': row[0] if len(row) > 0 else "",
-                                'data_abertura': data_rm,
-                                'hora': row[2] if len(row) > 2 else "",
-                                'emissor': row[3] if len(row) > 3 else "",
-                                'equipamento': row[4] if len(row) > 4 else "",
-                                'setor': row[5] if len(row) > 5 else "",
-                                'carater': row[6] if len(row) > 6 else "",
-                                'setor_destino': row[7] if len(row) > 7 else "",
-                                'descricao': row[8] if len(row) > 8 else "",
-                                'trabalho': row[9] if len(row) > 9 else "",
-                                'analise': row[10] if len(row) > 10 else "",
-                                'status': row[11] if len(row) > 11 else "ABERTO",
-                                'data_fechamento': converter_data_sheets(row[12]) if len(row) > 12 and row[12] else None,
-                                'responsavel': row[13] if len(row) > 13 else ""
-                            })
-            except Exception as e:
-                pass
+            todos_dados = sheet.get_all_values()
             
-        except Exception as e:
-            pass
-        
-        return ars, rms
-    
-    # ======================
-    # FUNÇÃO PARA GERAR HTML DO RELATÓRIO PARA DOWNLOAD (MODO RETRATO)
-    # ======================
-    def gerar_html_relatorio(producoes, ars, rms, data_fechamento, turno_label, total_produzido, total_meta, 
-                             eficiencia, total_setup_min, total_manut_min, total_ars, total_rms, 
-                             ars_abertos, rms_abertos, itens_baixa):
-        """
-        Gera o HTML do relatório para download em modo retrato com fontes maiores
-        """
-        data_str = data_fechamento.strftime("%d/%m/%Y")
-        
-        # Gerar linhas da tabela de produção
-        tabela_linhas = ""
-        for p in producoes:
-            trs = p.get('trs_bruto', 0)
-            carinha = get_carinha_trs(trs)
+            if len(todos_dados) < 2:
+                return ordens
             
-            # Definir cor da linha baseada no TRS
-            if trs >= 100:
-                cor_linha = "#d4edda"
-                cor_texto = "#155724"
-            elif trs >= 80:
-                cor_linha = "#fff3cd"
-                cor_texto = "#856404"
-            else:
-                cor_linha = "#f8d7da"
-                cor_texto = "#721c24"
-            
-            # Formatar valores
-            meta_str = f"{p.get('meta', 0):,}".replace(",", ".")
-            produzido_str = f"{p.get('produzido', 0):,}".replace(",", ".")
-            data_prod = p.get('data', '').strftime('%d/%m/%Y') if p.get('data') else '-'
-            referencia = p.get('referencia', '-')
-            if len(referencia) > 20:
-                referencia = referencia[:18] + '...'
-            
-            tabela_linhas += f"""
-            <tr style="background-color: {cor_linha}; color: {cor_texto}; font-size: 11px;">
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{data_prod}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-size: 10px;">{referencia}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{p.get('inicio', '-')}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{p.get('fim', '-')}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: right;">{meta_str}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: right;">{produzido_str}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{p.get('setup', '-')}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{p.get('manut', '-')}</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-weight: bold; font-size: 11px;">{trs:.1f}%</td>
-                <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-size: 18px;">{carinha}</td>
-            </tr>
-            """
-        
-        if not tabela_linhas:
-            tabela_linhas = """
-            <tr>
-                <td colspan="10" style="padding: 15px; text-align: center; color: #999; font-size: 12px;">
-                    Nenhuma produção registrada para este turno/data.
-                </td>
-            </tr>
-            """
-        
-        # ======================
-        # GERAR TABELA DE ARs E RMs
-        # ======================
-        tabela_ars_rms = ""
-        todos_docs = ars + rms
-        if todos_docs:
-            for doc in todos_docs:
-                tipo = doc.get('tipo', '')
-                status = str(doc.get('status', '')).upper().strip()
+            for idx, row in enumerate(todos_dados[1:], start=2):
+                if len(row) < 4:
+                    continue
                 
-                # Definir cor do status
-                if status in ['FINALIZADO', 'FINALIZADA']:
-                    status_display = "✅ FINALIZADO"
-                    cor_status = "#28a745"
-                elif status in ['ABERTO', 'EM ANDAMENTO']:
-                    status_display = "🟡 ABERTO"
-                    cor_status = "#ffc107"
-                else:
-                    status_display = "🔴 NÃO RESPONDIDO"
-                    cor_status = "#dc3545"
-                
-                if tipo == 'AR':
-                    referencia = doc.get('referencia', '-')
-                    if len(referencia) > 25:
-                        referencia = referencia[:23] + '...'
-                    tabela_ars_rms += f"""
-                    <tr style="font-size: 11px;">
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: #0078D4;">AR</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{doc.get('numero', '-')}</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-size: 10px;">{referencia}</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">-</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: {cor_status};">{status_display}</td>
-                    </tr>
-                    """
-                else:  # RM
-                    equipamento = doc.get('equipamento', '-')
-                    if len(equipamento) > 25:
-                        equipamento = equipamento[:23] + '...'
-                    tabela_ars_rms += f"""
-                    <tr style="font-size: 11px;">
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: #E86C2C;">RM</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">{doc.get('numero', '-')}</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center;">-</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-size: 10px;">{equipamento}</td>
-                        <td style="padding: 4px 6px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: {cor_status};">{status_display}</td>
-                    </tr>
-                    """
-        else:
-            tabela_ars_rms = """
-            <tr>
-                <td colspan="5" style="padding: 15px; text-align: center; color: #999; font-size: 12px;">
-                    Nenhum AR ou RM registrado para esta data.
-                </td>
-            </tr>
-            """
-        
-        # Formatar valores para exibição
-        total_produzido_str = f"{total_produzido:,}".replace(",", ".")
-        total_meta_str = f"{total_meta:,}".replace(",", ".")
-        
-        # Cor da eficiência
-        cor_eficiencia = "#28a745" if eficiencia >= 85 else "#ffc107" if eficiencia >= 70 else "#dc3545"
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Resumo Produção - {data_str}</title>
-            <style>
-                @page {{
-                    size: portrait;
-                    margin: 10mm 10mm 10mm 10mm;
-                }}
-                body {{
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 10px;
-                    background-color: white;
-                    font-size: 11px;
-                }}
-                .container {{
-                    max-width: 100%;
-                    margin: 0 auto;
-                    background-color: white;
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    padding: 12px 20px;
-                    border-radius: 8px;
-                    margin-bottom: 12px;
-                    color: white;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 24px;
-                    font-weight: 700;
-                    letter-spacing: 0.1em;
-                    text-transform: uppercase;
-                }}
-                .header .subtitle {{
-                    font-size: 16px;
-                    color: #a0aec0;
-                    margin-top: 4px;
-                    font-weight: bold;
-                }}
-                .section-title {{
-                    font-size: 15px;
-                    font-weight: 700;
-                    margin: 12px 0 8px 0;
-                    padding-bottom: 5px;
-                    border-bottom: 2px solid #e0e0e0;
-                }}
-                table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-bottom: 10px;
-                    font-size: 10px;
-                }}
-                table th {{
-                    background-color: #2c3e50;
-                    color: white;
-                    padding: 5px 4px;
-                    border: 1px solid #2c3e50;
-                    text-align: center;
-                    font-size: 10px;
-                    font-weight: 700;
-                }}
-                table td {{
-                    padding: 4px 4px;
-                    border: 1px solid #ddd;
-                    text-align: center;
-                }}
-                .cards {{
-                    display: grid;
-                    grid-template-columns: repeat(5, 1fr);
-                    gap: 8px;
-                    margin-bottom: 10px;
-                }}
-                .card {{
-                    background: #f8f9fc;
-                    padding: 8px 10px;
-                    border-radius: 6px;
-                    border-left: 4px solid #0078D4;
-                    text-align: center;
-                }}
-                .card .label {{
-                    font-size: 9px;
-                    color: #666;
-                    text-transform: uppercase;
-                    font-weight: 600;
-                    letter-spacing: 0.05em;
-                }}
-                .card .value {{
-                    font-size: 18px;
-                    font-weight: 700;
-                    margin-top: 2px;
-                    color: #1a1a2e;
-                }}
-                .card-green {{ border-left-color: #28a745; }}
-                .card-red {{ border-left-color: #dc3545; }}
-                .card-yellow {{ border-left-color: #ffc107; }}
-                .card-purple {{ border-left-color: #6f42c1; }}
-                .executive-cards {{
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 8px;
-                    margin-top: 8px;
-                }}
-                .exec-card {{
-                    background: #f8f9fc;
-                    padding: 8px 12px;
-                    border-radius: 6px;
-                    border-left: 4px solid #0078D4;
-                    font-size: 10px;
-                }}
-                .exec-card .title {{
-                    font-weight: 700;
-                    font-size: 12px;
-                    margin-bottom: 4px;
-                }}
-                .exec-card .line {{
-                    font-size: 10px;
-                    padding: 1px 0;
-                }}
-                .footer {{
-                    margin-top: 10px;
-                    padding-top: 8px;
-                    border-top: 1px solid #e0e0e0;
-                    text-align: center;
-                    font-size: 9px;
-                    color: #999;
-                }}
-                .ars-rms-cards {{
-                    display: grid;
-                    grid-template-columns: repeat(4, 1fr);
-                    gap: 8px;
-                    margin-bottom: 8px;
-                }}
-                .assinatura-section {{
-                    margin-top: 20px;
-                    padding-top: 15px;
-                    border-top: 2px solid #2c3e50;
-                    text-align: center;
-                }}
-                .assinatura-section .titulo {{
-                    font-size: 13px;
-                    font-weight: 700;
-                    color: #1a1a2e;
-                    margin-bottom: 15px;
-                }}
-                .assinatura-section .linha {{
-                    display: flex;
-                    justify-content: center;
-                    gap: 40px;
-                    flex-wrap: wrap;
-                    margin-top: 10px;
-                }}
-                .assinatura-section .campo {{
-                    text-align: center;
-                    min-width: 200px;
-                }}
-                .assinatura-section .campo .linha-ass {{
-                    border-bottom: 1px solid #333;
-                    padding: 5px 30px;
-                    margin: 5px 0;
-                    min-width: 180px;
-                }}
-                .assinatura-section .campo .label-ass {{
-                    font-size: 10px;
-                    color: #666;
-                    margin-top: 2px;
-                }}
-                .assinatura-section .data {{
-                    margin-top: 15px;
-                    font-size: 11px;
-                    color: #555;
-                }}
-                @media print {{
-                    body {{ margin: 5mm; padding: 0; }}
-                    .container {{ box-shadow: none; }}
-                    .header {{ background: #1a1a2e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    .exec-card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                    table th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-                }}
-                @media screen {{
-                    body {{ padding: 20px; }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <!-- HEADER -->
-                <div class="header">
-                    <h1>📊 RESUMO DO DIA</h1>
-                    <div class="subtitle">{data_str} • TURNO: {turno_label}</div>
-                </div>
-                
-                <!-- TABELA DE PRODUÇÃO -->
-                <div class="section-title">📋 REGISTRO DE PRODUÇÃO</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 10%;">Data</th>
-                            <th style="width: 15%;">Referência</th>
-                            <th style="width: 8%;">Início</th>
-                            <th style="width: 8%;">Fim</th>
-                            <th style="width: 10%;">Meta</th>
-                            <th style="width: 10%;">Produzido</th>
-                            <th style="width: 8%;">Setup</th>
-                            <th style="width: 8%;">Manut.</th>
-                            <th style="width: 10%;">TRS Bruto</th>
-                            <th style="width: 6%;">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {tabela_linhas}
-                    </tbody>
-                </table>
-                
-                <!-- RESUMO DO DIA -->
-                <div class="section-title">📊 RESUMO DO DIA</div>
-                <div class="cards">
-                    <div class="card">
-                        <div class="label">📦 Produzido</div>
-                        <div class="value">{total_produzido_str}</div>
-                    </div>
-                    <div class="card card-green">
-                        <div class="label">🎯 Meta</div>
-                        <div class="value">{total_meta_str}</div>
-                    </div>
-                    <div class="card card-yellow">
-                        <div class="label">📈 Eficiência</div>
-                        <div class="value" style="color: {cor_eficiencia};">{eficiencia:.1f}%</div>
-                    </div>
-                    <div class="card card-red">
-                        <div class="label">🔧 Setup</div>
-                        <div class="value">{minutos_para_horas_str(total_setup_min)}</div>
-                    </div>
-                    <div class="card card-red">
-                        <div class="label">⚙️ Manutenção</div>
-                        <div class="value">{minutos_para_horas_str(total_manut_min)}</div>
-                    </div>
-                </div>
-                
-                <!-- RESUMO ARs e RMs - CARDS -->
-                <div class="section-title">🔧 RESUMO DE ARs E RMs</div>
-                <div class="ars-rms-cards">
-                    <div class="card card-purple">
-                        <div class="label">📋 Total ARs</div>
-                        <div class="value">{total_ars}</div>
-                    </div>
-                    <div class="card card-purple">
-                        <div class="label">🔩 Total RMs</div>
-                        <div class="value">{total_rms}</div>
-                    </div>
-                    <div class="card card-yellow">
-                        <div class="label">🟡 ARs em Aberto</div>
-                        <div class="value">{ars_abertos}</div>
-                    </div>
-                    <div class="card card-yellow">
-                        <div class="label">🟡 RMs em Aberto</div>
-                        <div class="value">{rms_abertos}</div>
-                    </div>
-                </div>
-                
-                <!-- TABELA DE ARs E RMs -->
-                <div style="margin-top: 5px;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width: 10%;">Tipo</th>
-                                <th style="width: 12%;">Nº</th>
-                                <th style="width: 30%;">Ref. (AR) / Equip. (RM)</th>
-                                <th style="width: 30%;">Equip. (RM) / Ref. (AR)</th>
-                                <th style="width: 18%;">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {tabela_ars_rms}
-                        </tbody>
-                    </table>
-                </div>
-                
-                <!-- RESUMO EXECUTIVO -->
-                <div class="section-title">📋 RESUMO EXECUTIVO</div>
-                <div class="executive-cards">
-                    <div class="exec-card" style="border-left-color: #0078D4;">
-                        <div class="title" style="color: #0078D4;">🏭 PRODUÇÃO</div>
-                        <div class="line">• Produzido: <b>{total_produzido_str}</b> un</div>
-                        <div class="line">• Meta: <b>{total_meta_str}</b> un</div>
-                        <div class="line">• Eficiência: <b>{eficiencia:.1f}%</b></div>
-                    </div>
-                    <div class="exec-card" style="border-left-color: #dc3545;">
-                        <div class="title" style="color: #dc3545;">⚠️ PARADAS</div>
-                        <div class="line">• Setup: <b>{minutos_para_horas_str(total_setup_min)}</b></div>
-                        <div class="line">• Manutenção: <b>{minutos_para_horas_str(total_manut_min)}</b></div>
-                        <div class="line">• Total: <b>{minutos_para_horas_str(total_setup_min + total_manut_min)}</b></div>
-                    </div>
-                    <div class="exec-card" style="border-left-color: #28a745;">
-                        <div class="title" style="color: #28a745;">📊 INDICADORES</div>
-                        <div class="line">• Baixa prod.: <b>{itens_baixa}</b></div>
-                        <div class="line">• ARs/RMs: <b>{total_ars + total_rms}</b> ({ars_abertos + rms_abertos} abertos)</div>
-                        <div class="line">• Eficiência: <b>{eficiencia:.1f}%</b></div>
-                    </div>
-                </div>
-                
-                <!-- ASSINATURA ÚNICA CENTRALIZADA -->
-                <div class="assinatura-section">
-                    <div class="titulo">📝 ASSINATURA DE RESPONSABILIDADE</div>
-                    <div class="linha">
-                        <div class="campo">
-                            <div class="linha-ass">_________________________</div>
-                            <div class="label-ass">Assinatura do Emissor</div>
-                        </div>
-                        <div class="campo">
-                            <div class="linha-ass">_________________________</div>
-                            <div class="label-ass">Assinatura do Líder SGQ</div>
-                        </div>
-                        <div class="campo">
-                            <div class="linha-ass">_________________________</div>
-                            <div class="label-ass">Assinatura da Qualidade</div>
-                        </div>
-                    </div>
-                    <div class="data">
-                        {data_str} • Luvidarte TRS Dashboard
-                    </div>
-                </div>
-                
-                <!-- FOOTER -->
-                <div class="footer">
-                    Relatório gerado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html
-    
-    # ======================
-    # FUNÇÃO PARA GERAR RELATÓRIO RESUMO NA TELA
-    # ======================
-    def gerar_relatorio_resumo(producoes, ars, rms, turno_selecionado, data_fechamento):
-        """
-        Gera o relatório resumo com base nos dados fornecidos
-        """
-        st.markdown("---")
-        
-        # TÍTULO DO RELATÓRIO
-        data_str = data_fechamento.strftime("%d/%m/%Y")
-        turno_label = "GERAL" if turno_selecionado == "Todos" else turno_selecionado.upper()
-        
-        st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
-                    padding: 20px 25px; border-radius: 12px; margin: 10px 0 25px 0;
-                    border-left: 6px solid {THEME['accent_purple']};">
-            <div style="font-family: 'Rajdhani', sans-serif; font-size: 28px; font-weight: 700; 
-                        color: white; letter-spacing: 0.1em; text-transform: uppercase;">
-                📊 RESUMO DO DIA
-            </div>
-            <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; 
-                        color: #a0aec0; margin-top: 4px;">
-                {data_str} • TURNO: {turno_label}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # ======================
-        # FILTRAR PRODUÇÕES POR TURNO
-        # ======================
-        if turno_selecionado != "Todos":
-            producoes_filtradas = [p for p in producoes if p.get('turno') == turno_selecionado]
-        else:
-            producoes_filtradas = producoes.copy()
-        
-        # ======================
-        # CALCULAR TOTAIS PARA O RELATÓRIO
-        # ======================
-        total_produzido = sum(p.get('produzido', 0) for p in producoes_filtradas)
-        total_meta = sum(p.get('meta', 0) for p in producoes_filtradas)
-        eficiencia = (total_produzido / total_meta * 100) if total_meta > 0 else 0
-        total_setup_min = sum(str_time_to_minutes_ft(p.get('setup', '')) for p in producoes_filtradas)
-        total_manut_min = sum(str_time_to_minutes_ft(p.get('manut', '')) for p in producoes_filtradas)
-        
-        total_ars = len(ars)
-        total_rms = len(rms)
-        ars_abertos = sum(1 for a in ars if str(a.get('status', '')).upper().strip() in ['ABERTO', 'EM ANDAMENTO'])
-        rms_abertos = sum(1 for r in rms if str(r.get('status', '')).upper().strip() in ['ABERTO', 'EM ANDAMENTO'])
-        itens_baixa = sum(1 for p in producoes_filtradas if (p.get('produzido', 0) or 0) / max(p.get('meta', 1), 1) * 100 < 80)
-        
-        # ======================
-        # TABELA DE PRODUÇÃO
-        # ======================
-        st.markdown(f"""
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 600; 
-                    color: {THEME['text_primary']}; margin: 20px 0 10px 0; 
-                    border-bottom: 2px solid {THEME['border_bright']}; padding-bottom: 8px;">
-            📋 REGISTRO DE PRODUÇÃO
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if producoes_filtradas:
-            # Preparar dados da tabela
-            dados_tabela = []
-            for p in producoes_filtradas:
-                trs = p.get('trs_bruto', 0)
-                carinha = get_carinha_trs(trs)
-                
-                dados_tabela.append({
-                    'Data': p.get('data', '').strftime('%d/%m/%Y') if p.get('data') else '-',
-                    'Referência': p.get('referencia', '-'),
-                    'Início': p.get('inicio', '-'),
-                    'Fim': p.get('fim', '-'),
-                    'Meta': f"{p.get('meta', 0):,}".replace(",", "."),
-                    'Produzido': f"{p.get('produzido', 0):,}".replace(",", "."),
-                    'Setup': p.get('setup', '-'),
-                    'Manutenção': p.get('manut', '-'),
-                    'TRS Bruto (%)': f"{trs:.1f}%" if trs > 0 else "0%",
-                    'Status': carinha
-                })
-            
-            df_tabela = pd.DataFrame(dados_tabela)
-            
-            # Aplicar estilo à tabela
-            def style_tabela(row):
-                styles = [''] * len(row)
                 try:
-                    trs_str = row['TRS Bruto (%)'].replace('%', '').strip()
-                    if trs_str:
-                        trs_val = float(trs_str)
-                        if trs_val >= 100:
-                            styles[8] = 'color: #107C10; font-weight: bold; background-color: #d4edda;'
-                            styles[9] = 'font-size: 20px;'
-                        elif trs_val >= 80:
-                            styles[8] = 'color: #FFB900; font-weight: bold; background-color: #fff3cd;'
-                            styles[9] = 'font-size: 20px;'
-                        else:
-                            styles[8] = 'color: #E81123; font-weight: bold; background-color: #f8d7da;'
-                            styles[9] = 'font-size: 20px;'
-                except:
-                    pass
-                return styles
+                    ordem = OrdemProducao()
+                    ordem.id = row[0].strip() if row[0] else f"ORD-{idx:03d}"
+                    ordem.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
+                    ordem.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
+                    
+                    try:
+                        ordem.quantidade = int(float(row[3])) if len(row) > 3 and row[3] else 0
+                    except:
+                        ordem.quantidade = 0
+                    
+                    ordem.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
+                    ordem.data_inicio = converter_data_br(row[5]) if len(row) > 5 and row[5] else None
+                    ordem.data_prevista = converter_data_br(row[6]) if len(row) > 6 and row[6] else None
+                    ordem.status = row[7].strip() if len(row) > 7 and row[7] else "A_PRODUZIR"
+                    ordem.turno = row[8].strip() if len(row) > 8 and row[8] else ""
+                    
+                    try:
+                        ordem.prioridade = int(row[9]) if len(row) > 9 and row[9] else 2
+                    except:
+                        ordem.prioridade = 2
+                    
+                    ordem.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
+                    ordem.linha = idx
+                    
+                    ordens.append(ordem)
+                except Exception as e:
+                    continue
             
-            styled_df = df_tabela.style.apply(style_tabela, axis=1)
-            st.dataframe(styled_df, use_container_width=True, height=400, hide_index=True)
-        else:
-            st.info("📭 Nenhuma produção registrada para este turno/data.")
-        
-        # ======================
-        # CARDS - RESUMO DO DIA
-        # ======================
-        st.markdown("---")
-        st.markdown(f"""
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 600; 
-                    color: {THEME['text_primary']}; margin: 20px 0 10px 0; 
-                    border-bottom: 2px solid {THEME['border_bright']}; padding-bottom: 8px;">
-            📊 RESUMO DO DIA
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns(5)
-        with col_c1:
-            st.metric("📦 Total Produzido", f"{total_produzido:,}".replace(",", "."))
-        with col_c2:
-            st.metric("🎯 Meta", f"{total_meta:,}".replace(",", "."))
-        with col_c3:
-            cor_ef = "🟢" if eficiencia >= 85 else "🟡" if eficiencia >= 70 else "🔴"
-            st.metric(f"{cor_ef} Eficiência", f"{eficiencia:.1f}%")
-        with col_c4:
-            st.metric("🔧 Setup Total", minutos_para_horas_str(total_setup_min))
-        with col_c5:
-            st.metric("⚙️ Manutenção Total", minutos_para_horas_str(total_manut_min))
-        
-        # ======================
-        # CARDS - RESUMO ARs e RMs
-        # ======================
-        st.markdown("---")
-        st.markdown(f"""
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 600; 
-                    color: {THEME['text_primary']}; margin: 20px 0 10px 0; 
-                    border-bottom: 2px solid {THEME['border_bright']}; padding-bottom: 8px;">
-            🔧 RESUMO DE ARs E RMs
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col_a1, col_a2, col_a3, col_a4 = st.columns(4)
-        with col_a1:
-            st.metric("📋 Total ARs", total_ars)
-        with col_a2:
-            st.metric("🔩 Total RMs", total_rms)
-        with col_a3:
-            st.metric("🟡 ARs em Aberto", ars_abertos)
-        with col_a4:
-            st.metric("🟡 RMs em Aberto", rms_abertos)
-        
-        # ======================
-        # TABELA DE ARs E RMs
-        # ======================
-        st.markdown("---")
-        st.markdown(f"""
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 600; 
-                    color: {THEME['text_primary']}; margin: 15px 0 10px 0; 
-                    border-bottom: 2px solid {THEME['border_bright']}; padding-bottom: 8px;">
-            📋 LISTA DE ARs E RMs DO DIA
-        </div>
-        """, unsafe_allow_html=True)
-        
-        todos_docs = ars + rms
-        if todos_docs:
-            dados_ars_rms = []
-            for doc in todos_docs:
-                tipo = doc.get('tipo', '')
-                status = str(doc.get('status', '')).upper().strip()
-                
-                if status in ['FINALIZADO', 'FINALIZADA']:
-                    status_display = "✅ FINALIZADO"
-                elif status in ['ABERTO', 'EM ANDAMENTO']:
-                    status_display = "🟡 ABERTO"
-                else:
-                    status_display = "🔴 NÃO RESPONDIDO"
-                
-                if tipo == 'AR':
-                    dados_ars_rms.append({
-                        'Tipo': 'AR',
-                        'Nº': doc.get('numero', '-'),
-                        'Ref. / Equip.': doc.get('referencia', '-'),
-                        'Equip. / Ref.': '-',
-                        'Status': status_display
-                    })
-                else:
-                    dados_ars_rms.append({
-                        'Tipo': 'RM',
-                        'Nº': doc.get('numero', '-'),
-                        'Ref. / Equip.': '-',
-                        'Equip. / Ref.': doc.get('equipamento', '-'),
-                        'Status': status_display
-                    })
+            return ordens
             
-            df_ars_rms = pd.DataFrame(dados_ars_rms)
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar ordens: {str(e)}")
+            return ordens
+    
+    def salvar_ordem_kanban(ordem: OrdemProducao, eh_alteracao: bool = False) -> tuple:
+        """Salva ordem no Google Sheets"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
             
-            # Aplicar estilo à tabela
-            def style_ars_rms(row):
-                styles = [''] * len(row)
-                status = row['Status']
-                if 'FINALIZADO' in status:
-                    styles[4] = 'color: #28a745; font-weight: bold;'
-                elif 'ABERTO' in status:
-                    styles[4] = 'color: #ffc107; font-weight: bold;'
-                else:
-                    styles[4] = 'color: #dc3545; font-weight: bold;'
-                return styles
+            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            sheet = spreadsheet.worksheet(ABA_KANBAN)
             
-            styled_ars_rms = df_ars_rms.style.apply(style_ars_rms, axis=1)
-            st.dataframe(styled_ars_rms, use_container_width=True, hide_index=True, height=min(400, len(todos_docs) * 35 + 35))
-        else:
-            st.info("📭 Nenhum AR ou RM registrado para esta data.")
-        
-        # ======================
-        # CARDS - RESUMO EXECUTIVO
-        # ======================
-        st.markdown("---")
-        st.markdown(f"""
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 600; 
-                    color: {THEME['text_primary']}; margin: 20px 0 10px 0; 
-                    border-bottom: 2px solid {THEME['border_bright']}; padding-bottom: 8px;">
-            📋 RESUMO EXECUTIVO
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col_e1, col_e2, col_e3 = st.columns(3)
-        with col_e1:
-            st.markdown(f"""
-            <div style="background: {THEME['bg_card']}; padding: 15px; border-radius: 10px; 
-                        border-left: 4px solid {THEME['accent_cyan']}; height: 100%;">
-                <b style="color: {THEME['accent_cyan']};">🏭 PRODUÇÃO</b><br>
-                • Total Produzido: <b>{total_produzido:,}</b> un<br>
-                • Meta Total: <b>{total_meta:,}</b> un<br>
-                • Eficiência Global: <b>{eficiencia:.1f}%</b>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col_e2:
-            st.markdown(f"""
-            <div style="background: {THEME['bg_card']}; padding: 15px; border-radius: 10px; 
-                        border-left: 4px solid {THEME['accent_red']}; height: 100%;">
-                <b style="color: {THEME['accent_red']};">⚠️ PARADAS</b><br>
-                • Setup Total: <b>{minutos_para_horas_str(total_setup_min)}</b><br>
-                • Manutenção Total: <b>{minutos_para_horas_str(total_manut_min)}</b><br>
-                • Total Paradas: <b>{minutos_para_horas_str(total_setup_min + total_manut_min)}</b>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col_e3:
-            st.markdown(f"""
-            <div style="background: {THEME['bg_card']}; padding: 15px; border-radius: 10px; 
-                        border-left: 4px solid {THEME['accent_lime']}; height: 100%;">
-                <b style="color: {THEME['accent_lime']};">📊 INDICADORES</b><br>
-                • Itens baixa prod.: <b>{itens_baixa}</b><br>
-                • ARs/RMs do dia: <b>{total_ars + total_rms}</b> ({ars_abertos + rms_abertos} abertos)<br>
-                • Eficiência: <b>{eficiencia:.1f}%</b>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # ======================
-        # ASSINATURA ÚNICA CENTRALIZADA
-        # ======================
-        st.markdown("---")
-        st.markdown(f"""
-        <div style="text-align: center; margin-top: 30px; padding-top: 15px; border-top: 2px solid #2c3e50;">
-            <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; 
-                        color: {THEME['text_primary']}; margin-bottom: 15px;">
-                📝 ASSINATURA DE RESPONSABILIDADE
-            </div>
-            <div style="display: flex; justify-content: center; gap: 40px; flex-wrap: wrap;">
-                <div style="text-align: center; min-width: 180px;">
-                    <div style="border-bottom: 1px solid #333; padding: 5px 20px; margin: 5px 0; min-width: 150px;">
-                        _________________________
-                    </div>
-                    <div style="font-size: 11px; color: #666;">Assinatura do Emissor</div>
-                </div>
-                <div style="text-align: center; min-width: 180px;">
-                    <div style="border-bottom: 1px solid #333; padding: 5px 20px; margin: 5px 0; min-width: 150px;">
-                        _________________________
-                    </div>
-                    <div style="font-size: 11px; color: #666;">Assinatura do Supervisor</div>
-                </div>
-                <div style="text-align: center; min-width: 180px;">
-                    <div style="border-bottom: 1px solid #333; padding: 5px 20px; margin: 5px 0; min-width: 150px;">
-                        _________________________
-                    </div>
-                    <div style="font-size: 11px; color: #666;">Assinatura da Qualidade</div>
-                </div>
-            </div>
-            <div style="margin-top: 10px; font-size: 12px; color: #555;">
-                {data_str} • Luvidarte TRS Dashboard
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # ======================
-        # BOTÃO PARA BAIXAR RELATÓRIO EM HTML
-        # ======================
-        st.markdown("---")
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        with col_btn2:
-            # Gerar HTML do relatório para download
-            html_content = gerar_html_relatorio(
-                producoes_filtradas, 
-                ars,
-                rms,
-                data_fechamento, 
-                turno_label,
-                total_produzido, 
-                total_meta, 
-                eficiencia, 
-                total_setup_min, 
-                total_manut_min,
-                total_ars, 
-                total_rms, 
-                ars_abertos, 
-                rms_abertos,
-                itens_baixa
-            )
+            dados = [
+                ordem.id,
+                ordem.referencia,
+                ordem.descricao,
+                str(ordem.quantidade),
+                ordem.cliente,
+                ordem.data_inicio.strftime("%d/%m/%Y") if ordem.data_inicio else "",
+                ordem.data_prevista.strftime("%d/%m/%Y") if ordem.data_prevista else "",
+                ordem.status,
+                ordem.turno,
+                str(ordem.prioridade),
+                ordem.observacao
+            ]
             
-            st.download_button(
-                label="📥 Baixar Relatório (HTML)",
-                data=html_content,
-                file_name=f"resumo_producao_{data_fechamento.strftime('%Y%m%d')}_{turno_label}.html",
-                mime="text/html",
-                use_container_width=True,
-                type="primary"
-            )
+            if eh_alteracao and ordem.linha:
+                for col, valor in enumerate(dados, start=1):
+                    sheet.update_cell(ordem.linha, col, valor)
+            else:
+                sheet.append_row(dados)
+            
+            st.cache_data.clear()
+            return True, "✅ Ordem salva com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao salvar: {str(e)}"
     
-    # ======================
-    # INTERFACE DO FECHAMENTO TURNO
-    # ======================
-    
-    # ======================
-    # HEADER COM DATA E BOTÃO GERAR RESUMO
-    # ======================
-    col_data1, col_data2, col_data3 = st.columns([1, 1, 2])
-    
-    with col_data1:
-        st.markdown("#### 📅 Selecione a Data")
-        data_fechamento = st.date_input(
-            "Data do Fechamento",
-            value=datetime.now().date(),
-            key="fechamento_data"
-        )
-    
-    with col_data2:
-        st.markdown("#### 🕐 Selecione o Turno")
-        # Verificar se é sábado para mostrar opções corretas
-        is_sabado = data_fechamento.weekday() == 5
-        if is_sabado:
-            opcoes_turno = ["Todos", "Manhã", "Tarde"]
-        else:
-            opcoes_turno = ["Todos", "Manhã", "Tarde", "Noite"]
-        
-        turno_selecionado_rel = st.selectbox(
-            "Turno",
-            options=opcoes_turno,
-            key="turno_selecionado_rel"
-        )
-    
-    with col_data3:
-        st.markdown("#### ⚙️ Ações")
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            gerar_resumo = st.button("📊 Gerar Resumo", use_container_width=True, type="primary")
-        with col_btn2:
-            if st.button("🔄 Atualizar", use_container_width=True):
+    def excluir_ordem_kanban(ordem: OrdemProducao) -> tuple:
+        """Exclui ordem do Google Sheets"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            sheet = spreadsheet.worksheet(ABA_KANBAN)
+            
+            if ordem.linha:
+                sheet.delete_rows(ordem.linha)
                 st.cache_data.clear()
-                st.rerun()
+                return True, "✅ Ordem excluída com sucesso!"
+            
+            return False, "❌ Linha não encontrada"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao excluir: {str(e)}"
     
-    st.markdown("<hr>", unsafe_allow_html=True)
+    def atualizar_status_ordem(id_ordem: str, novo_status: str) -> tuple:
+        """Atualiza apenas o status de uma ordem"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            sheet = spreadsheet.worksheet(ABA_KANBAN)
+            
+            # Encontrar a ordem
+            cell = sheet.find(id_ordem, in_column=1)
+            if cell:
+                # Coluna 8 = STATUS
+                sheet.update_cell(cell.row, 8, novo_status)
+                st.cache_data.clear()
+                return True, "✅ Status atualizado!"
+            
+            return False, "❌ Ordem não encontrada"
+            
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    # ======================
+    # FUNÇÕES DE RENDERIZAÇÃO
+    # ======================
+    
+    def renderizar_cartao_kanban(ordem: OrdemProducao, status_key: str):
+        """Renderiza um cartão individual do Kanban"""
+        
+        # Cor da prioridade
+        prioridade_cores = {
+            1: "#dc3545",  # Alta
+            2: "#ffc107",  # Média
+            3: "#28a745",  # Baixa
+        }
+        prioridade_labels = {
+            1: "🔴 Alta",
+            2: "🟡 Média",
+            3: "🟢 Baixa",
+        }
+        prioridade_cor = prioridade_cores.get(ordem.prioridade, "#6c757d")
+        prioridade_label = prioridade_labels.get(ordem.prioridade, "Média")
+        
+        # Status da coluna
+        status_info = next((s for s in STATUS_KANBAN if s["key"] == status_key), None)
+        cor_borda = status_info["color"] if status_info else "#0078D4"
+        
+        # Data prevista formatada
+        data_prevista = ordem.data_prevista.strftime("%d/%m") if ordem.data_prevista else "-"
+        
+        # Card
+        st.markdown(f"""
+        <div class="kanban-card" 
+             style="border-left-color: {cor_borda};"
+             draggable="true"
+             data-id="{ordem.id}"
+             data-origem="{status_key}"
+             ondragstart="onDragStart(event)"
+             ondragend="onDragEnd(event)">
+            
+            <div class="kanban-card-id">
+                {ordem.id}
+                <span class="kanban-card-badge" style="background: {prioridade_cor}; margin-left: 6px;">
+                    {prioridade_label}
+                </span>
+            </div>
+            
+            <div class="kanban-card-title">
+                {ordem.referencia or "Sem referência"}
+            </div>
+            
+            <div class="kanban-card-desc">
+                {ordem.descricao or "Sem descrição"}
+            </div>
+            
+            <div class="kanban-card-meta">
+                <span class="qtd">📦 {ordem.quantidade} un</span>
+                <span class="cliente">🏢 {ordem.cliente or "-"}</span>
+                <span>📅 {data_prevista}</span>
+            </div>
+            
+            <div class="kanban-card-actions">
+                <button onclick="document.getElementById('btn_editar_{ordem.id}').click();" title="Editar">✏️</button>
+                <button onclick="document.getElementById('btn_excluir_{ordem.id}').click();" title="Excluir">🗑️</button>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Botões ocultos para ações
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✏️ Editar", key=f"btn_editar_{ordem.id}", help="Editar ordem"):
+                st.session_state.kanban_editando = ordem
+                st.session_state.kanban_mostrar_novo = True
+                st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Excluir", key=f"btn_excluir_{ordem.id}", help="Excluir ordem"):
+                sucesso, msg = excluir_ordem_kanban(ordem)
+                if sucesso:
+                    st.success(msg)
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(msg)
+    
+    def renderizar_coluna_kanban(status_key: str, ordens: List[OrdemProducao]):
+        """Renderiza uma coluna do Kanban"""
+        
+        status_info = next((s for s in STATUS_KANBAN if s["key"] == status_key), None)
+        if not status_info:
+            return
+        
+        label = status_info["label"]
+        icon = status_info["icon"]
+        color = status_info["color"]
+        
+        count = len(ordens)
+        
+        # CSS para coluna
+        st.markdown(f"""
+        <div class="kanban-column" style="border-top: 3px solid {color};">
+            <div class="kanban-column-header">
+                <div class="kanban-column-title">
+                    <span>{icon}</span>
+                    <span>{label}</span>
+                </div>
+                <div class="kanban-column-count">{count}</div>
+            </div>
+            <div class="kanban-drop-zone" 
+                 id="drop-{status_key}"
+                 ondrop="onDrop(event)"
+                 ondragover="onDragOver(event)"
+                 ondragleave="onDragLeave(event)">
+        """, unsafe_allow_html=True)
+        
+        # Renderizar cartões
+        if ordens:
+            for ordem in ordens:
+                renderizar_cartao_kanban(ordem, status_key)
+        else:
+            # Estado vazio - zona de drop para receber ordens
+            st.markdown(f"""
+            <div class="kanban-empty">
+                <div class="icon">📭</div>
+                <div class="text">Arraste aqui a ordem de produção ...</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div></div>", unsafe_allow_html=True)
+    
+    def renderizar_kanban(ordens: List[OrdemProducao]):
+        """Renderiza o Kanban completo"""
+        
+        # Agrupar ordens por status
+        ordens_por_status = {status["key"]: [] for status in STATUS_KANBAN}
+        for ordem in ordens:
+            if ordem.status in ordens_por_status:
+                ordens_por_status[ordem.status].append(ordem)
+        
+        # Container do Kanban
+        st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
+        
+        # Renderizar colunas
+        cols = st.columns(len(STATUS_KANBAN), gap="small")
+        
+        for i, (col, status) in enumerate(zip(cols, STATUS_KANBAN)):
+            with col:
+                renderizar_coluna_kanban(status["key"], ordens_por_status.get(status["key"], []))
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ======================
+    # JAVASCRIPT PARA DRAG AND DROP
+    # ======================
+    st.markdown("""
+    <script>
+    function onDragStart(event) {
+        const card = event.target.closest('.kanban-card');
+        if (!card) return;
+        
+        const id = card.dataset.id;
+        const origem = card.dataset.origem;
+        
+        event.dataTransfer.setData('text/plain', JSON.stringify({
+            id: id,
+            origem: origem
+        }));
+        
+        event.dataTransfer.effectAllowed = 'move';
+        
+        // Adicionar classe de arrastando
+        card.style.opacity = '0.5';
+        card.style.transform = 'scale(0.95)';
+    }
+    
+    function onDragEnd(event) {
+        const card = event.target.closest('.kanban-card');
+        if (card) {
+            card.style.opacity = '1';
+            card.style.transform = 'scale(1)';
+        }
+    }
+    
+    function onDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        
+        const dropZone = event.target.closest('.kanban-drop-zone');
+        if (dropZone) {
+            dropZone.classList.add('drag-over');
+        }
+    }
+    
+    function onDragLeave(event) {
+        const dropZone = event.target.closest('.kanban-drop-zone');
+        if (dropZone) {
+            dropZone.classList.remove('drag-over');
+        }
+    }
+    
+    function onDrop(event) {
+        event.preventDefault();
+        
+        const dropZone = event.target.closest('.kanban-drop-zone');
+        if (dropZone) {
+            dropZone.classList.remove('drag-over');
+        }
+        
+        const column = event.target.closest('.kanban-column');
+        if (!column) return;
+        
+        const destino = column.querySelector('.kanban-drop-zone')?.id?.replace('drop-', '');
+        if (!destino) return;
+        
+        try {
+            const data = JSON.parse(event.dataTransfer.getData('text/plain'));
+            const origem = data.origem;
+            const id = data.id;
+            
+            if (origem === destino) return;
+            
+            // Enviar para o Streamlit via st.query_params
+            const params = new URLSearchParams(window.location.search);
+            params.set('kanban_acao', 'mover');
+            params.set('kanban_id', id);
+            params.set('kanban_origem', origem);
+            params.set('kanban_destino', destino);
+            
+            window.location.search = params.toString();
+            
+        } catch (e) {
+            console.error('Erro ao processar drop:', e);
+        }
+    }
+    
+    // Adicionar listeners para todos os cards
+    document.addEventListener('DOMContentLoaded', function() {
+        const cards = document.querySelectorAll('.kanban-card');
+        cards.forEach(card => {
+            card.addEventListener('dragstart', onDragStart);
+            card.addEventListener('dragend', onDragEnd);
+        });
+        
+        const dropZones = document.querySelectorAll('.kanban-drop-zone');
+        dropZones.forEach(zone => {
+            zone.addEventListener('dragover', onDragOver);
+            zone.addEventListener('dragleave', onDragLeave);
+            zone.addEventListener('drop', onDrop);
+        });
+    });
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # ======================
+    # PROCESSAR AÇÕES DO KANBAN VIA QUERY PARAMS
+    # ======================
+    # Verificar se há ação de movimentação
+    params = st.query_params
+    if params.get("kanban_acao") == "mover":
+        id_ordem = params.get("kanban_id")
+        destino = params.get("kanban_destino")
+        
+        if id_ordem and destino:
+            sucesso, msg = atualizar_status_ordem(id_ordem, destino)
+            if sucesso:
+                st.success(f"✅ Ordem {id_ordem} movida para {destino}")
+            else:
+                st.error(msg)
+            
+            # Limpar query params
+            st.query_params.clear()
+            st.rerun()
     
     # ======================
     # CARREGAR DADOS
     # ======================
-    with st.spinner("Carregando dados do Google Sheets..."):
-        producoes = carregar_producoes_fechamento(data_fechamento)
-        checklists, checklists_detalhes = carregar_checklists_fechamento(data_fechamento)
-        faltas = carregar_faltas_fechamento(data_fechamento)
-        ars, rms = carregar_ars_rms_fechamento(data_fechamento)
+    with st.spinner("🔄 Carregando ordens de produção..."):
+        ordens = carregar_ordens_kanban()
     
     # ======================
-    # GERAR RELATÓRIO SE BOTÃO FOR CLICADO
+    # TOOLBAR
     # ======================
-    if gerar_resumo:
-        gerar_relatorio_resumo(producoes, ars, rms, turno_selecionado_rel, data_fechamento)
-        st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="kanban-toolbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-weight:700; color:#1a1a2e;">📋 Kanban de Produção</span>
+            <span style="font-size:12px; color:#888;">|</span>
+            <span style="font-size:12px; color:#666;">
+                📊 Total: <strong>{}</strong> ordens
+            </span>
+        </div>
+        <div style="display:flex; gap:8px;">
+    """.format(len(ordens)), unsafe_allow_html=True)
+    
+    # Botões da toolbar
+    col_tb1, col_tb2 = st.columns([1, 1])
+    with col_tb1:
+        if st.button("➕ Nova Ordem", use_container_width=True, type="primary"):
+            st.session_state.kanban_mostrar_novo = True
+            st.session_state.kanban_editando = None
+            st.rerun()
+    
+    with col_tb2:
+        if st.button("🔄 Atualizar", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("</div></div>", unsafe_allow_html=True)
     
     # ======================
-    # DASHBOARD RESUMIDO (MANTIDO PARA VISUALIZAÇÃO RÁPIDA)
+    # FORMULÁRIO NOVA/EDITAR ORDEM
     # ======================
-    st.markdown("### 📊 Resumo Rápido do Dia")
-    
-    # KPIs do dia
-    col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
-    
-    total_produzido = sum(p.get('produzido', 0) or 0 for p in producoes)
-    total_meta = sum(p.get('meta', 0) or 0 for p in producoes)
-    eficiencia = (total_produzido / total_meta * 100) if total_meta > 0 else 0
-    
-    total_setup_min = sum(str_time_to_minutes_ft(p.get('setup', '')) for p in producoes)
-    total_manut_min = sum(str_time_to_minutes_ft(p.get('manut', '')) for p in producoes)
-    
-    with col_k1:
-        st.metric("📦 Total Produzido", f"{total_produzido:,}".replace(",", "."))
-    with col_k2:
-        st.metric("🎯 Meta Total", f"{total_meta:,}".replace(",", "."))
-    with col_k3:
-        cor_eficiencia = "🟢" if eficiencia >= 85 else "🟡" if eficiencia >= 70 else "🔴"
-        st.metric(f"{cor_eficiencia} Eficiência", f"{eficiencia:.1f}%")
-    with col_k4:
-        st.metric("🔧 Setup Total", minutos_para_horas_str(total_setup_min))
-    with col_k5:
-        st.metric("⚙️ Manutenção Total", minutos_para_horas_str(total_manut_min))
-    
-    st.markdown("<hr>", unsafe_allow_html=True)
-    
-    # Tabs para visualização detalhada
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Produções do Dia", "✅ Checklists Turno", "🟥 Faltas", "🔧 ARs & RMs"])
-    
-    with tab1:
-        st.subheader("Registros de Produção")
-        if producoes:
-            df_display = pd.DataFrame(producoes)
-            
-            colunas_exibir = ['referencia', 'inicio', 'fim', 'produzido', 'meta', 'setup', 'manut', 'observacoes', 'justificativa', 'trs_bruto', 'turno']
-            colunas_existentes = [c for c in colunas_exibir if c in df_display.columns]
-            
-            if colunas_existentes:
-                df_display = df_display[colunas_existentes]
-                df_display.columns = ['Referência', 'Início', 'Fim', 'Produzido', 'Meta', 'Setup', 'Manut.', 'Observações', 'Justificativa', 'TRS Bruto (%)', 'Turno'][:len(colunas_existentes)]
-                
-                def color_trs(val):
-                    if isinstance(val, (int, float)):
-                        if val >= 85:
-                            return 'background-color: #d4f5d4; color: #1e4620; font-weight: bold;'
-                        elif val >= 70:
-                            return 'background-color: #fff3cd; color: #856404; font-weight: bold;'
-                        else:
-                            return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                    return ''
-                
-                styled_df = df_display.style.map(color_trs, subset=['TRS Bruto (%)']).format({
-                    'Produzido': '{:,.0f}'.format,
-                    'Meta': '{:,.0f}'.format,
-                    'TRS Bruto (%)': '{:.1f}%'
-                })
-                
-                st.dataframe(styled_df, use_container_width=True, height=400)
-            else:
-                st.dataframe(df_display, use_container_width=True, height=400)
+    if st.session_state.kanban_mostrar_novo:
+        st.markdown("---")
+        
+        editando = st.session_state.kanban_editando
+        
+        if editando:
+            st.markdown(f"### ✏️ Editando Ordem: {editando.id}")
         else:
-            st.info("📭 Nenhuma produção registrada para esta data.")
-    
-    with tab2:
-        st.subheader("Checklists de Início de Turno")
-        col_c1, col_c2, col_c3 = st.columns(3)
-        with col_c1:
-            if checklists.get("manha"):
-                st.success("✅ Turno da MANHÃ - Realizado")
-            else:
-                st.warning("⏳ Turno da MANHÃ - Pendente")
-        with col_c2:
-            if checklists.get("tarde"):
-                st.success("✅ Turno da TARDE - Realizado")
-            else:
-                st.warning("⏳ Turno da TARDE - Pendente")
-        with col_c3:
-            if checklists.get("noite"):
-                st.success("✅ Turno da NOITE - Realizado")
-            else:
-                st.warning("⏳ Turno da NOITE - Pendente")
+            st.markdown("### ➕ Nova Ordem de Produção")
         
-        if checklists_detalhes:
-            st.markdown("---")
-            st.subheader("📋 Detalhes dos Checklists Realizados")
-            for checklist in checklists_detalhes:
-                with st.expander(f"📌 Checklist - Turno {checklist['turno']}"):
-                    col_d1, col_d2 = st.columns(2)
-                    with col_d1:
-                        st.write(f"**Faltas:** {checklist.get('faltas', '-')}")
-                        st.write(f"**Temperatura Forno:** {checklist.get('temp_forno', '-')}")
-                        if checklist.get('temp_obs'):
-                            st.write(f"**Obs Temperatura:** {checklist['temp_obs']}")
-                    with col_d2:
-                        st.write(f"**Aspecto Vidro:** {checklist.get('aspecto_vidro', '-')}")
-                        if checklist.get('aspecto_obs'):
-                            st.write(f"**Obs Aspecto:** {checklist['aspecto_obs']}")
-    
-    with tab3:
-        st.subheader("Registro de Faltas")
-        if faltas:
-            df_faltas = pd.DataFrame(faltas)
-            colunas_exibir_faltas = ['chapa', 'nome', 'motivo', 'justificativa']
-            colunas_existentes_faltas = [c for c in colunas_exibir_faltas if c in df_faltas.columns]
-            if colunas_existentes_faltas:
-                df_faltas_display = df_faltas[colunas_existentes_faltas]
-                df_faltas_display.columns = ['Chapa', 'Nome', 'Motivo', 'Justificativa'][:len(colunas_existentes_faltas)]
-                st.dataframe(df_faltas_display, use_container_width=True, height=400)
-                st.markdown(f"**Total de faltas no dia:** {len(faltas)}")
-            else:
-                st.dataframe(df_faltas, use_container_width=True, height=400)
-        else:
-            st.success(f"✅ Nenhuma falta registrada para esta data.")
-    
-    with tab4:
-        st.subheader("🔧 ARs & RMs - Documentos do Dia")
-        st.caption(f"Documentos abertos em {data_fechamento.strftime('%d/%m/%Y')}")
-        
-        todos_documentos = ars + rms
-        
-        if todos_documentos:
-            total_ars = len(ars)
-            total_rms = len(rms)
+        with st.form("form_kanban_ordem"):
+            col1, col2 = st.columns(2)
             
-            status_normalizado = []
-            for doc in todos_documentos:
-                status = str(doc.get('status', '')).upper().strip()
-                if status in ['FINALIZADO', 'FINALIZADA']:
-                    status_normalizado.append('FINALIZADO')
-                elif status in ['ABERTO', 'EM ANDAMENTO']:
-                    status_normalizado.append('ABERTO')
+            with col1:
+                if editando:
+                    id_ordem = st.text_input("ID", value=editando.id, disabled=True)
                 else:
-                    status_normalizado.append('NÃO RESPONDIDO')
+                    proximo_id = f"ORD-{len(ordens) + 1:03d}"
+                    id_ordem = st.text_input("ID", value=proximo_id, disabled=True)
+                
+                referencia = st.text_input(
+                    "Referência*", 
+                    value=editando.referencia if editando else "",
+                    placeholder="Ex: REF-001"
+                )
+                
+                descricao = st.text_area(
+                    "Descrição*",
+                    value=editando.descricao if editando else "",
+                    height=80,
+                    placeholder="Descrição da ordem de produção"
+                )
+                
+                cliente = st.text_input(
+                    "Cliente",
+                    value=editando.cliente if editando else "",
+                    placeholder="Nome do cliente"
+                )
             
-            abertas = status_normalizado.count('ABERTO')
-            finalizadas = status_normalizado.count('FINALIZADO')
-            nao_respondidas = status_normalizado.count('NÃO RESPONDIDO')
+            with col2:
+                quantidade = st.number_input(
+                    "Quantidade*",
+                    min_value=1,
+                    value=editando.quantidade if editando else 1,
+                    step=1
+                )
+                
+                data_prevista = st.date_input(
+                    "Data Prevista",
+                    value=editando.data_prevista if editando and editando.data_prevista else datetime.now().date() + timedelta(days=7),
+                    key="kanban_data_prevista"
+                )
+                
+                turno = st.selectbox(
+                    "Turno",
+                    options=["", "Manhã", "Tarde", "Noite"],
+                    index=["", "Manhã", "Tarde", "Noite"].index(editando.turno) if editando and editando.turno in ["", "Manhã", "Tarde", "Noite"] else 0
+                )
+                
+                prioridade = st.selectbox(
+                    "Prioridade",
+                    options=[3, 2, 1],
+                    format_func=lambda x: {3: "🟢 Baixa", 2: "🟡 Média", 1: "🔴 Alta"}[x],
+                    index=2 if not editando else [3, 2, 1].index(editando.prioridade) if editando.prioridade in [1, 2, 3] else 2
+                )
+                
+                status_inicial = st.selectbox(
+                    "Status Inicial",
+                    options=[s["key"] for s in STATUS_KANBAN],
+                    format_func=lambda x: next((s["label"] for s in STATUS_KANBAN if s["key"] == x), x),
+                    index=0 if not editando else [s["key"] for s in STATUS_KANBAN].index(editando.status) if editando.status in [s["key"] for s in STATUS_KANBAN] else 0
+                )
             
-            col_a1, col_a2, col_a3, col_a4, col_a5 = st.columns(5)
-            
-            with col_a1:
-                st.metric("📋 Total ARs", total_ars)
-            with col_a2:
-                st.metric("🔩 Total RMs", total_rms)
-            with col_a3:
-                st.metric("🟡 Em Aberto", abertas)
-            with col_a4:
-                st.metric("🟢 Finalizados", finalizadas)
-            with col_a5:
-                st.metric("🔴 Não Respondidos", nao_respondidas)
+            observacao = st.text_area(
+                "Observação",
+                value=editando.observacao if editando else "",
+                height=60,
+                placeholder="Observações adicionais..."
+            )
             
             st.markdown("---")
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                tipo_filtro = st.selectbox("📑 Filtrar por Tipo:", ["TODOS", "AR", "RM"], key="filtro_tipo_ft")
-            with col_f2:
-                status_filtro = st.selectbox("📊 Filtrar por Status:", ["TODOS", "ABERTO", "FINALIZADO", "NÃO RESPONDIDO"], key="filtro_status_ft")
+            with col_btn2:
+                submitted = st.form_submit_button(
+                    "💾 SALVAR ORDEM",
+                    type="primary",
+                    use_container_width=True
+                )
             
-            docs_filtrados = todos_documentos.copy()
-            if tipo_filtro != "TODOS":
-                docs_filtrados = [d for d in docs_filtrados if d.get('tipo') == tipo_filtro]
-            if status_filtro != "TODOS":
-                if status_filtro == "NÃO RESPONDIDO":
-                    docs_filtrados = [d for d in docs_filtrados if str(d.get('status', '')).upper().strip() not in ['FINALIZADO', 'FINALIZADA', 'ABERTO', 'EM ANDAMENTO']]
-                elif status_filtro == "ABERTO":
-                    docs_filtrados = [d for d in docs_filtrados if str(d.get('status', '')).upper().strip() in ['ABERTO', 'EM ANDAMENTO']]
+            if submitted:
+                if not referencia or not referencia.strip():
+                    st.error("❌ Informe a referência!")
+                elif not descricao or not descricao.strip():
+                    st.error("❌ Informe a descrição!")
+                elif quantidade <= 0:
+                    st.error("❌ A quantidade deve ser maior que zero!")
                 else:
-                    docs_filtrados = [d for d in docs_filtrados if str(d.get('status', '')).upper().strip() in ['FINALIZADO', 'FINALIZADA']]
-            
-            st.markdown(f"**Exibindo {len(docs_filtrados)} de {len(todos_documentos)} documentos**")
-            st.markdown("---")
-            
-            if docs_filtrados:
-                for doc in docs_filtrados:
-                    status = str(doc.get('status', '')).upper().strip()
-                    if status in ['FINALIZADO', 'FINALIZADA']:
-                        borda_cor = '#28a745'
-                        bg_status = '#d4edda'
-                        texto_status = '#155724'
-                        icone_status = '✅'
-                    elif status in ['ABERTO', 'EM ANDAMENTO']:
-                        borda_cor = '#ffc107'
-                        bg_status = '#fff3cd'
-                        texto_status = '#856404'
-                        icone_status = '🟡'
+                    nova_ordem = OrdemProducao(
+                        id=id_ordem if editando else f"ORD-{len(ordens) + 1:03d}",
+                        referencia=referencia.strip(),
+                        descricao=descricao.strip(),
+                        quantidade=quantidade,
+                        cliente=cliente.strip() if cliente else "",
+                        data_inicio=datetime.now(),
+                        data_prevista=datetime.combine(data_prevista, dt_time.min),
+                        status=status_inicial,
+                        turno=turno if turno else "",
+                        prioridade=prioridade,
+                        observacao=observacao.strip() if observacao else "",
+                        linha=editando.linha if editando else None
+                    )
+                    
+                    sucesso, msg = salvar_ordem_kanban(nova_ordem, eh_alteracao=editando is not None)
+                    
+                    if sucesso:
+                        st.success(msg)
+                        st.balloons()
+                        st.session_state.kanban_mostrar_novo = False
+                        st.session_state.kanban_editando = None
+                        st.cache_data.clear()
+                        st.rerun()
                     else:
-                        borda_cor = '#dc3545'
-                        bg_status = '#f8d7da'
-                        texto_status = '#721c24'
-                        icone_status = '🔴'
-                    
-                    tipo = doc.get('tipo', '')
-                    icone_tipo = '📋' if tipo == 'AR' else '🔩'
-                    
-                    if tipo == 'AR':
-                        titulo = f"{icone_tipo} AR Nº {doc.get('numero', '-')} | {icone_status} {status} | Ref: {doc.get('referencia', '-')[:40]}"
-                    else:
-                        titulo = f"{icone_tipo} RM Nº {doc.get('numero', '-')} | {icone_status} {status} | {doc.get('equipamento', '-')[:40]}"
-                    
-                    with st.expander(titulo):
-                        col_info1, col_info2 = st.columns(2)
-                        with col_info1:
-                            st.markdown(f"**📄 Tipo:** {tipo}")
-                            st.markdown(f"**🔢 Número:** {doc.get('numero', '-')}")
-                            st.markdown(f"**📅 Data Abertura:** {doc.get('data_abertura', '-')}")
-                            st.markdown(f"**⏰ Hora:** {doc.get('hora', '-')}")
-                            if tipo == 'AR':
-                                st.markdown(f"**📦 Código:** {doc.get('codigo', '-')}")
-                                st.markdown(f"**🏷️ Referência:** {doc.get('referencia', '-')}")
-                                st.markdown(f"**⚖️ Decisão:** {doc.get('decisao', '-')}")
-                            else:
-                                st.markdown(f"**🏭 Equipamento:** {doc.get('equipamento', '-')}")
-                                st.markdown(f"**📍 Setor:** {doc.get('setor', '-')}")
-                                st.markdown(f"**⚠️ Caráter:** {doc.get('carater', '-')}")
-                        with col_info2:
-                            st.markdown(f"**👤 Emissor:** {doc.get('emissor', '-')}")
-                            st.markdown(f"**🎯 Setor Destino:** {doc.get('setor_destino', '-')}")
-                            st.markdown(f"**👷 Responsável:** {doc.get('responsavel', '-')}")
-                            data_fim = doc.get('data_fechamento')
-                            st.markdown(f"**📅 Data Fechamento:** {data_fim if data_fim else 'Pendente'}")
-                            st.markdown(f"""
-                            <div style="background: {bg_status}; padding: 5px 10px; border-radius: 5px; display: inline-block; margin-top: 5px;">
-                                <span style="color: {texto_status}; font-weight: bold;">{icone_status} {status}</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        
-                        st.markdown("---")
-                        if tipo == 'AR':
-                            st.markdown(f"**📝 Descrição do Problema:** {doc.get('descricao', '-')}")
-                            if doc.get('disposicao'):
-                                st.markdown(f"**📋 Disposição:** {doc.get('disposicao', '-')}")
-                        else:
-                            st.markdown(f"**📝 Problema:** {doc.get('descricao', '-')}")
-                            if doc.get('trabalho'):
-                                st.markdown(f"**🔧 Trabalho Realizado:** {doc.get('trabalho', '-')}")
-                            if doc.get('analise'):
-                                st.markdown(f"**📊 Análise:** {doc.get('analise', '-')}")
-            else:
-                st.info("📭 Nenhum documento encontrado com os filtros selecionados.")
-        else:
-            st.info("📭 Nenhuma AR ou RM encontrada para esta data.")
+                        st.error(msg)
+        
+        # Botão para cancelar
+        if st.button("❌ Cancelar", use_container_width=True):
+            st.session_state.kanban_mostrar_novo = False
+            st.session_state.kanban_editando = None
+            st.rerun()
+        
+        st.markdown("---")
     
+    # ======================
+    # RENDERIZAR KANBAN
+    # ======================
+    renderizar_kanban(ordens)
+    
+    # ======================
+    # LEGENDA E INSTRUÇÕES
+    # ======================
+    with st.expander("ℹ️ Como usar o Kanban", expanded=False):
+        st.markdown("""
+        ### 📋 Instruções de uso
+        
+        **Arrastar e Soltar:**
+        1. Clique e segure em qualquer cartão de ordem de produção
+        2. Arraste o cartão para a coluna desejada
+        3. Solte o cartão para movê-lo automaticamente
+        
+        **Ações por cartão:**
+        - ✏️ **Editar**: Altera os dados da ordem
+        - 🗑️ **Excluir**: Remove a ordem do sistema
+        
+        **Status disponíveis:**
+        - 📋 **A Produzir**: Ordens aguardando início
+        - ⚙️ **Produzindo**: Ordens em produção
+        - 🔍 **Qualidade**: Ordens em inspeção de qualidade
+        - ✅ **Conferido**: Ordens conferidas
+        - 🏁 **Concluído**: Ordens finalizadas
+        - 📦 **Armazenado**: Ordens armazenadas
+        
+        **Prioridades:**
+        - 🔴 **Alta**: Prioridade máxima
+        - 🟡 **Média**: Prioridade normal
+        - 🟢 **Baixa**: Prioridade baixa
+        """)
+    
+    # ======================
+    # FOOTER
+    # ======================
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
         font-family:'JetBrains Mono',monospace;font-size:10px;
         color:{THEME['text_muted']};letter-spacing:.1em;">
-        FECHAMENTO DE TURNO · {get_horario_brasilia()}
+        📋 KANBAN · {get_horario_brasilia()}
     </div>
     """, unsafe_allow_html=True)
 
