@@ -7211,7 +7211,7 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO KANBAN CORRIGIDA (SEM DRAG-AND-DROP, SEM BUG DE HTML)
+# FECHAMENTO TURNO - VERSÃO KANBAN ESTÁVEL (SEM DRAG-AND-DROP, COM BOTÕES ◀ ▶)
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
     import textwrap
@@ -7267,7 +7267,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         st.session_state.kanban_editando = None
 
     # ======================
-    # CSS (dedentado -> nunca vira bloco de código no markdown)
+    # CSS - USANDO textwrap.dedent PARA EVITAR QUEBRAS
     # ======================
     st.markdown(textwrap.dedent("""
     <style>
@@ -7292,6 +7292,16 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     .kanban-badge { display:inline-block; padding:2px 9px; border-radius:12px; font-size:9px; font-weight:700; color:white; }
     .kanban-empty { text-align:center; padding:22px 8px; color:#aaa; font-size:11px; border:2px dashed #e0e4e8;
         border-radius:8px; background:#fafafa; }
+    .kanban-card-actions { display:flex; gap:4px; margin-top:8px; padding-top:6px; border-top:1px solid #f0f0f0; }
+    .kanban-card-actions button { flex:1; padding:2px 4px; font-size:12px; border-radius:4px; border:1px solid #ddd;
+        background:white; cursor:pointer; transition:all 0.2s; }
+    .kanban-card-actions button:hover { background:#f0f0f0; border-color:#aaa; }
+    .kanban-card-actions .btn-move { color:#0078D4; border-color:#0078D4; }
+    .kanban-card-actions .btn-move:hover { background:#e3f2fd; }
+    .kanban-card-actions .btn-edit { color:#FFB900; border-color:#FFB900; }
+    .kanban-card-actions .btn-edit:hover { background:#fff3cd; }
+    .kanban-card-actions .btn-delete { color:#dc3545; border-color:#dc3545; }
+    .kanban-card-actions .btn-delete:hover { background:#f8d7da; }
     </style>
     """), unsafe_allow_html=True)
 
@@ -7359,9 +7369,84 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         hoje = datetime.now().strftime("%d/%m/%Y")
         semana = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
         return [
-            OrdemProducao(id="ORD-001", referencia="9013", descricao="Jarra 901 G", quantidade=1000,
-                          cliente="Luvidarte Indust", data_inicio_str=hoje, data_prevista_str=semana,
-                          status="A_PRODUZIR", turno="Manhã", prioridade=1, observacao="Produção inicial"),
+            OrdemProducao(
+                id="ORD-001",
+                referencia="9013",
+                descricao="Jarra 901 G",
+                quantidade=1000,
+                cliente="Luvidarte Indust",
+                data_inicio_str=hoje,
+                data_prevista_str=semana,
+                status="A_PRODUZIR",
+                turno="Manhã",
+                prioridade=1,
+                observacao="Produção inicial"
+            ),
+            OrdemProducao(
+                id="ORD-002",
+                referencia="9014",
+                descricao="Taça 901 T",
+                quantidade=800,
+                cliente="Vidraçaria Central",
+                data_inicio_str=(datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y"),
+                data_prevista_str=(datetime.now() + timedelta(days=5)).strftime("%d/%m/%Y"),
+                status="PRODUZINDO",
+                turno="Tarde",
+                prioridade=2,
+                observacao="Em produção - 40% concluído"
+            ),
+            OrdemProducao(
+                id="ORD-003",
+                referencia="9015",
+                descricao="Prato 901 P",
+                quantidade=500,
+                cliente="Decoração Luxo",
+                data_inicio_str=(datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
+                data_prevista_str=(datetime.now() + timedelta(days=3)).strftime("%d/%m/%Y"),
+                status="QUALIDADE",
+                turno="Noite",
+                prioridade=1,
+                observacao="Aguardando inspeção"
+            ),
+            OrdemProducao(
+                id="ORD-004",
+                referencia="9016",
+                descricao="Copo 901 C",
+                quantidade=1200,
+                cliente="Indústria Beta",
+                data_inicio_str=(datetime.now() - timedelta(days=3)).strftime("%d/%m/%Y"),
+                data_prevista_str=(datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y"),
+                status="CONFERIDO",
+                turno="Manhã",
+                prioridade=2,
+                observacao="Aguardando liberação"
+            ),
+            OrdemProducao(
+                id="ORD-005",
+                referencia="9017",
+                descricao="Vaso 901 V",
+                quantidade=300,
+                cliente="Arquitetura Moderna",
+                data_inicio_str=(datetime.now() - timedelta(days=4)).strftime("%d/%m/%Y"),
+                data_prevista_str=(datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y"),
+                status="CONCLUIDO",
+                turno="Tarde",
+                prioridade=3,
+                observacao="Concluído"
+            ),
+            OrdemProducao(
+                id="ORD-006",
+                referencia="9018",
+                descricao="Travessa 901 T",
+                quantidade=200,
+                cliente="Estoque Interno",
+                data_inicio_str=(datetime.now() - timedelta(days=5)).strftime("%d/%m/%Y"),
+                data_prevista_str=(datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y"),
+                status="ARMAZENADO",
+                turno="Noite",
+                prioridade=3,
+                observacao="Estoque disponível"
+            ),
         ]
 
     def salvar_ordem_kanban(o: OrdemProducao, eh_alteracao: bool = False) -> tuple:
@@ -7440,7 +7525,8 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     total_produzindo = len([o for o in ordens if o.status == "PRODUZINDO"])
     total_concluido = len([o for o in ordens if o.status in ["CONCLUIDO", "ARMAZENADO"]])
 
-    col_tb1, col_tb2, col_tb3, col_tb4 = st.columns([2, 1, 1, 1])
+    col_tb1, col_tb2, col_tb3, col_tb4, col_tb5 = st.columns([2, 1, 1, 1, 1])
+    
     with col_tb1:
         st.markdown(
             f"📊 Total: **{total_ordens}** · ⚙️ Em produção: **{total_produzindo}** · "
@@ -7457,6 +7543,50 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         if st.button("🔄 Atualizar", use_container_width=True):
             recarregar_kanban()
             st.rerun()
+    with col_tb5:
+        if st.button("📊 Relatório", use_container_width=True):
+            st.session_state.kanban_mostrar_relatorio = True
+            st.rerun()
+
+    # ======================
+    # FILTROS
+    # ======================
+    col_f1, col_f2, col_f3 = st.columns(3)
+    with col_f1:
+        filtro_turno = st.selectbox(
+            "🕐 Turno",
+            options=["(Todos)", "Manhã", "Tarde", "Noite"],
+            key="filtro_turno_kanban"
+        )
+    with col_f2:
+        filtro_prioridade = st.selectbox(
+            "🎯 Prioridade",
+            options=["(Todas)", "Alta", "Média", "Baixa"],
+            key="filtro_prioridade_kanban"
+        )
+    with col_f3:
+        filtro_busca = st.text_input(
+            "🔍 Buscar",
+            placeholder="ID, referência ou cliente...",
+            key="filtro_busca_kanban"
+        )
+
+    # Aplicar filtros
+    ordens_filtradas = ordens.copy()
+    if filtro_turno != "(Todos)":
+        ordens_filtradas = [o for o in ordens_filtradas if o.turno == filtro_turno]
+    if filtro_prioridade != "(Todas)":
+        prioridade_map = {"Alta": 1, "Média": 2, "Baixa": 3}
+        ordens_filtradas = [o for o in ordens_filtradas if o.prioridade == prioridade_map.get(filtro_prioridade)]
+    if filtro_busca:
+        busca_lower = filtro_busca.lower()
+        ordens_filtradas = [
+            o for o in ordens_filtradas
+            if busca_lower in o.id.lower()
+            or busca_lower in o.referencia.lower()
+            or busca_lower in o.descricao.lower()
+            or busca_lower in o.cliente.lower()
+        ]
 
     # ======================
     # FORMULÁRIO NOVA / EDITAR ORDEM
@@ -7628,9 +7758,9 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     else:
                         st.error(msg)
 
-    if ordens:
+    if ordens_filtradas:
         ordens_por_status = {s["key"]: [] for s in STATUS_KANBAN}
-        for o in ordens:
+        for o in ordens_filtradas:
             if o.status in ordens_por_status:
                 ordens_por_status[o.status].append(o)
 
@@ -7654,7 +7784,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     <div class="kanban-empty">📭 Nenhuma ordem</div>
                     """).strip(), unsafe_allow_html=True)
     else:
-        st.info("📭 Nenhuma ordem de produção encontrada.")
+        st.info("📭 Nenhuma ordem de produção encontrada com os filtros selecionados.")
         if st.button("➕ Criar ordens de demonstração"):
             recarregar_kanban()
             st.rerun()
@@ -7676,6 +7806,9 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         **Prioridades:** 🔴 Alta · 🟡 Média · 🟢 Baixa
         """)
 
+    # ======================
+    # FOOTER
+    # ======================
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
         font-family:'JetBrains Mono',monospace;font-size:10px;
