@@ -7211,7 +7211,7 @@ elif aba_selecionada == 'REQUISIÇÃO MANUTENÇÃO':
     """, unsafe_allow_html=True)
 
 # ==================================================================================================
-# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE) - CORRIGIDO
+# FECHAMENTO TURNO - VERSÃO KANBAN (ESTILO OMIE) - USANDO NOME DA PLANILHA
 # ==================================================================================================
 elif aba_selecionada == 'FECHAMENTO TURNO':
     render_page_header("FECHAMENTO DE TURNO", 
@@ -7219,9 +7219,9 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                        THEME['accent_purple'])
     
     # ======================
-    # CONFIGURAÇÕES
+    # CONFIGURAÇÕES - USANDO NOME DA PLANILHA
     # ======================
-    ID_PLANILHA_KANBAN = '1_HkKTRCSg24wDJ47v5wSd-UPBkbalLd6plV9IvlTY64'
+    NOME_PLANILHA_KANBAN = 'Fechamento diario'
     ABA_KANBAN = 'KANBAN'
     
     # ======================
@@ -7259,9 +7259,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     # ======================
     if 'ordens_kanban' not in st.session_state:
         st.session_state.ordens_kanban = []
-    
-    if 'kanban_arrastando' not in st.session_state:
-        st.session_state.kanban_arrastando = None
     
     if 'kanban_editando' not in st.session_state:
         st.session_state.kanban_editando = None
@@ -7503,40 +7500,45 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
     """, unsafe_allow_html=True)
 
     # ======================
-    # FUNÇÕES DE CARREGAMENTO - CORRIGIDAS
+    # FUNÇÕES DE CARREGAMENTO - USANDO NOME DA PLANILHA
     # ======================
     
     @retry_on_quota()
     @st.cache_data(ttl=300)
     def carregar_ordens_kanban() -> List[OrdemProducao]:
-        """Carrega ordens de produção do Google Sheets com criação automática"""
+        """Carrega ordens de produção usando o nome da planilha"""
         ordens = []
         try:
             client = get_gspread_client()
             if client is None:
                 st.error("❌ Erro ao conectar ao Google Sheets")
-                return ordens
-            
-            # Abrir planilha
-            try:
-                spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
-            except Exception as e:
-                st.error(f"❌ Planilha não encontrada. Verifique o ID: {ID_PLANILHA_KANBAN}")
-                st.info("💡 Criando uma nova planilha local temporária...")
                 return criar_ordens_demo()
+            
+            # Abrir planilha pelo NOME
+            try:
+                spreadsheet = client.open(NOME_PLANILHA_KANBAN)
+                st.info(f"✅ Conectado à planilha: {NOME_PLANILHA_KANBAN}")
+            except Exception as e:
+                st.warning(f"⚠️ Planilha '{NOME_PLANILHA_KANBAN}' não encontrada.")
+                st.info("💡 Criando nova planilha com este nome...")
+                try:
+                    spreadsheet = client.create(NOME_PLANILHA_KANBAN)
+                    st.success(f"✅ Planilha '{NOME_PLANILHA_KANBAN}' criada com sucesso!")
+                except Exception as e2:
+                    st.error(f"❌ Erro ao criar planilha: {str(e2)}")
+                    return criar_ordens_demo()
             
             # Verificar se a aba existe
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
             except Exception as e:
-                st.warning(f"⚠️ Aba '{ABA_KANBAN}' não encontrada. Criando nova aba...")
-                # Criar a aba
+                st.info(f"📝 Criando aba '{ABA_KANBAN}'...")
                 cabecalho = ["ID", "REFERENCIA", "DESCRICAO", "QUANTIDADE", "CLIENTE", 
                             "DATA_INICIO", "DATA_PREVISTA", "STATUS", "TURNO", "PRIORIDADE", "OBSERVACAO"]
                 try:
                     sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
                     sheet.append_row(cabecalho)
-                    st.success("✅ Aba KANBAN criada com sucesso!")
+                    st.success(f"✅ Aba '{ABA_KANBAN}' criada com sucesso!")
                 except Exception as e2:
                     st.error(f"❌ Erro ao criar aba: {str(e2)}")
                     return criar_ordens_demo()
@@ -7549,7 +7551,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 return criar_ordens_demo()
             
             if len(todos_dados) < 2:
-                st.info("📭 Nenhuma ordem encontrada. Adicione uma nova ordem para começar.")
+                st.info("📭 Nenhuma ordem encontrada. Criando ordens de demonstração...")
                 return criar_ordens_demo()
             
             # Processar linhas
@@ -7560,63 +7562,63 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 try:
                     ordem = OrdemProducao()
                     
-                    # ID
                     id_val = row[0].strip() if len(row) > 0 and row[0] else ""
                     ordem.id = id_val if id_val else f"ORD-{idx:03d}"
                     
-                    # Referência
                     ordem.referencia = row[1].strip() if len(row) > 1 and row[1] else ""
-                    
-                    # Descrição
                     ordem.descricao = row[2].strip() if len(row) > 2 and row[2] else ""
                     
-                    # Quantidade
                     try:
                         qtd_val = row[3].strip() if len(row) > 3 and row[3] else "0"
                         ordem.quantidade = int(float(qtd_val.replace(',', '.')))
                     except:
                         ordem.quantidade = 0
                     
-                    # Cliente
                     ordem.cliente = row[4].strip() if len(row) > 4 and row[4] else ""
                     
-                    # Data Início
                     if len(row) > 5 and row[5]:
                         ordem.data_inicio = converter_data_br(row[5])
                     
-                    # Data Prevista
                     if len(row) > 6 and row[6]:
                         ordem.data_prevista = converter_data_br(row[6])
                     
-                    # Status
                     status_val = row[7].strip() if len(row) > 7 and row[7] else ""
                     status_keys = [s["key"] for s in STATUS_KANBAN]
                     ordem.status = status_val if status_val in status_keys else "A_PRODUZIR"
                     
-                    # Turno
                     ordem.turno = row[8].strip() if len(row) > 8 and row[8] else ""
                     
-                    # Prioridade
                     try:
                         prio_val = int(row[9]) if len(row) > 9 and row[9] else 2
                         ordem.prioridade = prio_val if prio_val in [1, 2, 3] else 2
                     except:
                         ordem.prioridade = 2
                     
-                    # Observação
                     ordem.observacao = row[10].strip() if len(row) > 10 and row[10] else ""
-                    
-                    # Linha
                     ordem.linha = idx
                     
                     ordens.append(ordem)
                 except Exception as e:
-                    print(f"Erro ao processar linha {idx}: {e}")
                     continue
             
-            # Se não houver ordens, criar algumas demo
+            # Se não houver ordens, criar demo e salvar
             if not ordens:
-                return criar_ordens_demo()
+                st.info("📋 Criando ordens de demonstração...")
+                ordens_demo = criar_ordens_demo()
+                # Salvar ordens demo na planilha
+                for ordem in ordens_demo:
+                    try:
+                        dados = [
+                            ordem.id, ordem.referencia, ordem.descricao, str(ordem.quantidade),
+                            ordem.cliente,
+                            ordem.data_inicio.strftime("%d/%m/%Y") if ordem.data_inicio else "",
+                            ordem.data_prevista.strftime("%d/%m/%Y") if ordem.data_prevista else "",
+                            ordem.status, ordem.turno, str(ordem.prioridade), ordem.observacao
+                        ]
+                        sheet.append_row(dados)
+                    except:
+                        pass
+                return ordens_demo
             
             return ordens
             
@@ -7625,41 +7627,40 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             return criar_ordens_demo()
     
     def criar_ordens_demo() -> List[OrdemProducao]:
-        """Cria ordens de demonstração para teste"""
-        st.info("📋 Criando ordens de demonstração...")
+        """Cria ordens de demonstração"""
         
         hoje = datetime.now().date()
         
         ordens_demo = [
             OrdemProducao(
                 id="ORD-001",
-                referencia="REF-001",
-                descricao="Produção de vidros temperados 8mm",
+                referencia="REF-VIDRO-001",
+                descricao="Vidros temperados 8mm para fachada",
                 quantidade=150,
-                cliente="Vidraçaria Central",
+                cliente="Construtora Alpha",
                 data_inicio=datetime.combine(hoje, dt_time(8, 0)),
                 data_prevista=datetime.combine(hoje + timedelta(days=2), dt_time(17, 0)),
                 status="A_PRODUZIR",
                 turno="Manhã",
                 prioridade=1,
-                observacao="Prioridade alta - cliente urgente"
+                observacao="Prioridade alta - entrega urgente"
             ),
             OrdemProducao(
                 id="ORD-002",
-                referencia="REF-002",
-                descricao="Vidros laminados 10mm para fachada",
+                referencia="REF-VIDRO-002",
+                descricao="Vidros laminados 10mm para janelas",
                 quantidade=85,
-                cliente="Construtora Alpha",
+                cliente="Vidraçaria Central",
                 data_inicio=datetime.combine(hoje - timedelta(days=1), dt_time(10, 0)),
                 data_prevista=datetime.combine(hoje + timedelta(days=3), dt_time(17, 0)),
                 status="PRODUZINDO",
                 turno="Tarde",
                 prioridade=2,
-                observacao="Produção em andamento"
+                observacao="Produção em andamento - 30% concluído"
             ),
             OrdemProducao(
                 id="ORD-003",
-                referencia="REF-003",
+                referencia="REF-VIDRO-003",
                 descricao="Espelhos 6mm com bisel",
                 quantidade=45,
                 cliente="Decoração Luxo",
@@ -7668,11 +7669,11 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="QUALIDADE",
                 turno="Noite",
                 prioridade=1,
-                observacao="Aguardando inspeção final"
+                observacao="Aguardando inspeção de qualidade"
             ),
             OrdemProducao(
                 id="ORD-004",
-                referencia="REF-004",
+                referencia="REF-VIDRO-004",
                 descricao="Vidros serigrafados 6mm",
                 quantidade=120,
                 cliente="Indústria Beta",
@@ -7681,11 +7682,11 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="CONFERIDO",
                 turno="Manhã",
                 prioridade=2,
-                observacao="Aguardando liberação"
+                observacao="Aguardando liberação para armazenamento"
             ),
             OrdemProducao(
                 id="ORD-005",
-                referencia="REF-005",
+                referencia="REF-VIDRO-005",
                 descricao="Vidros curvos 12mm",
                 quantidade=30,
                 cliente="Arquitetura Moderna",
@@ -7694,12 +7695,12 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="CONCLUIDO",
                 turno="Tarde",
                 prioridade=3,
-                observacao="Aguardando armazenagem"
+                observacao="Concluído - aguardando armazenagem"
             ),
             OrdemProducao(
                 id="ORD-006",
-                referencia="REF-006",
-                descricao="Vidros temperados 4mm",
+                referencia="REF-VIDRO-006",
+                descricao="Vidros temperados 4mm (estoque)",
                 quantidade=200,
                 cliente="Estoque Interno",
                 data_inicio=datetime.combine(hoje - timedelta(days=5), dt_time(8, 0)),
@@ -7707,56 +7708,23 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                 status="ARMAZENADO",
                 turno="Noite",
                 prioridade=3,
-                observacao="Estoque disponível"
+                observacao="Estoque disponível para distribuição"
             ),
         ]
-        
-        # Salvar ordens demo na planilha
-        try:
-            client = get_gspread_client()
-            if client:
-                spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
-                
-                try:
-                    sheet = spreadsheet.worksheet(ABA_KANBAN)
-                except:
-                    cabecalho = ["ID", "REFERENCIA", "DESCRICAO", "QUANTIDADE", "CLIENTE", 
-                                "DATA_INICIO", "DATA_PREVISTA", "STATUS", "TURNO", "PRIORIDADE", "OBSERVACAO"]
-                    sheet = spreadsheet.add_worksheet(title=ABA_KANBAN, rows=1000, cols=15)
-                    sheet.append_row(cabecalho)
-                
-                # Salvar cada ordem
-                for ordem in ordens_demo:
-                    dados = [
-                        ordem.id,
-                        ordem.referencia,
-                        ordem.descricao,
-                        str(ordem.quantidade),
-                        ordem.cliente,
-                        ordem.data_inicio.strftime("%d/%m/%Y") if ordem.data_inicio else "",
-                        ordem.data_prevista.strftime("%d/%m/%Y") if ordem.data_prevista else "",
-                        ordem.status,
-                        ordem.turno,
-                        str(ordem.prioridade),
-                        ordem.observacao
-                    ]
-                    sheet.append_row(dados)
-                
-                st.success("✅ Ordens de demonstração salvas com sucesso!")
-                st.cache_data.clear()
-        except Exception as e:
-            st.warning(f"⚠️ Não foi possível salvar as ordens demo: {str(e)}")
         
         return ordens_demo
     
     def salvar_ordem_kanban(ordem: OrdemProducao, eh_alteracao: bool = False) -> tuple:
-        """Salva ordem no Google Sheets"""
+        """Salva ordem na planilha"""
         try:
             client = get_gspread_client()
             if client is None:
                 return False, "❌ Erro ao conectar ao Google Sheets"
             
-            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            try:
+                spreadsheet = client.open(NOME_PLANILHA_KANBAN)
+            except:
+                spreadsheet = client.create(NOME_PLANILHA_KANBAN)
             
             try:
                 sheet = spreadsheet.worksheet(ABA_KANBAN)
@@ -7793,13 +7761,13 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             return False, f"❌ Erro ao salvar: {str(e)}"
     
     def excluir_ordem_kanban(ordem: OrdemProducao) -> tuple:
-        """Exclui ordem do Google Sheets"""
+        """Exclui ordem da planilha"""
         try:
             client = get_gspread_client()
             if client is None:
                 return False, "❌ Erro ao conectar"
             
-            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
             
             if ordem.linha:
@@ -7819,10 +7787,9 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
             if client is None:
                 return False, "❌ Erro ao conectar"
             
-            spreadsheet = client.open_by_key(ID_PLANILHA_KANBAN)
+            spreadsheet = client.open(NOME_PLANILHA_KANBAN)
             sheet = spreadsheet.worksheet(ABA_KANBAN)
             
-            # Encontrar a ordem
             cell = sheet.find(id_ordem, in_column=1)
             if cell:
                 sheet.update_cell(cell.row, 8, novo_status)
@@ -8123,7 +8090,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
                     else:
                         st.error(msg)
         
-        # Botão para cancelar
         if st.button("❌ Cancelar", use_container_width=True):
             st.session_state.kanban_mostrar_novo = False
             st.session_state.kanban_editando = None
@@ -8147,9 +8113,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         cor_borda = status_info["color"] if status_info else "#0078D4"
         
         data_prevista = ordem.data_prevista.strftime("%d/%m") if ordem.data_prevista else "-"
-        
-        # Usar st.empty() para cada card
-        card_key = f"card_{ordem.id}"
         
         st.markdown(f"""
         <div class="kanban-card" 
@@ -8188,7 +8151,6 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         </div>
         """, unsafe_allow_html=True)
         
-        # Botões ocultos
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✏️", key=f"btn_editar_{ordem.id}", help="Editar ordem"):
@@ -8270,7 +8232,7 @@ elif aba_selecionada == 'FECHAMENTO TURNO':
         renderizar_kanban(ordens)
     else:
         st.info("📭 Nenhuma ordem de produção encontrada.")
-        if st.button("➕ Criar ordem de demonstração"):
+        if st.button("➕ Criar ordens de demonstração"):
             st.cache_data.clear()
             st.rerun()
     
