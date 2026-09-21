@@ -17809,8 +17809,14 @@ elif aba_selecionada == 'EMBALAGEM':
     if 'embalagem_confirmar_exclusao' not in st.session_state:
         st.session_state.embalagem_confirmar_exclusao = None
     
-    if 'embalagem_mostrar_formulario' not in st.session_state:
-        st.session_state.embalagem_mostrar_formulario = False
+    if 'embalagem_lista_temporaria' not in st.session_state:
+        st.session_state.embalagem_lista_temporaria = []
+    
+    if 'embalagem_editando_item' not in st.session_state:
+        st.session_state.embalagem_editando_item = None
+    
+    if 'embalagem_mostrar_confirmacao_lote' not in st.session_state:
+        st.session_state.embalagem_mostrar_confirmacao_lote = False
     
     # ======================
     # FUNÇÕES DE CARREGAMENTO DO SUPABASE
@@ -17833,7 +17839,7 @@ elif aba_selecionada == 'EMBALAGEM':
                 if dados:
                     embalagens = []
                     for item in dados:
-                        # Converter datas
+                        # Converter data de têmpera
                         data_tempera = None
                         if item.get('data_tempera'):
                             try:
@@ -17841,6 +17847,7 @@ elif aba_selecionada == 'EMBALAGEM':
                             except:
                                 data_tempera = None
                         
+                        # Converter data de quarentena
                         quarentena = None
                         if item.get('quarentena'):
                             try:
@@ -17858,8 +17865,10 @@ elif aba_selecionada == 'EMBALAGEM':
                                 dias_restantes = (quarentena - hoje).days
                             elif quarentena == hoje:
                                 status_quarentena = "LIBERA HOJE"
+                                dias_restantes = 0
                             else:
                                 status_quarentena = "LIBERADO"
+                                dias_restantes = 0
                         
                         embalagens.append({
                             'id': item.get('id'),
@@ -17895,7 +17904,6 @@ elif aba_selecionada == 'EMBALAGEM':
     def salvar_embalagem(dados: Dict) -> tuple:
         """Salva novo registro de embalagem"""
         try:
-            # Preparar dados para inserir
             data_iso = dados['data_tempera'].isoformat() if dados.get('data_tempera') else None
             
             payload = {
@@ -18179,7 +18187,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
             st.markdown("---")
             st.markdown("### 🔧 Ações")
             
-            opcoes_ids = [f"{e.get('id')} - {e.get('lote', '')} - {e.get('data_tempera', '')}" for e in emb_filtradas]
+            opcoes_ids = [f"{e.get('id')} - {e.get('lote', '')} - {e.get('data_tempera').strftime('%d/%m/%Y') if e.get('data_tempera') else ''}" for e in emb_filtradas]
             
             if opcoes_ids:
                 selecao = st.selectbox("Selecione um registro:", options=opcoes_ids, key="emb_select_acao")
@@ -18237,139 +18245,492 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
             st.info("📭 Nenhum registro encontrado com os filtros selecionados.")
     
     # ======================
-    # ABA: CADASTRAR/EDITAR
+    # ABA: CADASTRAR (EM LOTE) / EDITAR (INDIVIDUAL)
     # ======================
     elif st.session_state.embalagem_aba == 'CADASTRAR':
         editando = st.session_state.embalagem_editando
         
+        # ============================================================
+        # MODO EDIÇÃO (registro único existente)
+        # ============================================================
         if editando:
             st.markdown(f"### ✏️ Editando Registro ID {editando.get('id')}")
-        else:
-            st.markdown("### ➕ Nova Embalagem")
-        
-        with st.form("form_embalagem"):
-            col1, col2 = st.columns(2)
             
-            with col1:
-                st.markdown("#### 📋 Dados da Embalagem")
+            with st.form("form_embalagem_edicao"):
+                col1, col2 = st.columns(2)
                 
-                data_tempera = st.date_input(
-                    "📅 Data da Têmpera*",
-                    value=editando.get('data_tempera') if editando and editando.get('data_tempera') else datetime.now().date(),
-                    key="emb_form_data"
-                )
-                
-                lote = st.text_input(
-                    "🏷️ Lote*",
-                    value=editando.get('lote', '') if editando else '',
-                    placeholder="Ex: LOTE-2026-001",
-                    key="emb_form_lote"
-                )
-                
-                turno = st.selectbox(
-                    "🕐 Turno*",
-                    options=TURNOS_EMBALAGEM,
-                    index=TURNOS_EMBALAGEM.index(editando.get('turno')) if editando and editando.get('turno') in TURNOS_EMBALAGEM else 0,
-                    key="emb_form_turno"
-                )
-            
-            with col2:
-                st.markdown("#### 📦 Quantidades e Classe")
-                
-                quantidade = st.number_input(
-                    "📦 Quantidade de Caixas*",
-                    min_value=0.01,
-                    step=0.5,
-                    value=float(editando.get('quantidade', 1.0)) if editando else 1.0,
-                    key="emb_form_quantidade"
-                )
-                
-                base = st.number_input(
-                    "🔩 Peças por Caixa (Base)*",
-                    min_value=0.01,
-                    step=1.0,
-                    value=float(editando.get('base', 40.0)) if editando else 40.0,
-                    key="emb_form_base"
-                )
-                
-                classe = st.selectbox(
-                    "⭐ Classe*",
-                    options=CLASSES_EMBALAGEM,
-                    index=CLASSES_EMBALAGEM.index(editando.get('classe')) if editando and editando.get('classe') in CLASSES_EMBALAGEM else 0,
-                    key="emb_form_classe"
-                )
-            
-            # Preview
-            st.markdown("---")
-            st.markdown("#### 📊 Pré-visualização")
-            
-            total_pecas_calc = quantidade * base
-            data_quarentena = data_tempera + timedelta(days=7)
-            hoje = datetime.now().date()
-            dias_restantes = (data_quarentena - hoje).days
-            
-            col_p1, col_p2, col_p3 = st.columns(3)
-            with col_p1:
-                st.metric("🔩 Total de Peças", f"{total_pecas_calc:,.0f}".replace(",", "."))
-            with col_p2:
-                st.metric("🏷️ Data Quarentena", data_quarentena.strftime('%d/%m/%Y'))
-            with col_p3:
-                if dias_restantes > 0:
-                    st.metric("⏳ Dias Restantes", f"{dias_restantes} dias")
-                elif dias_restantes == 0:
-                    st.metric("⏳ Status", "Libera Hoje")
-                else:
-                    st.metric("✅ Status", "Liberado")
-            
-            st.markdown("---")
-            
-            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-            with col_btn2:
-                submitted = st.form_submit_button(
-                    "💾 ATUALIZAR REGISTRO" if editando else "💾 SALVAR EMBALAGEM",
-                    type="primary",
-                    use_container_width=True
-                )
-            
-            if submitted:
-                # Validações
-                if not lote or not lote.strip():
-                    st.error("❌ Informe o lote!")
-                elif quantidade <= 0:
-                    st.error("❌ A quantidade deve ser maior que zero!")
-                elif base <= 0:
-                    st.error("❌ A base deve ser maior que zero!")
-                else:
-                    dados = {
-                        'data_tempera': data_tempera,
-                        'lote': lote.strip(),
-                        'turno': turno,
-                        'quantidade': quantidade,
-                        'base': base,
-                        'classe': classe
-                    }
+                with col1:
+                    st.markdown("#### 📋 Dados da Embalagem")
                     
-                    if editando:
+                    data_tempera = st.date_input(
+                        "📅 Data da Têmpera*",
+                        value=editando.get('data_tempera') if editando.get('data_tempera') else datetime.now().date(),
+                        key="emb_edit_data"
+                    )
+                    
+                    lote = st.text_input(
+                        "🏷️ Lote*",
+                        value=editando.get('lote', ''),
+                        placeholder="Ex: LOTE-2026-001",
+                        key="emb_edit_lote"
+                    )
+                    
+                    turno = st.selectbox(
+                        "🕐 Turno*",
+                        options=TURNOS_EMBALAGEM,
+                        index=TURNOS_EMBALAGEM.index(editando.get('turno')) if editando.get('turno') in TURNOS_EMBALAGEM else 0,
+                        key="emb_edit_turno"
+                    )
+                
+                with col2:
+                    st.markdown("#### 📦 Quantidades e Classe")
+                    
+                    quantidade = st.number_input(
+                        "📦 Quantidade de Caixas*",
+                        min_value=0.01,
+                        step=0.5,
+                        value=float(editando.get('quantidade', 1.0)),
+                        key="emb_edit_quantidade"
+                    )
+                    
+                    base = st.number_input(
+                        "🔩 Peças por Caixa (Base)*",
+                        min_value=0.01,
+                        step=1.0,
+                        value=float(editando.get('base', 40.0)),
+                        key="emb_edit_base"
+                    )
+                    
+                    classe = st.selectbox(
+                        "⭐ Classe*",
+                        options=CLASSES_EMBALAGEM,
+                        index=CLASSES_EMBALAGEM.index(editando.get('classe')) if editando.get('classe') in CLASSES_EMBALAGEM else 0,
+                        key="emb_edit_classe"
+                    )
+                
+                # Preview
+                st.markdown("---")
+                st.markdown("#### 📊 Pré-visualização")
+                
+                total_pecas_calc = quantidade * base
+                data_quarentena = data_tempera + timedelta(days=7)
+                hoje = datetime.now().date()
+                dias_restantes = (data_quarentena - hoje).days
+                
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    st.metric("🔩 Total de Peças", f"{total_pecas_calc:,.0f}".replace(",", "."))
+                with col_p2:
+                    st.metric("🏷️ Data Quarentena", data_quarentena.strftime('%d/%m/%Y'))
+                with col_p3:
+                    if dias_restantes > 0:
+                        st.metric("⏳ Dias Restantes", f"{dias_restantes} dias")
+                    elif dias_restantes == 0:
+                        st.metric("⏳ Status", "Libera Hoje")
+                    else:
+                        st.metric("✅ Status", "Liberado")
+                
+                st.markdown("---")
+                
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    submitted = st.form_submit_button(
+                        "💾 ATUALIZAR REGISTRO",
+                        type="primary",
+                        use_container_width=True
+                    )
+                
+                if submitted:
+                    if not lote or not lote.strip():
+                        st.error("❌ Informe o lote!")
+                    elif quantidade <= 0:
+                        st.error("❌ A quantidade deve ser maior que zero!")
+                    elif base <= 0:
+                        st.error("❌ A base deve ser maior que zero!")
+                    else:
+                        dados = {
+                            'data_tempera': data_tempera,
+                            'lote': lote.strip(),
+                            'turno': turno,
+                            'quantidade': quantidade,
+                            'base': base,
+                            'classe': classe
+                        }
+                        
                         sucesso, msg = atualizar_embalagem(editando.get('id'), dados)
-                    else:
-                        sucesso, msg = salvar_embalagem(dados)
-                    
-                    if sucesso:
-                        st.success(msg)
-                        st.balloons()
-                        st.session_state.embalagem_editando = None
-                        st.session_state.embalagem_aba = 'LISTAGEM'
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-        
-        # Botão cancelar
-        if editando:
+                        
+                        if sucesso:
+                            st.success(msg)
+                            st.balloons()
+                            st.session_state.embalagem_editando = None
+                            st.session_state.embalagem_aba = 'LISTAGEM'
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            
             if st.button("❌ Cancelar Edição", use_container_width=True, key="emb_cancelar_edicao"):
                 st.session_state.embalagem_editando = None
                 st.session_state.embalagem_aba = 'LISTAGEM'
                 st.rerun()
+        
+        # ============================================================
+        # MODO CADASTRO EM LOTE
+        # ============================================================
+        else:
+            st.markdown("### ➕ Cadastro de Embalagens em Lote")
+            st.caption("Adicione vários registros à lista abaixo e salve todos de uma vez.")
+            
+            # ======================
+            # FORMULÁRIO DE ADIÇÃO
+            # ======================
+            st.markdown("#### 📝 Adicionar Registro à Lista")
+            
+            with st.form("form_adicionar_embalagem", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("##### 📋 Dados da Embalagem")
+                    
+                    data_tempera_form = st.date_input(
+                        "📅 Data da Têmpera*",
+                        value=datetime.now().date(),
+                        key="emb_form_data_lote"
+                    )
+                    
+                    lote_form = st.text_input(
+                        "🏷️ Lote*",
+                        placeholder="Ex: LOTE-2026-001",
+                        key="emb_form_lote_lote"
+                    )
+                    
+                    turno_form = st.selectbox(
+                        "🕐 Turno*",
+                        options=TURNOS_EMBALAGEM,
+                        key="emb_form_turno_lote"
+                    )
+                
+                with col2:
+                    st.markdown("##### 📦 Quantidades e Classe")
+                    
+                    quantidade_form = st.number_input(
+                        "📦 Quantidade de Caixas*",
+                        min_value=0.01,
+                        step=0.5,
+                        value=1.0,
+                        key="emb_form_quantidade_lote"
+                    )
+                    
+                    base_form = st.number_input(
+                        "🔩 Peças por Caixa (Base)*",
+                        min_value=0.01,
+                        step=1.0,
+                        value=40.0,
+                        key="emb_form_base_lote"
+                    )
+                    
+                    classe_form = st.selectbox(
+                        "⭐ Classe*",
+                        options=CLASSES_EMBALAGEM,
+                        key="emb_form_classe_lote"
+                    )
+                
+                col_btn_add1, col_btn_add2, col_btn_add3 = st.columns([1, 1, 1])
+                
+                with col_btn_add1:
+                    submitted_add = st.form_submit_button(
+                        "➕ ADICIONAR À LISTA",
+                        type="primary",
+                        use_container_width=True
+                    )
+                
+                if submitted_add:
+                    if not lote_form or not lote_form.strip():
+                        st.error("❌ Informe o lote!")
+                    elif quantidade_form <= 0:
+                        st.error("❌ A quantidade deve ser maior que zero!")
+                    elif base_form <= 0:
+                        st.error("❌ A base deve ser maior que zero!")
+                    else:
+                        novo_item = {
+                            'temp_id': f"TEMP-{len(st.session_state.embalagem_lista_temporaria) + 1:03d}",
+                            'data_tempera': data_tempera_form,
+                            'lote': lote_form.strip(),
+                            'turno': turno_form,
+                            'quantidade': quantidade_form,
+                            'base': base_form,
+                            'classe': classe_form
+                        }
+                        
+                        st.session_state.embalagem_lista_temporaria.append(novo_item)
+                        st.success(f"✅ Registro adicionado à lista! ({len(st.session_state.embalagem_lista_temporaria)} itens)")
+                        st.rerun()
+            
+            st.markdown("---")
+            
+            # ======================
+            # LISTA TEMPORÁRIA
+            # ======================
+            st.markdown("#### 📋 Lista de Registros Pendentes")
+            
+            lista_temp = st.session_state.embalagem_lista_temporaria
+            
+            if lista_temp:
+                # Resumo
+                total_itens = len(lista_temp)
+                total_caixas_temp = sum(item['quantidade'] for item in lista_temp)
+                total_pecas_temp = sum(item['quantidade'] * item['base'] for item in lista_temp)
+                lotes_unicos = len(set(item['lote'] for item in lista_temp))
+                
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+                with col_r1:
+                    st.metric("📋 Total Itens", f"{total_itens}")
+                with col_r2:
+                    st.metric("📦 Total Caixas", f"{total_caixas_temp:,.2f}".replace(",", "."))
+                with col_r3:
+                    st.metric("🔩 Total Peças", f"{total_pecas_temp:,.0f}".replace(",", "."))
+                with col_r4:
+                    st.metric("🏷️ Lotes Únicos", f"{lotes_unicos}")
+                
+                st.markdown("---")
+                
+                # Tabela da lista
+                dados_lista = []
+                for idx, item in enumerate(lista_temp):
+                    data_quar = item['data_tempera'] + timedelta(days=7)
+                    dados_lista.append({
+                        "Nº": idx + 1,
+                        "Data Têmpera": item['data_tempera'].strftime('%d/%m/%Y'),
+                        "Lote": item['lote'],
+                        "Turno": item['turno'],
+                        "Quantidade (cx)": f"{item['quantidade']:,.2f}".replace(",", "."),
+                        "Base (pç/cx)": f"{item['base']:,.2f}".replace(",", "."),
+                        "Total Peças": f"{item['quantidade'] * item['base']:,.0f}".replace(",", "."),
+                        "Classe": item['classe'],
+                        "Quarentena": data_quar.strftime('%d/%m/%Y')
+                    })
+                
+                df_lista = pd.DataFrame(dados_lista)
+                st.dataframe(df_lista, use_container_width=True, hide_index=True, height=min(400, len(lista_temp) * 35 + 40))
+                
+                st.markdown("---")
+                
+                # ======================
+                # AÇÕES INDIVIDUAIS (EDITAR / REMOVER)
+                # ======================
+                st.markdown("#### 🔧 Ações Individuais")
+                
+                col_sel1, col_sel2, col_sel3 = st.columns([3, 1, 1])
+                
+                with col_sel1:
+                    opcoes_itens = [f"Nº {i+1} - {item['lote']} - {item['data_tempera'].strftime('%d/%m/%Y')}" 
+                                   for i, item in enumerate(lista_temp)]
+                    item_selecionado = st.selectbox(
+                        "Selecione um item para editar ou remover:",
+                        options=opcoes_itens,
+                        key="emb_select_item_lista"
+                    )
+                
+                if item_selecionado:
+                    idx_sel = opcoes_itens.index(item_selecionado)
+                    
+                    with col_sel2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("✏️ Editar", use_container_width=True, key="emb_btn_editar_item"):
+                            st.session_state.embalagem_editando_item = idx_sel
+                            st.rerun()
+                    
+                    with col_sel3:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🗑️ Remover", use_container_width=True, key="emb_btn_remover_item"):
+                            del st.session_state.embalagem_lista_temporaria[idx_sel]
+                            st.success("🗑️ Item removido!")
+                            st.rerun()
+                
+                # ======================
+                # FORMULÁRIO DE EDIÇÃO DE ITEM DA LISTA
+                # ======================
+                if st.session_state.embalagem_editando_item is not None:
+                    idx_edit = st.session_state.embalagem_editando_item
+                    if idx_edit < len(lista_temp):
+                        item_edit = lista_temp[idx_edit]
+                        
+                        st.markdown("---")
+                        st.markdown(f"#### ✏️ Editando Item Nº {idx_edit + 1}")
+                        
+                        with st.form("form_editar_item_lista"):
+                            col_e1, col_e2 = st.columns(2)
+                            
+                            with col_e1:
+                                data_edit = st.date_input(
+                                    "📅 Data da Têmpera",
+                                    value=item_edit['data_tempera'],
+                                    key="emb_edit_item_data"
+                                )
+                                
+                                lote_edit = st.text_input(
+                                    "🏷️ Lote",
+                                    value=item_edit['lote'],
+                                    key="emb_edit_item_lote"
+                                )
+                                
+                                turno_edit = st.selectbox(
+                                    "🕐 Turno",
+                                    options=TURNOS_EMBALAGEM,
+                                    index=TURNOS_EMBALAGEM.index(item_edit['turno']) if item_edit['turno'] in TURNOS_EMBALAGEM else 0,
+                                    key="emb_edit_item_turno"
+                                )
+                            
+                            with col_e2:
+                                quantidade_edit = st.number_input(
+                                    "📦 Quantidade de Caixas",
+                                    min_value=0.01,
+                                    step=0.5,
+                                    value=item_edit['quantidade'],
+                                    key="emb_edit_item_quantidade"
+                                )
+                                
+                                base_edit = st.number_input(
+                                    "🔩 Peças por Caixa (Base)",
+                                    min_value=0.01,
+                                    step=1.0,
+                                    value=item_edit['base'],
+                                    key="emb_edit_item_base"
+                                )
+                                
+                                classe_edit = st.selectbox(
+                                    "⭐ Classe",
+                                    options=CLASSES_EMBALAGEM,
+                                    index=CLASSES_EMBALAGEM.index(item_edit['classe']) if item_edit['classe'] in CLASSES_EMBALAGEM else 0,
+                                    key="emb_edit_item_classe"
+                                )
+                            
+                            col_eb1, col_eb2 = st.columns(2)
+                            with col_eb1:
+                                salvar_edit = st.form_submit_button("💾 SALVAR ALTERAÇÕES", type="primary", use_container_width=True)
+                            with col_eb2:
+                                cancelar_edit = st.form_submit_button("❌ CANCELAR", use_container_width=True)
+                            
+                            if salvar_edit:
+                                if not lote_edit or not lote_edit.strip():
+                                    st.error("❌ Informe o lote!")
+                                else:
+                                    st.session_state.embalagem_lista_temporaria[idx_edit] = {
+                                        'temp_id': item_edit['temp_id'],
+                                        'data_tempera': data_edit,
+                                        'lote': lote_edit.strip(),
+                                        'turno': turno_edit,
+                                        'quantidade': quantidade_edit,
+                                        'base': base_edit,
+                                        'classe': classe_edit
+                                    }
+                                    st.session_state.embalagem_editando_item = None
+                                    st.success("✅ Item atualizado!")
+                                    st.rerun()
+                            
+                            if cancelar_edit:
+                                st.session_state.embalagem_editando_item = None
+                                st.rerun()
+                
+                # ======================
+                # BOTÕES DE AÇÃO EM LOTE
+                # ======================
+                st.markdown("---")
+                st.markdown("#### 💾 Salvar Lista Completa")
+                
+                col_acao1, col_acao2, col_acao3 = st.columns([1, 2, 1])
+                
+                with col_acao1:
+                    if st.button("🗑️ LIMPAR LISTA", use_container_width=True, key="emb_limpar_lista"):
+                        st.session_state.embalagem_lista_temporaria = []
+                        st.session_state.embalagem_editando_item = None
+                        st.success("🗑️ Lista limpa!")
+                        st.rerun()
+                
+                with col_acao2:
+                    if st.button("💾 SALVAR TODOS OS REGISTROS", type="primary", use_container_width=True, key="emb_salvar_lote"):
+                        st.session_state.embalagem_mostrar_confirmacao_lote = True
+                        st.rerun()
+                
+                with col_acao3:
+                    if st.button("❌ CANCELAR TUDO", use_container_width=True, key="emb_cancelar_tudo"):
+                        st.session_state.embalagem_lista_temporaria = []
+                        st.session_state.embalagem_editando_item = None
+                        st.success("❌ Todos os lançamentos cancelados!")
+                        st.rerun()
+                
+                # ======================
+                # CONFIRMAÇÃO DE SALVAMENTO EM LOTE
+                # ======================
+                if st.session_state.embalagem_mostrar_confirmacao_lote:
+                    st.markdown("---")
+                    st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO EM LOTE")
+                    
+                    st.warning(f"⚠️ Você está prestes a salvar **{len(lista_temp)} registros** de uma vez.")
+                    
+                    col_conf_info1, col_conf_info2, col_conf_info3 = st.columns(3)
+                    with col_conf_info1:
+                        st.metric("📋 Total de Itens", f"{len(lista_temp)}")
+                    with col_conf_info2:
+                        st.metric("📦 Total Caixas", f"{total_caixas_temp:,.2f}".replace(",", "."))
+                    with col_conf_info3:
+                        st.metric("🔩 Total Peças", f"{total_pecas_temp:,.0f}".replace(",", "."))
+                    
+                    st.markdown("**📋 Resumo dos registros:**")
+                    st.dataframe(df_lista, use_container_width=True, hide_index=True, height=min(300, len(lista_temp) * 35 + 40))
+                    
+                    col_conf1, col_conf2, col_conf3 = st.columns(3)
+                    
+                    with col_conf1:
+                        if st.button("✅ SIM, SALVAR TODOS", type="primary", use_container_width=True, key="emb_conf_salvar"):
+                            with st.spinner(f"Salvando {len(lista_temp)} registros no Supabase..."):
+                                sucessos = 0
+                                erros = []
+                                
+                                for item in lista_temp:
+                                    dados_salvar = {
+                                        'data_tempera': item['data_tempera'],
+                                        'lote': item['lote'],
+                                        'turno': item['turno'],
+                                        'quantidade': item['quantidade'],
+                                        'base': item['base'],
+                                        'classe': item['classe']
+                                    }
+                                    
+                                    sucesso, msg = salvar_embalagem(dados_salvar)
+                                    
+                                    if sucesso:
+                                        sucessos += 1
+                                    else:
+                                        erros.append(f"{item['lote']}: {msg}")
+                                
+                                if erros:
+                                    st.warning(f"⚠️ {sucessos} salvos, {len(erros)} erros.")
+                                    with st.expander("Ver erros"):
+                                        for e in erros:
+                                            st.error(e)
+                                else:
+                                    st.success(f"✅ {sucessos} registros salvos com sucesso!")
+                                    st.balloons()
+                                    st.session_state.embalagem_lista_temporaria = []
+                                    st.session_state.embalagem_editando_item = None
+                                    st.session_state.embalagem_mostrar_confirmacao_lote = False
+                                    time.sleep(1.5)
+                                    st.rerun()
+                    
+                    with col_conf2:
+                        if st.button("✏️ VOLTAR E EDITAR", use_container_width=True, key="emb_conf_voltar"):
+                            st.session_state.embalagem_mostrar_confirmacao_lote = False
+                            st.rerun()
+                    
+                    with col_conf3:
+                        if st.button("❌ CANCELAR", use_container_width=True, key="emb_conf_cancelar"):
+                            st.session_state.embalagem_mostrar_confirmacao_lote = False
+                            st.rerun()
+            
+            else:
+                st.info("📭 Nenhum registro na lista. Adicione itens usando o formulário acima.")
+                st.caption("💡 **Dica:** Use o cadastro em lote para registrar vários lotes de uma vez, ideal para produtividade!")
     
     # ======================
     # ABA: QUARENTENA
@@ -18405,7 +18766,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
             if em_quarentena:
                 st.warning(f"⚠️ **{len(em_quarentena)} registros em quarentena.** Aguarde a liberação.")
                 
-                # Ordenar por dias restantes
+                # Ordenar por dias restantes (mais urgentes primeiro)
                 em_quarentena_sorted = sorted(em_quarentena, key=lambda x: x.get('dias_restantes', 999))
                 
                 dados_q = []
