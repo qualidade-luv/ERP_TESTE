@@ -583,7 +583,7 @@ ABAS = {
     'REPASSES DE PRODUÇÃO': 'RP',
     'ALMOXARIFADO': 'AM',
     'CONTROLE DO FORNO': 'CF',
-    'EMBALAGEM': 'EM'  # <-- NOVO MÓDULO
+    'QUARENTENA': 'QT'  # <-- NOVO MÓDULO
 }
 
 CAMINHO_PDF_AR = r"\\srv-luvidarte\dados\DOC\Engenharia_Luvidarte\SGQ - LUVIDARTE - ALTERADAS\0-AVISO DE REJEIÇÃO\1-PDF"
