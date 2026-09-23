@@ -18121,10 +18121,10 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
         
         with col_f7:
             filtro_data_liberacao = st.date_input(
-                "🎯 Liberação em (data específica)", 
+                "🎯 Liberação até (data limite)", 
                 value=None, 
                 key="qua_data_liberacao",
-                help="Busca lotes que serão liberados exatamente nesta data"
+                help="Busca todos os lotes que serão liberados na janela dos 7 dias anteriores E nesta data (data limite - 7 dias até data limite)"
             )
         
         with col_f8:
@@ -18161,11 +18161,15 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
             qua_filtradas = [e for e in qua_filtradas if e.get('data_tempera') and e['data_tempera'] <= filtro_data_fim]
         
         # ======================
-        # FILTRO POR DATA DE LIBERAÇÃO
+        # FILTRO POR DATA DE LIBERAÇÃO (JANELA DE 7 DIAS)
         # ======================
+        # Busca todos os lotes que serão liberados nos 7 dias ANTERIORES 
+        # e também na data limite especificada
         if filtro_data_liberacao:
+            data_inicio_janela = filtro_data_liberacao - timedelta(days=7)
             qua_filtradas = [e for e in qua_filtradas 
-                            if e.get('quarentena') and e['quarentena'] == filtro_data_liberacao]
+                            if e.get('quarentena') 
+                            and data_inicio_janela <= e['quarentena'] <= filtro_data_liberacao]
         
         # ======================
         # INDICADOR DE FILTROS ATIVOS
@@ -18184,7 +18188,10 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
         if filtro_data_fim:
             filtros_ativos.append(f"Têmpera ≤ {filtro_data_fim.strftime('%d/%m/%Y')}")
         if filtro_data_liberacao:
-            filtros_ativos.append(f"🎯 Liberação em {filtro_data_liberacao.strftime('%d/%m/%Y')}")
+            data_ini_janela = filtro_data_liberacao - timedelta(days=7)
+            filtros_ativos.append(
+                f"🎯 Liberação de {data_ini_janela.strftime('%d/%m/%Y')} até {filtro_data_liberacao.strftime('%d/%m/%Y')}"
+            )
         
         if filtros_ativos:
             st.info(f"🔎 **Filtros ativos:** {' | '.join(filtros_ativos)}")
