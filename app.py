@@ -2653,9 +2653,9 @@ if aba_selecionada == 'PRENSADOS':
 
     # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE EMBALAGEM =====
     colunas_defeitos_embalagem = [
-        'BOLHA E', 'PEDRA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
+        'BOLHA E', 'RESFRIAMENTO E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
         'DOBRA E', 'FARINHA E', 'QUEBRA E', 'ARREADO E', 'VIDRO GRUDADO E',
-        'CONTRA-PEÇA E', 'FALHA E', 'CHUPADO E', 'ÓLEO TESOURA E',
+        'CONTRA-PEÇA E', 'FALHA E', 'IMPACTO E', 'ÓLEO TESOURA E',
         'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
     ]
     
