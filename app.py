@@ -2598,7 +2598,7 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
+# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA, COLUNA TEMPERADO E ÍNDICES APURADOS NO LOTE
 # ==================================================================================================
 if aba_selecionada == 'PRENSADOS':
     with st.spinner("Carregando dados..."):
@@ -3679,6 +3679,415 @@ if aba_selecionada == 'PRENSADOS':
                     plt.close(fig2)
         else:
             st.info("📭 Nenhum defeito da Embalagem registrado no período selecionado")
+
+    # ==========================================================================
+    # NOVA SEÇÃO: ÍNDICES APURADOS NO LOTE
+    # ==========================================================================
+    st.markdown("<hr>", unsafe_allow_html=True)
+    render_section_header("ÍNDICES APURADOS NO LOTE", "📌", THEME['accent_orange'])
+    st.caption("Análise consolidada de ocorrências específicas — Têmpera e Embalagem — com percentual sobre o total de peças produzidas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # MAPEAMENTO VISUAL (nome exibido no app ≠ nome real da coluna)
+    # ---------------------------------------------------------------
+    # Cada item: (nome_exibicao, coluna_real, grupo)
+    INDICES_APURADOS_CONFIG = [
+        # Grupo TÊMPERA
+        ("DROP BALL",    "IMPACTO T",              "TÊMPERA"),
+        ("RESFRIAMENTO", "QUEBRA RESFRIAMENTO T",  "TÊMPERA"),
+        ("OVALIZADA",    "OVALIZADA T",            "TÊMPERA"),
+        # Grupo EMBALAGEM
+        ("DROP BALL",    "IMPACTO E",              "EMBALAGEM"),
+        ("RESFRIAMENTO", "QUARENTENA E",           "EMBALAGEM"),
+        ("OVALIZADA",    "CONTRA-PEÇA E",          "EMBALAGEM"),
+    ]
+
+    # ---------------------------------------------------------------
+    # COLETA DOS DADOS RESPEITANDO OS FILTROS ATIVOS (df já filtrado)
+    # ---------------------------------------------------------------
+    indices_apurados = []
+    total_pecas_base = 0.0
+
+    if not df.empty:
+        # Base de cálculo: total de peças produzidas no período filtrado
+        total_pecas_base = float(df['PRODUZIDO'].sum()) if 'PRODUZIDO' in df.columns else 0.0
+        if total_pecas_base <= 0:
+            aprov = float(df['APROVADO'].sum()) if 'APROVADO' in df.columns else 0.0
+            refug = float(df['REFUGADO'].sum()) if 'REFUGADO' in df.columns else 0.0
+            total_pecas_base = aprov + refug
+
+        for nome_exib, col_real, grupo in INDICES_APURADOS_CONFIG:
+            col_encontrada = None
+            for c in df.columns:
+                if str(c).strip().upper() == str(col_real).strip().upper():
+                    col_encontrada = c
+                    break
+
+            if col_encontrada is not None:
+                qtd = float(pd.to_numeric(df[col_encontrada], errors='coerce').fillna(0).sum())
+            else:
+                qtd = 0.0
+
+            perc = (qtd / total_pecas_base * 100.0) if total_pecas_base > 0 else 0.0
+
+            indices_apurados.append({
+                "nome_exibicao": nome_exib,
+                "coluna_real": col_real,
+                "grupo": grupo,
+                "quantidade": qtd,
+                "percentual": perc,
+                "coluna_existe": col_encontrada is not None,
+            })
+
+    # ---------------------------------------------------------------
+    # GRÁFICO: BARRAS (quantidade) + LINHA TRACEJADA EM 3% (eixo secundário)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+        quantidades = [i['quantidade'] for i in indices_apurados]
+        percentuais = [i['percentual'] for i in indices_apurados]
+        grupos = [i['grupo'] for i in indices_apurados]
+
+        # Cores: TÊMPERA (laranja) e EMBALAGEM (verde) para diferenciar visualmente
+        cores_barras = [
+            THEME['accent_orange'] if g == "TÊMPERA" else THEME['accent_lime']
+            for g in grupos
+        ]
+
+        fig, ax1 = plt.subplots(figsize=(13, 6), facecolor=THEME['bg_card'])
+        fig.patch.set_facecolor(THEME['bg_card'])
+        ax1.set_facecolor(THEME['bg_card'])
+
+        x = np.arange(len(nomes))
+        width = 0.55
+
+        bars = ax1.bar(x, quantidades, width, color=cores_barras, alpha=0.88,
+                       edgecolor=THEME['bg_card'], linewidth=1.5)
+
+        # Rótulos de quantidade em cima das barras
+        _max_qtd = max(quantidades) if quantidades else 1
+        for bar, qtd in zip(bars, quantidades):
+            if qtd > 0:
+                ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + _max_qtd*0.01,
+                         f"{int(qtd):,}".replace(",", "."),
+                         ha='center', va='bottom', fontsize=10, fontweight='bold',
+                         color=THEME['text_primary'])
+
+        ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11, fontweight='bold',
+                       color=THEME['text_primary'])
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(nomes, fontsize=10, fontweight='bold')
+        ax1.tick_params(axis='y', labelcolor=THEME['text_primary'])
+        ax1.grid(True, axis='y', alpha=0.3, color=THEME['grid'],
+                 linewidth=0.8, linestyle='--')
+        ax1.set_axisbelow(True)
+        for spine in ['top', 'right']:
+            ax1.spines[spine].set_visible(False)
+
+        # Eixo secundário — percentual
+        ax2 = ax1.twinx()
+        ax2.plot(x, percentuais, marker='o', markersize=9, linewidth=2.5,
+                 color=THEME['accent_red'], label='% sobre o total',
+                 markerfacecolor=THEME['bg_card'],
+                 markeredgecolor=THEME['accent_red'], markeredgewidth=2)
+        ax2.axhline(y=3.0, color=THEME['accent_red'], linestyle='--',
+                    linewidth=2, alpha=0.85, label='Limite 3%')
+        ax2.set_ylabel("% sobre o Total de Peças", fontsize=11, fontweight='bold',
+                       color=THEME['accent_red'])
+        ax2.tick_params(axis='y', labelcolor=THEME['accent_red'])
+        ax2.set_ylim(0, max(max(percentuais) * 1.35, 4.0) if percentuais else 5.0)
+        for spine in ['top']:
+            ax2.spines[spine].set_visible(False)
+
+        # Anotação de % em cada ponto
+        for xi, pct in zip(x, percentuais):
+            ax2.annotate(f"{pct:.2f}%", (xi, pct),
+                         textcoords="offset points", xytext=(0, 12),
+                         ha='center', fontsize=9, fontweight='bold',
+                         color=THEME['accent_red'],
+                         bbox=dict(boxstyle="round,pad=0.3", facecolor='white',
+                                   alpha=0.85, edgecolor=THEME['accent_red']))
+
+        ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                      fontsize=15, fontweight='bold',
+                      color=THEME['text_primary'], pad=16)
+
+        # Legenda combinada
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
+                   fontsize=9, framealpha=0.9)
+
+        fig.tight_layout(pad=1.8)
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # -----------------------------------------------------------
+        # TABELA RESUMO DOS ÍNDICES
+        # -----------------------------------------------------------
+        with st.expander("📊 Ver tabela detalhada dos Índices Apurados", expanded=False):
+            df_indices = pd.DataFrame([{
+                "Defeito": i['nome_exibicao'],
+                "Grupo": i['grupo'],
+                "Coluna Original": i['coluna_real'],
+                "Quantidade": f"{int(i['quantidade']):,}".replace(",", "."),
+                "Percentual (%)": f"{i['percentual']:.2f}%",
+                "Status": "🔴 CRÍTICO (>3%)" if i['percentual'] > 3.0
+                          else "🟢 OK (≤3%)" if i['quantidade'] > 0
+                          else "⚪ Sem ocorrências"
+            } for i in indices_apurados])
+            st.dataframe(df_indices, use_container_width=True, hide_index=True)
+
+    elif indices_apurados:
+        st.info("📭 Nenhuma peça produzida no período filtrado — não há base para cálculo dos índices.")
+    else:
+        st.info("📭 Colunas de defeitos não encontradas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # BOTÃO — GERAR RELATÓRIO GERENCIAL (HTML/PDF)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        def _gerar_html_indices_apurados():
+            """Gera HTML gerencial profissional dos ÍNDICES APURADOS NO LOTE."""
+            from datetime import datetime as _dt
+
+            periodo_str = "Período filtrado"
+            if data_ini and data_fim:
+                periodo_str = f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+            elif data_ini:
+                periodo_str = f"A partir de {data_ini.strftime('%d/%m/%Y')}"
+            elif data_fim:
+                periodo_str = f"Até {data_fim.strftime('%d/%m/%Y')}"
+
+            # Reconstrói o gráfico em base64 para embutir no HTML
+            import base64
+            from io import BytesIO
+
+            _fig, _ax1 = plt.subplots(figsize=(13, 6), facecolor='white')
+            _fig.patch.set_facecolor('white')
+            _ax1.set_facecolor('white')
+
+            _nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+            _qtds = [i['quantidade'] for i in indices_apurados]
+            _pcts = [i['percentual'] for i in indices_apurados]
+            _grupos = [i['grupo'] for i in indices_apurados]
+            _cores = ['#E86C2C' if g == "TÊMPERA" else '#107C10' for g in _grupos]
+
+            _x = np.arange(len(_nomes))
+            _bars = _ax1.bar(_x, _qtds, 0.55, color=_cores, alpha=0.9,
+                             edgecolor='white', linewidth=1.5)
+
+            _max_q = max(_qtds) if _qtds else 1
+            for _b, _q in zip(_bars, _qtds):
+                if _q > 0:
+                    _ax1.text(_b.get_x() + _b.get_width()/2,
+                              _b.get_height() + _max_q*0.01,
+                              f"{int(_q):,}".replace(",", "."),
+                              ha='center', va='bottom', fontsize=10,
+                              fontweight='bold', color='#1a1a2e')
+
+            _ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11,
+                            fontweight='bold', color='#1a1a2e')
+            _ax1.set_xticks(_x)
+            _ax1.set_xticklabels(_nomes, fontsize=10, fontweight='bold')
+            _ax1.grid(True, axis='y', alpha=0.3, color='#e0e0e0',
+                      linewidth=0.8, linestyle='--')
+            _ax1.set_axisbelow(True)
+            for _sp in ['top', 'right']:
+                _ax1.spines[_sp].set_visible(False)
+
+            _ax2 = _ax1.twinx()
+            _ax2.plot(_x, _pcts, marker='o', markersize=9, linewidth=2.5,
+                      color='#E81123', label='% sobre o total',
+                      markerfacecolor='white',
+                      markeredgecolor='#E81123', markeredgewidth=2)
+            _ax2.axhline(y=3.0, color='#E81123', linestyle='--',
+                         linewidth=2, alpha=0.85, label='Limite 3%')
+            _ax2.set_ylabel("% sobre o Total de Peças", fontsize=11,
+                            fontweight='bold', color='#E81123')
+            _ax2.tick_params(axis='y', labelcolor='#E81123')
+            _ax2.set_ylim(0, max(max(_pcts) * 1.35, 4.0) if _pcts else 5.0)
+            for _sp in ['top']:
+                _ax2.spines[_sp].set_visible(False)
+
+            for _xi, _p in zip(_x, _pcts):
+                _ax2.annotate(f"{_p:.2f}%", (_xi, _p),
+                              textcoords="offset points", xytext=(0, 12),
+                              ha='center', fontsize=9, fontweight='bold',
+                              color='#E81123',
+                              bbox=dict(boxstyle="round,pad=0.3",
+                                        facecolor='white', alpha=0.85,
+                                        edgecolor='#E81123'))
+
+            _ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                           fontsize=15, fontweight='bold',
+                           color='#1a1a2e', pad=16)
+
+            _lines1, _labels1 = _ax1.get_legend_handles_labels()
+            _lines2, _labels2 = _ax2.get_legend_handles_labels()
+            _ax1.legend(_lines1 + _lines2, _labels1 + _labels2,
+                        loc='upper right', fontsize=9, framealpha=0.9)
+
+            _fig.tight_layout(pad=1.8)
+
+            _buf = BytesIO()
+            _fig.savefig(_buf, format='png', dpi=140,
+                         facecolor='white', bbox_inches='tight')
+            plt.close(_fig)
+            _buf.seek(0)
+            _img_b64 = base64.b64encode(_buf.read()).decode('utf-8')
+
+            # Linhas da tabela
+            _linhas_html = ""
+            for _i in indices_apurados:
+                _q = int(_i['quantidade'])
+                _p = _i['percentual']
+                if _p > 3.0:
+                    _status = "🔴 CRÍTICO (>3%)"
+                    _cor_status = "#E81123"
+                    _bg = "#f8d7da"
+                elif _q > 0:
+                    _status = "🟢 OK (≤3%)"
+                    _cor_status = "#107C10"
+                    _bg = "#d4edda"
+                else:
+                    _status = "⚪ Sem ocorrências"
+                    _cor_status = "#6b7280"
+                    _bg = "#f3f4f6"
+
+                _linhas_html += f"""
+                <tr style="background:{_bg};">
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-weight:600;">{_i['nome_exibicao']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;">{_i['grupo']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-family:monospace;">{_i['coluna_real']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;">{_q:,}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;color:{_cor_status};">{_p:.2f}%</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;color:{_cor_status};font-weight:700;">{_status}</td>
+                </tr>
+                """
+
+            _total_qtd = sum(i['quantidade'] for i in indices_apurados)
+            _total_perc = sum(i['percentual'] for i in indices_apurados)
+
+            _html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório Gerencial — Índices Apurados no Lote</title>
+<style>
+    @page {{ size: A4 landscape; margin: 12mm; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; background:#fff; color:#1a1a2e; margin:0; padding:0; }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; padding: 10px; }}
+    .header {{
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color:#fff; padding:18px 24px; border-radius:10px; margin-bottom:18px;
+        border-left: 6px solid #E86C2C;
+    }}
+    .header h1 {{ margin:0; font-size:22px; letter-spacing:.06em; text-transform:uppercase; }}
+    .header .sub {{ font-size:12px; color:#a0aec0; margin-top:4px; }}
+    .header .meta {{ font-size:11px; color:#cbd5e0; margin-top:8px; }}
+    .section {{ font-size:15px; font-weight:700; margin:18px 0 10px; padding-bottom:6px; border-bottom:2px solid #e0e0e0; }}
+    table {{ width:100%; border-collapse:collapse; margin-bottom:14px; font-size:12px; }}
+    th {{ background:#2c3e50; color:#fff; padding:9px 10px; border:1px solid #2c3e50; text-align:center; font-weight:700; }}
+    td {{ padding:8px 10px; border:1px solid #ddd; }}
+    .chart-box {{ background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:14px; text-align:center; margin-bottom:14px; }}
+    .chart-box img {{ max-width:100%; height:auto; border-radius:6px; }}
+    .cards {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }}
+    .card {{ background:#f8f9fc; border-left:4px solid #0078D4; border-radius:8px; padding:12px 14px; }}
+    .card .lbl {{ font-size:10px; text-transform:uppercase; color:#666; letter-spacing:.08em; font-weight:600; }}
+    .card .val {{ font-size:22px; font-weight:700; color:#1a1a2e; margin-top:4px; }}
+    .card.alert {{ border-left-color:#E81123; }}
+    .card.ok {{ border-left-color:#107C10; }}
+    .footer {{ margin-top:18px; padding-top:10px; border-top:1px solid #e0e0e0; text-align:center; font-size:10px; color:#999; }}
+    @media print {{
+        .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        td {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    }}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="header">
+        <h1>📌 Relatório Gerencial — Índices Apurados no Lote</h1>
+        <div class="sub">Análise consolidada de ocorrências — Têmpera e Embalagem</div>
+        <div class="meta">
+            <b>Período:</b> {periodo_str} &nbsp;|&nbsp;
+            <b>Total de peças no período:</b> {int(total_pecas_base):,} &nbsp;|&nbsp;
+            <b>Gerado em:</b> {_dt.now().strftime('%d/%m/%Y %H:%M:%S')}
+        </div>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="lbl">📦 Base de Cálculo</div>
+            <div class="val">{int(total_pecas_base):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">🔴 Total de Ocorrências</div>
+            <div class="val">{int(_total_qtd):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">📉 % Acumulado</div>
+            <div class="val">{_total_perc:.2f}%</div>
+        </div>
+        <div class="card ok">
+            <div class="lbl">🎯 Limite de Referência</div>
+            <div class="val">3,00%</div>
+        </div>
+    </div>
+
+    <div class="section">📊 Gráfico — Índices Apurados no Lote</div>
+    <div class="chart-box">
+        <img src="data:image/png;base64,{_img_b64}" alt="Gráfico Índices Apurados no Lote">
+    </div>
+
+    <div class="section">📋 Tabela — Detalhamento dos Índices</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Defeito (visual)</th>
+                <th>Grupo</th>
+                <th>Coluna Original</th>
+                <th>Quantidade</th>
+                <th>% sobre o Total</th>
+                <th>Status vs. Limite 3%</th>
+            </tr>
+        </thead>
+        <tbody>
+            {_linhas_html}
+            <tr style="background:#2c3e50;color:#fff;font-weight:700;">
+                <td colspan="3" style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">TOTAL</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{int(_total_qtd):,}</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{_total_perc:.2f}%</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:center;">—</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Relatório gerado automaticamente pelo Sistema TRS Dashboard — Luvidarte<br>
+        Módulo PRENSADOS · Índices Apurados no Lote
+    </div>
+</div>
+</body>
+</html>"""
+            return _html
+
+        _html_bytes = _gerar_html_indices_apurados().encode('utf-8')
+        st.download_button(
+            label="📥 GERAR RELATÓRIO GERENCIAL (PDF/HTML)",
+            data=_html_bytes,
+            file_name=f"indices_apurados_lote_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary",
+            key="btn_relatorio_indices_apurados"
+        )
+        st.caption("💡 Dica: abra o arquivo HTML gerado no navegador e use **Ctrl+P** para salvar como PDF.")
 
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
