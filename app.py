@@ -18969,7 +18969,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
                         "🔩 Peças por Caixa (Base)*",
                         min_value=0.01,
                         step=1.0,
-                        value=float(editando.get('base', 40.0)),
+                        value=float(editando.get('base', 60.0)),
                         key="qua_edit_base"
                     )
                     
