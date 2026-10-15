@@ -18961,7 +18961,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
                         "📦 Quantidade de Caixas*",
                         min_value=0.01,
                         step=0.5,
-                        value=float(editando.get('quantidade', 1.0)),
+                        value=float(editando.get('quantidade', )),
                         key="qua_edit_quantidade"
                     )
                     
