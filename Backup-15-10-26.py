@@ -582,7 +582,8 @@ ABAS = {
     'PRÊMIO PRENSADOS': 'PP',
     'REPASSES DE PRODUÇÃO': 'RP',
     'ALMOXARIFADO': 'AM',
-    'CONTROLE DO FORNO': 'CF'  # <-- NOVO
+    'CONTROLE DO FORNO': 'CF',
+    'QUARENTENA': 'QT'  # <-- NOVO MÓDULO
 }
 
 CAMINHO_PDF_AR = r"\\srv-luvidarte\dados\DOC\Engenharia_Luvidarte\SGQ - LUVIDARTE - ALTERADAS\0-AVISO DE REJEIÇÃO\1-PDF"
@@ -2508,7 +2509,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="text-align: center; padding: 20px 0 16px; border-bottom: 1px solid {THEME['border_bright']}; margin-bottom: 20px;">
         <div style="font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 700; color: {THEME['accent_cyan']}; letter-spacing: 0.2em;">⚙ ERP - Luvidarte</div>
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: {THEME['text_muted']}; letter-spacing: 0.2em; text-transform: uppercase;">Aqui tem Café no bule Versão Teste</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: {THEME['text_muted']}; letter-spacing: 0.2em; text-transform: uppercase;">Aqui tem Café no bule Versão Teste-05-10</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2597,7 +2598,7 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
+# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA, COLUNA TEMPERADO E ÍNDICES APURADOS NO LOTE
 # ==================================================================================================
 if aba_selecionada == 'PRENSADOS':
     with st.spinner("Carregando dados..."):
@@ -2652,9 +2653,9 @@ if aba_selecionada == 'PRENSADOS':
 
     # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE EMBALAGEM =====
     colunas_defeitos_embalagem = [
-        'BOLHA E', 'PEDRA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
+        'BOLHA E', 'QUARENTENA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
         'DOBRA E', 'FARINHA E', 'QUEBRA E', 'ARREADO E', 'VIDRO GRUDADO E',
-        'CONTRA-PEÇA E', 'FALHA E', 'CHUPADO E', 'ÓLEO TESOURA E',
+        'CONTRA-PEÇA E', 'FALHA E', 'IMPACTO E', 'ÓLEO TESOURA E',
         'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
     ]
     
@@ -3678,6 +3679,415 @@ if aba_selecionada == 'PRENSADOS':
                     plt.close(fig2)
         else:
             st.info("📭 Nenhum defeito da Embalagem registrado no período selecionado")
+
+    # ==========================================================================
+    # NOVA SEÇÃO: ÍNDICES APURADOS NO LOTE
+    # ==========================================================================
+    st.markdown("<hr>", unsafe_allow_html=True)
+    render_section_header("ÍNDICES APURADOS NO LOTE", "📌", THEME['accent_orange'])
+    st.caption("Análise consolidada de ocorrências específicas — Têmpera e Embalagem — com percentual sobre o total de peças produzidas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # MAPEAMENTO VISUAL (nome exibido no app ≠ nome real da coluna)
+    # ---------------------------------------------------------------
+    # Cada item: (nome_exibicao, coluna_real, grupo)
+    INDICES_APURADOS_CONFIG = [
+        # Grupo TÊMPERA
+        ("DROP BALL",    "IMPACTO T",              "TÊMPERA"),
+        ("RESFRIAMENTO", "QUEBRA RESFRIAMENTO T",  "TÊMPERA"),
+        ("OVALIZADA",    "OVALIZADA T",            "TÊMPERA"),
+        # Grupo EMBALAGEM
+        ("DROP BALL",    "IMPACTO E",              "EMBALAGEM"),
+        ("RESFRIAMENTO", "QUARENTENA E",           "EMBALAGEM"),
+        ("OVALIZADA",    "CONTRA-PEÇA E",          "EMBALAGEM"),
+    ]
+
+    # ---------------------------------------------------------------
+    # COLETA DOS DADOS RESPEITANDO OS FILTROS ATIVOS (df já filtrado)
+    # ---------------------------------------------------------------
+    indices_apurados = []
+    total_pecas_base = 0.0
+
+    if not df.empty:
+        # Base de cálculo: total de peças produzidas no período filtrado
+        total_pecas_base = float(df['PRODUZIDO'].sum()) if 'PRODUZIDO' in df.columns else 0.0
+        if total_pecas_base <= 0:
+            aprov = float(df['APROVADO'].sum()) if 'APROVADO' in df.columns else 0.0
+            refug = float(df['REFUGADO'].sum()) if 'REFUGADO' in df.columns else 0.0
+            total_pecas_base = aprov + refug
+
+        for nome_exib, col_real, grupo in INDICES_APURADOS_CONFIG:
+            col_encontrada = None
+            for c in df.columns:
+                if str(c).strip().upper() == str(col_real).strip().upper():
+                    col_encontrada = c
+                    break
+
+            if col_encontrada is not None:
+                qtd = float(pd.to_numeric(df[col_encontrada], errors='coerce').fillna(0).sum())
+            else:
+                qtd = 0.0
+
+            perc = (qtd / total_pecas_base * 100.0) if total_pecas_base > 0 else 0.0
+
+            indices_apurados.append({
+                "nome_exibicao": nome_exib,
+                "coluna_real": col_real,
+                "grupo": grupo,
+                "quantidade": qtd,
+                "percentual": perc,
+                "coluna_existe": col_encontrada is not None,
+            })
+
+    # ---------------------------------------------------------------
+    # GRÁFICO: BARRAS (quantidade) + LINHA TRACEJADA EM 3% (eixo secundário)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+        quantidades = [i['quantidade'] for i in indices_apurados]
+        percentuais = [i['percentual'] for i in indices_apurados]
+        grupos = [i['grupo'] for i in indices_apurados]
+
+        # Cores: TÊMPERA (laranja) e EMBALAGEM (verde) para diferenciar visualmente
+        cores_barras = [
+            THEME['accent_orange'] if g == "TÊMPERA" else THEME['accent_lime']
+            for g in grupos
+        ]
+
+        fig, ax1 = plt.subplots(figsize=(13, 6), facecolor=THEME['bg_card'])
+        fig.patch.set_facecolor(THEME['bg_card'])
+        ax1.set_facecolor(THEME['bg_card'])
+
+        x = np.arange(len(nomes))
+        width = 0.55
+
+        bars = ax1.bar(x, quantidades, width, color=cores_barras, alpha=0.88,
+                       edgecolor=THEME['bg_card'], linewidth=1.5)
+
+        # Rótulos de quantidade em cima das barras
+        _max_qtd = max(quantidades) if quantidades else 1
+        for bar, qtd in zip(bars, quantidades):
+            if qtd > 0:
+                ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + _max_qtd*0.01,
+                         f"{int(qtd):,}".replace(",", "."),
+                         ha='center', va='bottom', fontsize=10, fontweight='bold',
+                         color=THEME['text_primary'])
+
+        ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11, fontweight='bold',
+                       color=THEME['text_primary'])
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(nomes, fontsize=10, fontweight='bold')
+        ax1.tick_params(axis='y', labelcolor=THEME['text_primary'])
+        ax1.grid(True, axis='y', alpha=0.3, color=THEME['grid'],
+                 linewidth=0.8, linestyle='--')
+        ax1.set_axisbelow(True)
+        for spine in ['top', 'right']:
+            ax1.spines[spine].set_visible(False)
+
+        # Eixo secundário — percentual
+        ax2 = ax1.twinx()
+        ax2.plot(x, percentuais, marker='o', markersize=9, linewidth=2.5,
+                 color=THEME['accent_red'], label='% sobre o total',
+                 markerfacecolor=THEME['bg_card'],
+                 markeredgecolor=THEME['accent_red'], markeredgewidth=2)
+        ax2.axhline(y=3.0, color=THEME['accent_red'], linestyle='--',
+                    linewidth=2, alpha=0.85, label='Limite 3%')
+        ax2.set_ylabel("% sobre o Total de Peças", fontsize=11, fontweight='bold',
+                       color=THEME['accent_red'])
+        ax2.tick_params(axis='y', labelcolor=THEME['accent_red'])
+        ax2.set_ylim(0, max(max(percentuais) * 1.35, 4.0) if percentuais else 5.0)
+        for spine in ['top']:
+            ax2.spines[spine].set_visible(False)
+
+        # Anotação de % em cada ponto
+        for xi, pct in zip(x, percentuais):
+            ax2.annotate(f"{pct:.2f}%", (xi, pct),
+                         textcoords="offset points", xytext=(0, 12),
+                         ha='center', fontsize=9, fontweight='bold',
+                         color=THEME['accent_red'],
+                         bbox=dict(boxstyle="round,pad=0.3", facecolor='white',
+                                   alpha=0.85, edgecolor=THEME['accent_red']))
+
+        ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                      fontsize=15, fontweight='bold',
+                      color=THEME['text_primary'], pad=16)
+
+        # Legenda combinada
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
+                   fontsize=9, framealpha=0.9)
+
+        fig.tight_layout(pad=1.8)
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # -----------------------------------------------------------
+        # TABELA RESUMO DOS ÍNDICES
+        # -----------------------------------------------------------
+        with st.expander("📊 Ver tabela detalhada dos Índices Apurados", expanded=False):
+            df_indices = pd.DataFrame([{
+                "Defeito": i['nome_exibicao'],
+                "Grupo": i['grupo'],
+                "Coluna Original": i['coluna_real'],
+                "Quantidade": f"{int(i['quantidade']):,}".replace(",", "."),
+                "Percentual (%)": f"{i['percentual']:.2f}%",
+                "Status": "🔴 CRÍTICO (>3%)" if i['percentual'] > 3.0
+                          else "🟢 OK (≤3%)" if i['quantidade'] > 0
+                          else "⚪ Sem ocorrências"
+            } for i in indices_apurados])
+            st.dataframe(df_indices, use_container_width=True, hide_index=True)
+
+    elif indices_apurados:
+        st.info("📭 Nenhuma peça produzida no período filtrado — não há base para cálculo dos índices.")
+    else:
+        st.info("📭 Colunas de defeitos não encontradas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # BOTÃO — GERAR RELATÓRIO GERENCIAL (HTML/PDF)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        def _gerar_html_indices_apurados():
+            """Gera HTML gerencial profissional dos ÍNDICES APURADOS NO LOTE."""
+            from datetime import datetime as _dt
+
+            periodo_str = "Período filtrado"
+            if data_ini and data_fim:
+                periodo_str = f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+            elif data_ini:
+                periodo_str = f"A partir de {data_ini.strftime('%d/%m/%Y')}"
+            elif data_fim:
+                periodo_str = f"Até {data_fim.strftime('%d/%m/%Y')}"
+
+            # Reconstrói o gráfico em base64 para embutir no HTML
+            import base64
+            from io import BytesIO
+
+            _fig, _ax1 = plt.subplots(figsize=(13, 6), facecolor='white')
+            _fig.patch.set_facecolor('white')
+            _ax1.set_facecolor('white')
+
+            _nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+            _qtds = [i['quantidade'] for i in indices_apurados]
+            _pcts = [i['percentual'] for i in indices_apurados]
+            _grupos = [i['grupo'] for i in indices_apurados]
+            _cores = ['#E86C2C' if g == "TÊMPERA" else '#107C10' for g in _grupos]
+
+            _x = np.arange(len(_nomes))
+            _bars = _ax1.bar(_x, _qtds, 0.55, color=_cores, alpha=0.9,
+                             edgecolor='white', linewidth=1.5)
+
+            _max_q = max(_qtds) if _qtds else 1
+            for _b, _q in zip(_bars, _qtds):
+                if _q > 0:
+                    _ax1.text(_b.get_x() + _b.get_width()/2,
+                              _b.get_height() + _max_q*0.01,
+                              f"{int(_q):,}".replace(",", "."),
+                              ha='center', va='bottom', fontsize=10,
+                              fontweight='bold', color='#1a1a2e')
+
+            _ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11,
+                            fontweight='bold', color='#1a1a2e')
+            _ax1.set_xticks(_x)
+            _ax1.set_xticklabels(_nomes, fontsize=10, fontweight='bold')
+            _ax1.grid(True, axis='y', alpha=0.3, color='#e0e0e0',
+                      linewidth=0.8, linestyle='--')
+            _ax1.set_axisbelow(True)
+            for _sp in ['top', 'right']:
+                _ax1.spines[_sp].set_visible(False)
+
+            _ax2 = _ax1.twinx()
+            _ax2.plot(_x, _pcts, marker='o', markersize=9, linewidth=2.5,
+                      color='#E81123', label='% sobre o total',
+                      markerfacecolor='white',
+                      markeredgecolor='#E81123', markeredgewidth=2)
+            _ax2.axhline(y=3.0, color='#E81123', linestyle='--',
+                         linewidth=2, alpha=0.85, label='Limite 3%')
+            _ax2.set_ylabel("% sobre o Total de Peças", fontsize=11,
+                            fontweight='bold', color='#E81123')
+            _ax2.tick_params(axis='y', labelcolor='#E81123')
+            _ax2.set_ylim(0, max(max(_pcts) * 1.35, 4.0) if _pcts else 5.0)
+            for _sp in ['top']:
+                _ax2.spines[_sp].set_visible(False)
+
+            for _xi, _p in zip(_x, _pcts):
+                _ax2.annotate(f"{_p:.2f}%", (_xi, _p),
+                              textcoords="offset points", xytext=(0, 12),
+                              ha='center', fontsize=9, fontweight='bold',
+                              color='#E81123',
+                              bbox=dict(boxstyle="round,pad=0.3",
+                                        facecolor='white', alpha=0.85,
+                                        edgecolor='#E81123'))
+
+            _ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                           fontsize=15, fontweight='bold',
+                           color='#1a1a2e', pad=16)
+
+            _lines1, _labels1 = _ax1.get_legend_handles_labels()
+            _lines2, _labels2 = _ax2.get_legend_handles_labels()
+            _ax1.legend(_lines1 + _lines2, _labels1 + _labels2,
+                        loc='upper right', fontsize=9, framealpha=0.9)
+
+            _fig.tight_layout(pad=1.8)
+
+            _buf = BytesIO()
+            _fig.savefig(_buf, format='png', dpi=140,
+                         facecolor='white', bbox_inches='tight')
+            plt.close(_fig)
+            _buf.seek(0)
+            _img_b64 = base64.b64encode(_buf.read()).decode('utf-8')
+
+            # Linhas da tabela
+            _linhas_html = ""
+            for _i in indices_apurados:
+                _q = int(_i['quantidade'])
+                _p = _i['percentual']
+                if _p > 3.0:
+                    _status = "🔴 CRÍTICO (>3%)"
+                    _cor_status = "#E81123"
+                    _bg = "#f8d7da"
+                elif _q > 0:
+                    _status = "🟢 OK (≤3%)"
+                    _cor_status = "#107C10"
+                    _bg = "#d4edda"
+                else:
+                    _status = "⚪ Sem ocorrências"
+                    _cor_status = "#6b7280"
+                    _bg = "#f3f4f6"
+
+                _linhas_html += f"""
+                <tr style="background:{_bg};">
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-weight:600;">{_i['nome_exibicao']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;">{_i['grupo']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-family:monospace;">{_i['coluna_real']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;">{_q:,}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;color:{_cor_status};">{_p:.2f}%</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;color:{_cor_status};font-weight:700;">{_status}</td>
+                </tr>
+                """
+
+            _total_qtd = sum(i['quantidade'] for i in indices_apurados)
+            _total_perc = sum(i['percentual'] for i in indices_apurados)
+
+            _html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório Gerencial — Índices Apurados no Lote</title>
+<style>
+    @page {{ size: A4 landscape; margin: 12mm; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; background:#fff; color:#1a1a2e; margin:0; padding:0; }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; padding: 10px; }}
+    .header {{
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color:#fff; padding:18px 24px; border-radius:10px; margin-bottom:18px;
+        border-left: 6px solid #E86C2C;
+    }}
+    .header h1 {{ margin:0; font-size:22px; letter-spacing:.06em; text-transform:uppercase; }}
+    .header .sub {{ font-size:12px; color:#a0aec0; margin-top:4px; }}
+    .header .meta {{ font-size:11px; color:#cbd5e0; margin-top:8px; }}
+    .section {{ font-size:15px; font-weight:700; margin:18px 0 10px; padding-bottom:6px; border-bottom:2px solid #e0e0e0; }}
+    table {{ width:100%; border-collapse:collapse; margin-bottom:14px; font-size:12px; }}
+    th {{ background:#2c3e50; color:#fff; padding:9px 10px; border:1px solid #2c3e50; text-align:center; font-weight:700; }}
+    td {{ padding:8px 10px; border:1px solid #ddd; }}
+    .chart-box {{ background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:14px; text-align:center; margin-bottom:14px; }}
+    .chart-box img {{ max-width:100%; height:auto; border-radius:6px; }}
+    .cards {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }}
+    .card {{ background:#f8f9fc; border-left:4px solid #0078D4; border-radius:8px; padding:12px 14px; }}
+    .card .lbl {{ font-size:10px; text-transform:uppercase; color:#666; letter-spacing:.08em; font-weight:600; }}
+    .card .val {{ font-size:22px; font-weight:700; color:#1a1a2e; margin-top:4px; }}
+    .card.alert {{ border-left-color:#E81123; }}
+    .card.ok {{ border-left-color:#107C10; }}
+    .footer {{ margin-top:18px; padding-top:10px; border-top:1px solid #e0e0e0; text-align:center; font-size:10px; color:#999; }}
+    @media print {{
+        .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        td {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    }}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="header">
+        <h1>📌 Relatório Gerencial — Índices Apurados no Lote</h1>
+        <div class="sub">Análise consolidada de ocorrências — Têmpera e Embalagem</div>
+        <div class="meta">
+            <b>Período:</b> {periodo_str} &nbsp;|&nbsp;
+            <b>Total de peças no período:</b> {int(total_pecas_base):,} &nbsp;|&nbsp;
+            <b>Gerado em:</b> {_dt.now().strftime('%d/%m/%Y %H:%M:%S')}
+        </div>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="lbl">📦 Base de Cálculo</div>
+            <div class="val">{int(total_pecas_base):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">🔴 Total de Ocorrências</div>
+            <div class="val">{int(_total_qtd):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">📉 % Acumulado</div>
+            <div class="val">{_total_perc:.2f}%</div>
+        </div>
+        <div class="card ok">
+            <div class="lbl">🎯 Limite de Referência</div>
+            <div class="val">3,00%</div>
+        </div>
+    </div>
+
+    <div class="section">📊 Gráfico — Índices Apurados no Lote</div>
+    <div class="chart-box">
+        <img src="data:image/png;base64,{_img_b64}" alt="Gráfico Índices Apurados no Lote">
+    </div>
+
+    <div class="section">📋 Tabela — Detalhamento dos Índices</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Defeito (visual)</th>
+                <th>Grupo</th>
+                <th>Coluna Original</th>
+                <th>Quantidade</th>
+                <th>% sobre o Total</th>
+                <th>Status vs. Limite 3%</th>
+            </tr>
+        </thead>
+        <tbody>
+            {_linhas_html}
+            <tr style="background:#2c3e50;color:#fff;font-weight:700;">
+                <td colspan="3" style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">TOTAL</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{int(_total_qtd):,}</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{_total_perc:.2f}%</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:center;">—</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Relatório gerado automaticamente pelo Sistema TRS Dashboard — Luvidarte<br>
+        Módulo PRENSADOS · Índices Apurados no Lote
+    </div>
+</div>
+</body>
+</html>"""
+            return _html
+
+        _html_bytes = _gerar_html_indices_apurados().encode('utf-8')
+        st.download_button(
+            label="📥 GERAR RELATÓRIO GERENCIAL (PDF/HTML)",
+            data=_html_bytes,
+            file_name=f"indices_apurados_lote_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary",
+            key="btn_relatorio_indices_apurados"
+        )
+        st.caption("💡 Dica: abra o arquivo HTML gerado no navegador e use **Ctrl+P** para salvar como PDF.")
 
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
@@ -15717,10 +16127,11 @@ elif aba_selecionada == 'CONTROLE DO FORNO':
         color:{THEME['text_muted']};letter-spacing:.1em;">
         🔥 CONTROLE DO FORNO · {get_horario_brasilia()}
     </div>
-    """, unsafe_allow_html=True)    
-# ==================================================================================================
+    """, unsafe_allow_html=True)
+    
+    # ==================================================================================================
 # ALMOXARIFADO - CONTROLE DE ESTOQUE COM SUPABASE (USANDO REQUESTS)
-# VERSÃO COMPLETA - PRIORIDADE ABSOLUTA SUPABASE
+# VERSÃO COMPLETA CORRIGIDA - INVENTÁRIO SUBSTITUI O ESTOQUE
 # ==================================================================================================
 elif aba_selecionada == 'ALMOXARIFADO':
     render_page_header("ALMOXARIFADO", 
@@ -15912,79 +16323,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         except Exception as e:
             return False, f"❌ Erro: {str(e)}"
     
-    def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
-        """Salva movimentação no Supabase usando requests"""
-        try:
-            data = {
-                'mov_id': mov_dict['id'],
-                'data': mov_dict['data'].isoformat() if mov_dict.get('data') else None,
-                'produto': mov_dict['produto'],
-                'categoria': mov_dict.get('categoria', ''),
-                'colaborador': mov_dict.get('colaborador', ''),
-                'quantidade': mov_dict['quantidade'],
-                'obs': mov_dict.get('obs', ''),
-                'responsavel': mov_dict.get('responsavel', ''),
-                'tipo': mov_dict['tipo']
-            }
-            
-            response = requests.post(
-                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao",
-                json=data,
-                headers=SUPABASE_HEADERS
-            )
-            
-            if response.status_code in [200, 201, 204]:
-                # Atualizar estoque
-                if mov_dict['tipo'] == 'ENTRADA':
-                    delta = mov_dict['quantidade']
-                elif mov_dict['tipo'] == 'SAÍDA':
-                    delta = -mov_dict['quantidade']
-                else:
-                    delta = mov_dict['quantidade']
-                
-                # Buscar produto atual
-                check = requests.get(
-                    f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
-                    headers=SUPABASE_HEADERS
-                )
-                
-                if check.status_code == 200 and check.json():
-                    qtd_atual = float(check.json()[0].get('quantidade', 0))
-                    nova_qtd = qtd_atual + delta
-                    requests.patch(
-                        f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{mov_dict['produto']}",
-                        json={'quantidade': nova_qtd},
-                        headers=SUPABASE_HEADERS
-                    )
-                
-                st.cache_data.clear()
-                return True, "✅ Movimentação salva no Supabase!"
-            else:
-                return False, f"❌ Erro: {response.status_code} - {response.text[:100]}"
-                
-        except Exception as e:
-            return False, f"❌ Erro: {str(e)}"
-    
-    def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
-        """Salva lote de movimentações no Supabase"""
-        sucessos = 0
-        erros = []
-        
-        for mov in lista_mov:
-            if not mov.get('id') or mov['id'].startswith('TEMP-'):
-                mov['id'] = gerar_id_movimentacao_supabase()
-            
-            sucesso, msg = salvar_movimentacao_supabase(mov)
-            if sucesso:
-                sucessos += 1
-            else:
-                erros.append(msg)
-        
-        if erros:
-            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros: {', '.join(erros[:3])}..."
-        else:
-            return True, f"✅ {sucessos} movimentações salvas no Supabase!"
-    
     def gerar_id_movimentacao_supabase() -> str:
         """Gera ID para movimentação"""
         try:
@@ -16004,12 +16342,132 @@ elif aba_selecionada == 'ALMOXARIFADO':
             pass
         return f"MOV-{datetime.now().strftime('%H%M%S')}"
     
+    def salvar_movimentacao_supabase(mov_dict: Dict) -> tuple:
+        """
+        Salva movimentação no Supabase usando requests.
+        
+        REGRAS DE ESTOQUE:
+        - ENTRADA: SOMA a quantidade ao estoque atual
+        - SAÍDA: SUBTRAI a quantidade do estoque atual
+        - INVENTÁRIO: SUBSTITUI o estoque pelo valor contado
+        """
+        try:
+            # Garantir que temos um ID válido
+            if not mov_dict.get('id') or str(mov_dict['id']).startswith('TEMP-'):
+                mov_dict['id'] = gerar_id_movimentacao_supabase()
+            
+            # Preparar dados para inserir na tabela de movimentação
+            data_iso = None
+            if mov_dict.get('data'):
+                try:
+                    data_iso = mov_dict['data'].isoformat()
+                except:
+                    data_iso = datetime.now().isoformat()
+            else:
+                data_iso = datetime.now().isoformat()
+            
+            data = {
+                'mov_id': mov_dict['id'],
+                'data': data_iso,
+                'produto': mov_dict['produto'],
+                'categoria': mov_dict.get('categoria', ''),
+                'colaborador': mov_dict.get('colaborador', ''),
+                'quantidade': float(mov_dict['quantidade']),
+                'obs': mov_dict.get('obs', ''),
+                'responsavel': mov_dict.get('responsavel', ''),
+                'tipo': mov_dict['tipo']
+            }
+            
+            # 1) Inserir registro de movimentação
+            response = requests.post(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_movimentacao",
+                json=data,
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code not in [200, 201, 204]:
+                return False, f"❌ Erro ao inserir movimentação: {response.status_code} - {response.text[:150]}"
+            
+            # 2) Atualizar estoque conforme o tipo
+            tipo = str(mov_dict['tipo']).upper().strip()
+            quantidade = float(mov_dict['quantidade'])
+            produto = mov_dict['produto']
+            
+            # Buscar produto atual
+            check = requests.get(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{produto}",
+                headers=SUPABASE_HEADERS,
+                timeout=10
+            )
+            
+            if check.status_code != 200 or not check.json():
+                return False, f"❌ Produto '{produto}' não encontrado na base."
+            
+            qtd_atual = float(check.json()[0].get('quantidade', 0))
+            
+            # Calcular nova quantidade conforme o tipo
+            if tipo == 'ENTRADA':
+                nova_qtd = qtd_atual + quantidade
+            elif tipo == 'SAÍDA':
+                nova_qtd = qtd_atual - quantidade
+            elif tipo == 'INVENTÁRIO':
+                # 🔑 CORREÇÃO PRINCIPAL: Inventário SUBSTITUI o valor
+                nova_qtd = quantidade
+            else:
+                nova_qtd = qtd_atual  # tipo desconhecido → não altera
+            
+            # Proteção contra negativos
+            if nova_qtd < 0:
+                nova_qtd = 0
+            
+            # Atualizar estoque
+            patch_response = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto=eq.{produto}",
+                json={'quantidade': nova_qtd},
+                headers=SUPABASE_HEADERS,
+                timeout=10
+            )
+            
+            if patch_response.status_code not in [200, 204]:
+                return False, f"⚠️ Movimentação salva, mas erro ao atualizar estoque: {patch_response.status_code}"
+            
+            st.cache_data.clear()
+            return True, f"✅ Movimentação salva! Estoque de '{produto}': {qtd_atual:.2f} → {nova_qtd:.2f}"
+            
+        except Exception as e:
+            import traceback
+            print("❌ ERRO em salvar_movimentacao_supabase:")
+            print(traceback.format_exc())
+            return False, f"❌ Erro: {str(e)}"
+    
+    def salvar_lote_movimentacoes_supabase(lista_mov: List[Dict]) -> tuple:
+        """Salva lote de movimentações no Supabase"""
+        sucessos = 0
+        erros = []
+        
+        for mov in lista_mov:
+            try:
+                sucesso, msg = salvar_movimentacao_supabase(mov)
+                if sucesso:
+                    sucessos += 1
+                else:
+                    erros.append(f"{mov.get('produto', '?')}: {msg}")
+            except Exception as e:
+                erros.append(f"{mov.get('produto', '?')}: {str(e)}")
+        
+        if erros:
+            return False, f"⚠️ {sucessos} salvos, {len(erros)} erros. Detalhes: {' | '.join(erros[:3])}"
+        else:
+            return True, f"✅ {sucessos} movimentações salvas com sucesso!"
+    
     def excluir_produto_supabase(id_produto: str) -> tuple:
         """Exclui produto do Supabase"""
         try:
             response = requests.delete(
                 f"{SUPABASE_URL}/rest/v1/almoxarifado_base?produto_id=eq.{id_produto}",
-                headers=SUPABASE_HEADERS
+                headers=SUPABASE_HEADERS,
+                timeout=10
             )
             
             if response.status_code in [200, 204]:
@@ -16041,15 +16499,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             if len(todos_dados) < 2:
                 return []
             
-            cabecalho = todos_dados[0]
-            
-            idx_id = 0
-            idx_categoria = 1
-            idx_produto = 2
-            idx_ca = 3
-            idx_base = 4
-            idx_quantidade = 5
-            
             def parse_valor(val):
                 if not val or str(val).strip() == '':
                     return 0.0
@@ -16060,22 +16509,22 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             for row in todos_dados[1:]:
                 try:
-                    if len(row) <= max(idx_id, idx_produto):
+                    if len(row) < 3:
                         continue
                     
-                    id_val = str(row[idx_id]).strip() if idx_id < len(row) and row[idx_id] else ""
-                    produto_val = str(row[idx_produto]).strip() if idx_produto < len(row) and row[idx_produto] else ""
+                    id_val = str(row[0]).strip() if row[0] else ""
+                    produto_val = str(row[2]).strip() if row[2] else ""
                     
                     if not id_val or not produto_val:
                         continue
                     
                     produtos.append({
                         'id': id_val,
-                        'categoria': str(row[idx_categoria]).strip() if idx_categoria < len(row) and row[idx_categoria] else "",
+                        'categoria': str(row[1]).strip() if len(row) > 1 and row[1] else "",
                         'produto': produto_val,
-                        'ca': parse_valor(row[idx_ca]) if idx_ca < len(row) else 0.0,
-                        'base': parse_valor(row[idx_base]) if idx_base < len(row) else 0.0,
-                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade < len(row) else 0.0
+                        'ca': parse_valor(row[3]) if len(row) > 3 else 0.0,
+                        'base': parse_valor(row[4]) if len(row) > 4 else 0.0,
+                        'quantidade': parse_valor(row[5]) if len(row) > 5 else 0.0
                     })
                 except:
                     continue
@@ -16103,18 +16552,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             if len(todos_dados) < 2:
                 return []
             
-            cabecalho = todos_dados[0]
-            
-            idx_id = 0
-            idx_data = 1
-            idx_produto = 2
-            idx_categoria = 3
-            idx_colaborador = 4
-            idx_quantidade = 5
-            idx_obs = 6
-            idx_responsavel = 7
-            idx_tipo = 8
-            
             def parse_data(val):
                 if not val:
                     return None
@@ -16138,25 +16575,25 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             for row in todos_dados[1:]:
                 try:
-                    if len(row) <= max(idx_id, idx_produto):
+                    if len(row) < 3:
                         continue
                     
-                    id_val = str(row[idx_id]).strip() if idx_id < len(row) and row[idx_id] else ""
-                    produto_val = str(row[idx_produto]).strip() if idx_produto < len(row) and row[idx_produto] else ""
+                    id_val = str(row[0]).strip() if row[0] else ""
+                    produto_val = str(row[2]).strip() if row[2] else ""
                     
                     if not id_val or not produto_val:
                         continue
                     
                     movimentacoes.append({
                         'id': id_val,
-                        'data': parse_data(row[idx_data]) if idx_data < len(row) else None,
+                        'data': parse_data(row[1]) if len(row) > 1 else None,
                         'produto': produto_val,
-                        'categoria': str(row[idx_categoria]).strip() if idx_categoria < len(row) and row[idx_categoria] else "",
-                        'colaborador': str(row[idx_colaborador]).strip() if idx_colaborador < len(row) and row[idx_colaborador] else "",
-                        'quantidade': parse_valor(row[idx_quantidade]) if idx_quantidade < len(row) else 0.0,
-                        'obs': str(row[idx_obs]).strip() if idx_obs < len(row) and row[idx_obs] else "",
-                        'responsavel': str(row[idx_responsavel]).strip() if idx_responsavel < len(row) and row[idx_responsavel] else "",
-                        'tipo': str(row[idx_tipo]).strip().upper() if idx_tipo < len(row) and row[idx_tipo] else "SAÍDA"
+                        'categoria': str(row[3]).strip() if len(row) > 3 and row[3] else "",
+                        'colaborador': str(row[4]).strip() if len(row) > 4 and row[4] else "",
+                        'quantidade': parse_valor(row[5]) if len(row) > 5 else 0.0,
+                        'obs': str(row[6]).strip() if len(row) > 6 and row[6] else "",
+                        'responsavel': str(row[7]).strip() if len(row) > 7 and row[7] else "",
+                        'tipo': str(row[8]).strip().upper() if len(row) > 8 and row[8] else "SAÍDA"
                     })
                 except:
                     continue
@@ -16287,7 +16724,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         if estoque_baixo:
             html += f'<div class="alert-box alert-warning"><strong>🟡 ALERTA - ESTOQUE BAIXO:</strong> {len(estoque_baixo)} produto(s) com estoque abaixo de 5 unidades.</div>'
         
-        # Tabela de Produtos
         html += f"""
                 <div class="section-title">📋 ESTOQUE ATUAL</div>
                 <div class="table-responsive">
@@ -16339,7 +16775,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 </div>
         """
         
-        # Movimentações recentes
         if movimentacoes_dict:
             html += f"""
                 <div class="section-title">📤 ÚLTIMAS MOVIMENTAÇÕES</div>
@@ -16379,7 +16814,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 </div>
             """
         
-        # Resumo por Categoria
         if categorias:
             html += f"""
                 <div class="section-title">📊 RESUMO POR CATEGORIA</div>
@@ -16647,11 +17081,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
     # ======================
     
     with st.spinner("🔄 Carregando dados do Supabase..."):
-        # Testar Supabase primeiro
         supabase_ok, msg = testar_supabase()
         
         if supabase_ok:
-            # Tenta carregar do Supabase
             produtos = carregar_produtos_supabase()
             
             if not produtos:
@@ -16677,29 +17109,25 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         pass
                 st.warning("⚠️ Dados carregados do Google Sheets (fallback)")
         
-        # Carrega movimentações
         if supabase_ok:
             movimentacoes = carregar_movimentacoes_supabase()
             if not movimentacoes:
                 movimentacoes = carregar_movimentacoes_google_sheets()
                 if movimentacoes:
                     for m in movimentacoes:
-                        salvar_movimentacao_supabase(m)
+                        try:
+                            salvar_movimentacao_supabase(m)
+                        except:
+                            pass
                     movimentacoes = carregar_movimentacoes_supabase()
         else:
             movimentacoes = carregar_movimentacoes_google_sheets()
         
-        # Mostra resultado
         if produtos:
-            fonte = "Supabase" if supabase_ok and carregar_produtos_supabase() else "Google Sheets (fallback)"
-            if fonte == "Supabase":
-                st.success(f"✅ **{len(produtos)} produtos** carregados do Supabase")
-            else:
-                st.warning(f"⚠️ **{len(produtos)} produtos** carregados do {fonte}")
+            st.success(f"✅ **{len(produtos)} produtos** carregados | **{len(movimentacoes)} movimentações**")
         else:
             st.error("❌ Nenhum dado disponível. Verifique a conexão.")
             with st.expander("🔍 Diagnóstico de conexão", expanded=True):
-                # Testar Supabase
                 try:
                     response = requests.get(
                         f"{SUPABASE_URL}/rest/v1/almoxarifado_base?select=count&limit=1",
@@ -16713,7 +17141,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 except Exception as e:
                     st.error(f"❌ Supabase: {e}")
                 
-                # Testar Google Sheets
                 try:
                     client = get_gspread_client()
                     if client:
@@ -16969,9 +17396,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
     elif st.session_state.almoxarifado_aba == 'MOVIMENTACOES':
         st.markdown("### 📤 Registro de Movimentações")
         
-        # ============================================================
-        # ÁREA DE ADIÇÃO DE ITENS À LISTA TEMPORÁRIA
-        # ============================================================
         st.markdown("#### ➕ Adicionar à Lista de Movimentações")
         
         col_form1, col_form2 = st.columns(2)
@@ -17008,6 +17432,9 @@ elif aba_selecionada == 'ALMOXARIFADO':
                 options=["", "ENTRADA", "SAÍDA", "INVENTÁRIO"],
                 key="mov_tipo_temp"
             )
+            
+            if tipo_mov == "INVENTÁRIO":
+                st.info("📋 **INVENTÁRIO**: O valor informado irá **SUBSTITUIR** o estoque atual.")
             
             quantidade = st.number_input(
                 "📦 Quantidade*",
@@ -17086,9 +17513,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         
         st.markdown("---")
         
-        # ============================================================
-        # LISTA TEMPORÁRIA DE MOVIMENTAÇÕES
-        # ============================================================
         st.markdown("#### 📋 Lista de Movimentações Pendentes")
         
         lista_temp = st.session_state.almoxarifado_lista_temporaria
@@ -17111,7 +17535,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
             
             st.markdown("---")
             
-            # Exibir itens com botões de ação
             for idx, item in enumerate(lista_temp):
                 col_acoes1, col_acoes2, col_acoes3 = st.columns([6, 1, 1])
                 
@@ -17131,90 +17554,85 @@ elif aba_selecionada == 'ALMOXARIFADO':
                         st.success(f"🗑️ Item removido!")
                         st.rerun()
             
-            # ============================================================
-            # ÁREA DE EDIÇÃO DE ITEM
-            # ============================================================
             if st.session_state.almoxarifado_editando_item is not None:
                 idx_edit = st.session_state.almoxarifado_editando_item
-                item_edit = lista_temp[idx_edit]
-                
-                st.markdown("---")
-                st.markdown(f"#### ✏️ Editando Item {idx_edit + 1}")
-                
-                col_edit1, col_edit2 = st.columns(2)
-                
-                with col_edit1:
-                    novo_produto = st.selectbox(
-                        "Produto",
-                        options=opcoes_produtos,
-                        index=opcoes_produtos.index(item_edit['produto']) if item_edit['produto'] in opcoes_produtos else 0,
-                        key="edit_produto"
-                    )
+                if idx_edit < len(lista_temp):
+                    item_edit = lista_temp[idx_edit]
                     
-                    novo_tipo = st.selectbox(
-                        "Tipo",
-                        options=["ENTRADA", "SAÍDA", "INVENTÁRIO"],
-                        index=["ENTRADA", "SAÍDA", "INVENTÁRIO"].index(item_edit['tipo']) if item_edit['tipo'] in ["ENTRADA", "SAÍDA", "INVENTÁRIO"] else 0,
-                        key="edit_tipo"
-                    )
+                    st.markdown("---")
+                    st.markdown(f"#### ✏️ Editando Item {idx_edit + 1}")
                     
-                    nova_categoria = ""
-                    if novo_produto:
-                        for p in produtos:
-                            if p.get('produto', '') == novo_produto:
-                                nova_categoria = p.get('categoria', '')
-                                break
-                
-                with col_edit2:
-                    nova_quantidade = st.number_input(
-                        "Quantidade",
-                        min_value=0.01,
-                        step=0.5,
-                        value=item_edit['quantidade'],
-                        key="edit_quantidade"
-                    )
+                    col_edit1, col_edit2 = st.columns(2)
                     
-                    novo_colaborador = st.text_input(
-                        "Colaborador",
-                        value=item_edit['colaborador'],
-                        key="edit_colaborador"
-                    )
+                    with col_edit1:
+                        novo_produto = st.selectbox(
+                            "Produto",
+                            options=opcoes_produtos,
+                            index=opcoes_produtos.index(item_edit['produto']) if item_edit['produto'] in opcoes_produtos else 0,
+                            key="edit_produto"
+                        )
+                        
+                        novo_tipo = st.selectbox(
+                            "Tipo",
+                            options=["ENTRADA", "SAÍDA", "INVENTÁRIO"],
+                            index=["ENTRADA", "SAÍDA", "INVENTÁRIO"].index(item_edit['tipo']) if item_edit['tipo'] in ["ENTRADA", "SAÍDA", "INVENTÁRIO"] else 0,
+                            key="edit_tipo"
+                        )
+                        
+                        nova_categoria = ""
+                        if novo_produto:
+                            for p in produtos:
+                                if p.get('produto', '') == novo_produto:
+                                    nova_categoria = p.get('categoria', '')
+                                    break
                     
-                    nova_obs = st.text_area(
-                        "Observação",
-                        value=item_edit['obs'],
-                        key="edit_obs",
-                        height=60
-                    )
-                
-                col_edit_btn1, col_edit_btn2 = st.columns(2)
-                
-                with col_edit_btn1:
-                    if st.button("💾 SALVAR ALTERAÇÕES", use_container_width=True, type="primary"):
-                        lista_temp[idx_edit] = {
-                            'id': item_edit['id'],
-                            'produto': novo_produto,
-                            'categoria': nova_categoria,
-                            'tipo': novo_tipo,
-                            'quantidade': nova_quantidade,
-                            'colaborador': novo_colaborador,
-                            'obs': nova_obs,
-                            'responsavel': item_edit['responsavel'],
-                            'data': item_edit['data'],
-                            'estoque_atual': item_edit['estoque_atual']
-                        }
-                        st.session_state.almoxarifado_editando_item = None
-                        st.success("✅ Item atualizado!")
-                        st.rerun()
-                
-                with col_edit_btn2:
-                    if st.button("❌ CANCELAR EDIÇÃO", use_container_width=True):
-                        st.session_state.almoxarifado_editando_item = None
-                        st.rerun()
+                    with col_edit2:
+                        nova_quantidade = st.number_input(
+                            "Quantidade",
+                            min_value=0.01,
+                            step=0.5,
+                            value=item_edit['quantidade'],
+                            key="edit_quantidade"
+                        )
+                        
+                        novo_colaborador = st.text_input(
+                            "Colaborador",
+                            value=item_edit['colaborador'],
+                            key="edit_colaborador"
+                        )
+                        
+                        nova_obs = st.text_area(
+                            "Observação",
+                            value=item_edit['obs'],
+                            key="edit_obs",
+                            height=60
+                        )
+                    
+                    col_edit_btn1, col_edit_btn2 = st.columns(2)
+                    
+                    with col_edit_btn1:
+                        if st.button("💾 SALVAR ALTERAÇÕES", use_container_width=True, type="primary"):
+                            lista_temp[idx_edit] = {
+                                'id': item_edit['id'],
+                                'produto': novo_produto,
+                                'categoria': nova_categoria,
+                                'tipo': novo_tipo,
+                                'quantidade': nova_quantidade,
+                                'colaborador': novo_colaborador,
+                                'obs': nova_obs,
+                                'responsavel': item_edit['responsavel'],
+                                'data': item_edit['data'],
+                                'estoque_atual': item_edit['estoque_atual']
+                            }
+                            st.session_state.almoxarifado_editando_item = None
+                            st.success("✅ Item atualizado!")
+                            st.rerun()
+                    
+                    with col_edit_btn2:
+                        if st.button("❌ CANCELAR EDIÇÃO", use_container_width=True):
+                            st.session_state.almoxarifado_editando_item = None
+                            st.rerun()
             
-            # ============================================================
-            # BOTÕES DE CONFIRMAÇÃO PARA SALVAR LOTE
-            # ============================================================
             st.markdown("---")
             
             col_salvar1, col_salvar2, col_salvar3 = st.columns([1, 2, 1])
@@ -17227,9 +17645,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
         else:
             st.info("📭 Nenhuma movimentação na lista. Adicione itens acima.")
         
-        # ============================================================
-        # CONFIRMAÇÃO PARA SALVAR LOTE
-        # ============================================================
         if st.session_state.almoxarifado_mostrar_confirmacao and lista_temp:
             st.markdown("---")
             st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO")
@@ -17255,18 +17670,23 @@ elif aba_selecionada == 'ALMOXARIFADO':
             with col_confirm1:
                 if st.button("✅ SIM, SALVAR TUDO", use_container_width=True, type="primary"):
                     with st.spinner("Salvando movimentações no Supabase..."):
-                        sucesso, msg = salvar_lote_movimentacoes_supabase(lista_temp)
-                        
-                        if sucesso:
-                            st.success(msg)
-                            st.balloons()
-                            st.session_state.almoxarifado_lista_temporaria = []
-                            st.session_state.almoxarifado_mostrar_confirmacao = False
-                            st.cache_data.clear()
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                        try:
+                            sucesso, msg = salvar_lote_movimentacoes_supabase(lista_temp)
+                            
+                            if sucesso:
+                                st.success(msg)
+                                st.balloons()
+                                st.session_state.almoxarifado_lista_temporaria = []
+                                st.session_state.almoxarifado_mostrar_confirmacao = False
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                        except Exception as e:
+                            import traceback
+                            st.error(f"❌ Erro detalhado: {str(e)}")
+                            st.code(traceback.format_exc())
             
             with col_confirm2:
                 if st.button("✏️ VOLTAR E EDITAR", use_container_width=True):
@@ -17278,9 +17698,6 @@ elif aba_selecionada == 'ALMOXARIFADO':
                     st.session_state.almoxarifado_mostrar_confirmacao = False
                     st.rerun()
         
-        # ============================================================
-        # HISTÓRICO DE MOVIMENTAÇÕES
-        # ============================================================
         st.markdown("---")
         st.markdown("### 📋 Histórico de Movimentações (Salvas)")
         
@@ -17757,8 +18174,1246 @@ elif aba_selecionada == 'ALMOXARIFADO':
         color:{THEME['text_muted']};letter-spacing:.1em;">
         📦 ALMOXARIFADO · {get_horario_brasilia()}
     </div>
-    """, unsafe_allow_html=True) 
+    """, unsafe_allow_html=True)
+
+# ==================================================================================================
+# QUARENTENA - CONTROLE DE EMBALAGEM DE PEÇAS TEMPERADAS (SUPABASE)
+# ==================================================================================================
+elif aba_selecionada == 'QUARENTENA':
+    render_page_header("QUARENTENA", 
+                       f"Controle de Quarentena · Atualizado {get_horario_brasilia()}", 
+                       THEME['accent_lime'])
     
+    # ======================
+    # CONFIGURAÇÃO SUPABASE (MESMA DO ALMOXARIFADO)
+    # ======================
+    import requests
+    import json
+    from datetime import datetime, date, time as dt_time
+    
+    SUPABASE_URL = "https://bfvrfttanbhkewrfvfdf.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdnJmdHRhbmJoa2V3cmZ2ZmRmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc1OTY4MywiZXhwIjoyMDk1MzM1NjgzfQ.SrCLv4E4Vz1DXk5hme0lrT5aanpEOaO9UajGfqCdHdA"
+    
+    SUPABASE_HEADERS = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # ======================
+    # CONSTANTES DO MÓDULO
+    # ======================
+    CLASSES_QUARENTENA = ["A", "B", "C", "D", "REPROVADO"]
+    TURNOS_QUARENTENA = ["M", "T", "N"]
+    
+    # ======================
+    # INICIALIZAR SESSION STATE
+    # ======================
+    if 'quarentena_aba' not in st.session_state:
+        st.session_state.quarentena_aba = 'QUARENTENA'
+    
+    if 'quarentena_editando' not in st.session_state:
+        st.session_state.quarentena_editando = None
+    
+    if 'quarentena_confirmar_exclusao' not in st.session_state:
+        st.session_state.quarentena_confirmar_exclusao = None
+    
+    if 'quarentena_lista_temporaria' not in st.session_state:
+        st.session_state.quarentena_lista_temporaria = []
+    
+    if 'quarentena_editando_item' not in st.session_state:
+        st.session_state.quarentena_editando_item = None
+    
+    if 'quarentena_mostrar_confirmacao_lote' not in st.session_state:
+        st.session_state.quarentena_mostrar_confirmacao_lote = False
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO DO SUPABASE
+    # ======================
+    
+    @st.cache_data(ttl=300)
+    def carregar_quarentenas() -> List[Dict]:
+        """Carrega registros de quarentena do Supabase"""
+        try:
+            print("🔄 Carregando registros de quarentena do Supabase...")
+            
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/embalagem?select=*&order=data_tempera.desc,id.desc",
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                dados = response.json()
+                if dados:
+                    quarentenas = []
+                    for item in dados:
+                        # Converter data de têmpera
+                        data_tempera = None
+                        if item.get('data_tempera'):
+                            try:
+                                data_tempera = datetime.strptime(item['data_tempera'], '%Y-%m-%d').date()
+                            except:
+                                data_tempera = None
+                        
+                        # Converter data de quarentena
+                        quarentena = None
+                        if item.get('quarentena'):
+                            try:
+                                quarentena = datetime.strptime(item['quarentena'], '%Y-%m-%d').date()
+                            except:
+                                quarentena = None
+                        
+                        # Calcular status da quarentena
+                        status_quarentena = "LIBERADO"
+                        dias_restantes = 0
+                        if quarentena:
+                            hoje = datetime.now().date()
+                            if quarentena > hoje:
+                                status_quarentena = "EM QUARENTENA"
+                                dias_restantes = (quarentena - hoje).days
+                            elif quarentena == hoje:
+                                status_quarentena = "LIBERA HOJE"
+                                dias_restantes = 0
+                            else:
+                                status_quarentena = "LIBERADO"
+                                dias_restantes = 0
+                        
+                        quarentenas.append({
+                            'id': item.get('id'),
+                            'data_tempera': data_tempera,
+                            'lote': item.get('lote', ''),
+                            'turno': item.get('turno', ''),
+                            'quantidade': float(item.get('quantidade', 0)),
+                            'base': float(item.get('base', 0)),
+                            'classe': item.get('classe', ''),
+                            'quarentena': quarentena,
+                            'status_quarentena': status_quarentena,
+                            'dias_restantes': dias_restantes,
+                            'criado_em': item.get('criado_em', ''),
+                            'atualizado_em': item.get('atualizado_em', '')
+                        })
+                    
+                    print(f"✅ {len(quarentenas)} registros carregados")
+                    return quarentenas
+                else:
+                    return []
+            else:
+                print(f"❌ Erro {response.status_code}: {response.text[:200]}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Erro ao carregar quarentenas: {e}")
+            return []
+    
+    # ======================
+    # FUNÇÕES DE CRUD
+    # ======================
+    
+    def salvar_quarentena(dados: Dict) -> tuple:
+        """Salva novo registro de quarentena"""
+        try:
+            data_iso = dados['data_tempera'].isoformat() if dados.get('data_tempera') else None
+            
+            payload = {
+                'data_tempera': data_iso,
+                'lote': dados['lote'],
+                'turno': dados['turno'],
+                'quantidade': float(dados['quantidade']),
+                'base': float(dados['base']),
+                'classe': dados['classe']
+            }
+            
+            response = requests.post(
+                f"{SUPABASE_URL}/rest/v1/embalagem",
+                json=payload,
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code in [200, 201, 204]:
+                st.cache_data.clear()
+                return True, "✅ Registro salvo com sucesso!"
+            else:
+                return False, f"❌ Erro {response.status_code}: {response.text[:150]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    def atualizar_quarentena(id_registro: int, dados: Dict) -> tuple:
+        """Atualiza registro existente"""
+        try:
+            data_iso = dados['data_tempera'].isoformat() if dados.get('data_tempera') else None
+            
+            payload = {
+                'data_tempera': data_iso,
+                'lote': dados['lote'],
+                'turno': dados['turno'],
+                'quantidade': float(dados['quantidade']),
+                'base': float(dados['base']),
+                'classe': dados['classe']
+            }
+            
+            response = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/embalagem?id=eq.{id_registro}",
+                json=payload,
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code in [200, 204]:
+                st.cache_data.clear()
+                return True, "✅ Registro atualizado com sucesso!"
+            else:
+                return False, f"❌ Erro {response.status_code}: {response.text[:150]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    def excluir_quarentena(id_registro: int) -> tuple:
+        """Exclui registro de quarentena"""
+        try:
+            response = requests.delete(
+                f"{SUPABASE_URL}/rest/v1/embalagem?id=eq.{id_registro}",
+                headers=SUPABASE_HEADERS,
+                timeout=15
+            )
+            
+            if response.status_code in [200, 204]:
+                st.cache_data.clear()
+                return True, "✅ Registro excluído com sucesso!"
+            else:
+                return False, f"❌ Erro {response.status_code}: {response.text[:150]}"
+                
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    def testar_conexao_quarentena() -> tuple:
+        """Testa conexão com a tabela embalagem"""
+        try:
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/embalagem?select=count&limit=1",
+                headers=SUPABASE_HEADERS,
+                timeout=5
+            )
+            if response.status_code == 200:
+                return True, "✅ Tabela conectada"
+            else:
+                return False, f"❌ Erro {response.status_code} - A tabela existe?"
+        except Exception as e:
+            return False, f"❌ Erro: {str(e)}"
+    
+    # ======================
+    # CARREGAR DADOS
+    # ======================
+    with st.spinner("🔄 Carregando dados de quarentena..."):
+        conexao_ok, msg_conexao = testar_conexao_quarentena()
+        
+        if not conexao_ok:
+            st.error(msg_conexao)
+            st.warning("⚠️ Execute o script SQL de criação da tabela no Supabase primeiro.")
+            with st.expander("📋 Script SQL para criar a tabela", expanded=True):
+                st.code("""
+CREATE TABLE IF NOT EXISTS public.embalagem (
+    id              BIGSERIAL PRIMARY KEY,
+    data_tempera    DATE NOT NULL,
+    lote            VARCHAR(50) NOT NULL,
+    turno           VARCHAR(10) NOT NULL CHECK (turno IN ('M', 'T', 'N')),
+    quantidade      NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (quantidade >= 0),
+    base            NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (base >= 0),
+    classe          VARCHAR(50) NOT NULL,
+    quarentena      DATE GENERATED ALWAYS AS (data_tempera + INTERVAL '7 days') STORED,
+    criado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_embalagem_data_tempera ON public.embalagem (data_tempera DESC);
+CREATE INDEX IF NOT EXISTS idx_embalagem_lote ON public.embalagem (lote);
+CREATE INDEX IF NOT EXISTS idx_embalagem_turno ON public.embalagem (turno);
+CREATE INDEX IF NOT EXISTS idx_embalagem_classe ON public.embalagem (classe);
+CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarentena DESC);
+                """, language="sql")
+            st.stop()
+        
+        quarentenas = carregar_quarentenas()
+    
+    # ======================
+    # NAVEGAÇÃO
+    # ======================
+    st.markdown("### 📊 Selecione a Visualização")
+    
+    col_nav1, col_nav2, col_nav3 = st.columns(3)
+    
+    with col_nav1:
+        if st.button("🏷️ Quarentena", use_container_width=True,
+                     type="primary" if st.session_state.quarentena_aba == 'QUARENTENA' else "secondary",
+                     key="nav_qua_quarentena"):
+            st.session_state.quarentena_aba = 'QUARENTENA'
+            st.rerun()
+    
+    with col_nav2:
+        if st.button("➕ Cadastrar", use_container_width=True,
+                     type="primary" if st.session_state.quarentena_aba == 'CADASTRAR' else "secondary",
+                     key="nav_qua_cadastrar"):
+            st.session_state.quarentena_aba = 'CADASTRAR'
+            st.session_state.quarentena_editando = None
+            st.rerun()
+    
+    with col_nav3:
+        if st.button("🔄 Atualizar", use_container_width=True, key="nav_qua_atualizar"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # ======================
+    # KPIs GERAIS (SEMPRE VISÍVEIS)
+    # ======================
+    total_registros = len(quarentenas)
+    total_caixas = sum(e.get('quantidade', 0) for e in quarentenas)
+    total_pecas = sum(e.get('quantidade', 0) * e.get('base', 0) for e in quarentenas)
+    em_quarentena = len([e for e in quarentenas if e.get('status_quarentena') == 'EM QUARENTENA'])
+    libera_hoje = len([e for e in quarentenas if e.get('status_quarentena') == 'LIBERA HOJE'])
+    liberados = len([e for e in quarentenas if e.get('status_quarentena') == 'LIBERADO'])
+    
+    col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
+    with col_k1:
+        st.metric("📋 Registros", f"{total_registros:,}")
+    with col_k2:
+        st.metric("📦 Total Caixas", f"{total_caixas:,.2f}".replace(",", "."))
+    with col_k3:
+        st.metric("🔩 Total Peças", f"{total_pecas:,.0f}".replace(",", "."))
+    with col_k4:
+        st.metric("🏷️ Em Quarentena", f"{em_quarentena:,}", delta_color="inverse")
+    with col_k5:
+        st.metric("✅ Liberados", f"{liberados:,}")
+    
+    st.markdown("---")
+    
+    # ======================
+    # ABA: QUARENTENA (LISTAGEM COM FILTROS E CARDS)
+    # ======================
+    if st.session_state.quarentena_aba == 'QUARENTENA':
+        st.markdown("### 🏷️ Quarentena")
+        
+        # ======================
+        # FILTROS
+        # ======================
+        st.markdown("#### 🔍 Filtros")
+        
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        
+        with col_f1:
+            filtro_lote = st.text_input("🔍 Lote", placeholder="Buscar lote...", key="qua_filtro_lote")
+        
+        with col_f2:
+            filtro_turno = st.selectbox("🕐 Turno", ["(Todos)"] + TURNOS_QUARENTENA, key="qua_filtro_turno")
+        
+        with col_f3:
+            filtro_classe = st.selectbox("⭐ Classe", ["(Todas)"] + CLASSES_QUARENTENA, key="qua_filtro_classe")
+        
+        with col_f4:
+            filtro_status = st.selectbox("🏷️ Status Quarentena", 
+                ["(Todos)", "EM QUARENTENA", "LIBERA HOJE", "LIBERADO"], 
+                key="qua_filtro_status")
+        
+        # ======================
+        # FILTROS DE DATA (TÊMPERA E LIBERAÇÃO)
+        # ======================
+        col_f5, col_f6, col_f7, col_f8 = st.columns(4)
+        
+        with col_f5:
+            filtro_data_ini = st.date_input("📅 Data Têmpera (Inicial)", value=None, key="qua_data_ini")
+        
+        with col_f6:
+            filtro_data_fim = st.date_input("📅 Data Têmpera (Final)", value=None, key="qua_data_fim")
+        
+        with col_f7:
+            filtro_data_liberacao = st.date_input(
+                "🎯 Liberação até (data limite)", 
+                value=None, 
+                key="qua_data_liberacao",
+                help="Busca todos os lotes que serão liberados na janela dos 7 dias anteriores E nesta data (data limite - 7 dias até data limite)"
+            )
+        
+        with col_f8:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ Limpar Filtros", use_container_width=True, key="qua_limpar_filtros"):
+                # Reset dos filtros no session_state
+                for key in ['qua_filtro_lote', 'qua_filtro_turno', 'qua_filtro_classe', 
+                           'qua_filtro_status', 'qua_data_ini', 'qua_data_fim', 'qua_data_liberacao']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
+        
+        # ======================
+        # APLICAR FILTROS
+        # ======================
+        qua_filtradas = quarentenas.copy()
+        
+        if filtro_lote:
+            qua_filtradas = [e for e in qua_filtradas if filtro_lote.lower() in e.get('lote', '').lower()]
+        
+        if filtro_turno != "(Todos)":
+            qua_filtradas = [e for e in qua_filtradas if e.get('turno', '') == filtro_turno]
+        
+        if filtro_classe != "(Todas)":
+            qua_filtradas = [e for e in qua_filtradas if e.get('classe', '') == filtro_classe]
+        
+        if filtro_status != "(Todos)":
+            qua_filtradas = [e for e in qua_filtradas if e.get('status_quarentena', '') == filtro_status]
+        
+        if filtro_data_ini:
+            qua_filtradas = [e for e in qua_filtradas if e.get('data_tempera') and e['data_tempera'] >= filtro_data_ini]
+        
+        if filtro_data_fim:
+            qua_filtradas = [e for e in qua_filtradas if e.get('data_tempera') and e['data_tempera'] <= filtro_data_fim]
+        
+        # ======================
+        # FILTRO POR DATA DE LIBERAÇÃO (JANELA DE 7 DIAS)
+        # ======================
+        # Busca todos os lotes que serão liberados nos 7 dias ANTERIORES 
+        # e também na data limite especificada
+        if filtro_data_liberacao:
+            data_inicio_janela = filtro_data_liberacao - timedelta(days=7)
+            qua_filtradas = [e for e in qua_filtradas 
+                            if e.get('quarentena') 
+                            and data_inicio_janela <= e['quarentena'] <= filtro_data_liberacao]
+        
+        # ======================
+        # INDICADOR DE FILTROS ATIVOS
+        # ======================
+        filtros_ativos = []
+        if filtro_lote:
+            filtros_ativos.append(f"Lote: '{filtro_lote}'")
+        if filtro_turno != "(Todos)":
+            filtros_ativos.append(f"Turno: {filtro_turno}")
+        if filtro_classe != "(Todas)":
+            filtros_ativos.append(f"Classe: {filtro_classe}")
+        if filtro_status != "(Todos)":
+            filtros_ativos.append(f"Status: {filtro_status}")
+        if filtro_data_ini:
+            filtros_ativos.append(f"Têmpera ≥ {filtro_data_ini.strftime('%d/%m/%Y')}")
+        if filtro_data_fim:
+            filtros_ativos.append(f"Têmpera ≤ {filtro_data_fim.strftime('%d/%m/%Y')}")
+        if filtro_data_liberacao:
+            data_ini_janela = filtro_data_liberacao - timedelta(days=7)
+            filtros_ativos.append(
+                f"🎯 Liberação de {data_ini_janela.strftime('%d/%m/%Y')} até {filtro_data_liberacao.strftime('%d/%m/%Y')}"
+            )
+        
+        if filtros_ativos:
+            st.info(f"🔎 **Filtros ativos:** {' | '.join(filtros_ativos)}")
+        
+        st.caption(f"📊 Exibindo **{len(qua_filtradas)}** de **{len(quarentenas)}** registros")
+        
+        # ======================
+        # CARDS DINÂMICOS (ATUALIZAM CONFORME FILTROS)
+        # ======================
+        st.markdown("---")
+        st.markdown("#### 📊 Totais dos Registros Filtrados")
+        
+        # Calcular totais dos registros filtrados
+        total_registros_filtrados = len(qua_filtradas)
+        total_caixas_filtradas = sum(e.get('quantidade', 0) for e in qua_filtradas)
+        total_pecas_filtradas = sum(e.get('quantidade', 0) * e.get('base', 0) for e in qua_filtradas)
+        
+        # Separar por classe
+        qua_classe_a = [e for e in qua_filtradas if e.get('classe', '').upper() == 'A']
+        qua_classe_b = [e for e in qua_filtradas if e.get('classe', '').upper() == 'B']
+        qua_classe_c = [e for e in qua_filtradas if e.get('classe', '').upper() == 'C']
+        
+        caixas_a = sum(e.get('quantidade', 0) for e in qua_classe_a)
+        pecas_a = sum(e.get('quantidade', 0) * e.get('base', 0) for e in qua_classe_a)
+        
+        caixas_b = sum(e.get('quantidade', 0) for e in qua_classe_b)
+        pecas_b = sum(e.get('quantidade', 0) * e.get('base', 0) for e in qua_classe_b)
+        
+        caixas_c = sum(e.get('quantidade', 0) for e in qua_classe_c)
+        pecas_c = sum(e.get('quantidade', 0) * e.get('base', 0) for e in qua_classe_c)
+        
+        # ======================
+        # CARDS PRINCIPAIS (GERAIS)
+        # ======================
+        col_c1, col_c2, col_c3 = st.columns(3)
+        
+        with col_c1:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #0078D4 0%, #005a9e 100%);
+                        padding: 18px 20px; border-radius: 12px; color: white;
+                        box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);">
+                <div style="font-size: 12px; opacity: 0.9; letter-spacing: 0.1em; text-transform: uppercase;">
+                    📋 Total Registros
+                </div>
+                <div style="font-size: 32px; font-weight: 700; margin-top: 8px;">
+                    {total_registros_filtrados:,}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_c2:
+            caixas_formatadas = f"{total_caixas_filtradas:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #6B46C1 0%, #4a2d8a 100%);
+                        padding: 18px 20px; border-radius: 12px; color: white;
+                        box-shadow: 0 4px 12px rgba(107, 70, 193, 0.3);">
+                <div style="font-size: 12px; opacity: 0.9; letter-spacing: 0.1em; text-transform: uppercase;">
+                    📦 Total Caixas
+                </div>
+                <div style="font-size: 32px; font-weight: 700; margin-top: 8px;">
+                    {caixas_formatadas}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_c3:
+            pecas_formatadas = f"{total_pecas_filtradas:,.0f}".replace(",", ".")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #E86C2C 0%, #c45216 100%);
+                        padding: 18px 20px; border-radius: 12px; color: white;
+                        box-shadow: 0 4px 12px rgba(232, 108, 44, 0.3);">
+                <div style="font-size: 12px; opacity: 0.9; letter-spacing: 0.1em; text-transform: uppercase;">
+                    🔩 Total Peças
+                </div>
+                <div style="font-size: 32px; font-weight: 700; margin-top: 8px;">
+                    {pecas_formatadas}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ======================
+        # CARDS POR CLASSE (A, B, C)
+        # ======================
+        st.markdown("##### 🎯 Totais por Classe")
+        
+        col_a, col_b, col_c = st.columns(3)
+        
+        # ===== CLASSE A (VERDE) =====
+        with col_a:
+            caixas_a_fmt = f"{caixas_a:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            pecas_a_fmt = f"{pecas_a:,.0f}".replace(",", ".")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #107C10 0%, #0a5a0a 100%);
+                        padding: 18px 20px; border-radius: 12px; color: white;
+                        box-shadow: 0 4px 12px rgba(16, 124, 16, 0.4);
+                        border: 2px solid #28a745;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">
+                        ⭐ CLASSE A
+                    </div>
+                    <div style="font-size: 20px;">🟢</div>
+                </div>
+                <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: rgba(255,255,255,0.15); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">📦 Caixas</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {caixas_a_fmt}
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.15); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">🔩 Peças</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {pecas_a_fmt}
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; opacity: 0.85; text-align: center;">
+                    {len(qua_classe_a)} registro(s)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ===== CLASSE B (AMARELO) =====
+        with col_b:
+            caixas_b_fmt = f"{caixas_b:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            pecas_b_fmt = f"{pecas_b:,.0f}".replace(",", ".")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #FFB900 0%, #d49c00 100%);
+                        padding: 18px 20px; border-radius: 12px; color: #333;
+                        box-shadow: 0 4px 12px rgba(255, 185, 0, 0.4);
+                        border: 2px solid #FFD700;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">
+                        ⭐ CLASSE B
+                    </div>
+                    <div style="font-size: 20px;">🟡</div>
+                </div>
+                <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: rgba(255,255,255,0.4); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">📦 Caixas</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {caixas_b_fmt}
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.4); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">🔩 Peças</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {pecas_b_fmt}
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; opacity: 0.85; text-align: center;">
+                    {len(qua_classe_b)} registro(s)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ===== CLASSE C (LARANJA) =====
+        with col_c:
+            caixas_c_fmt = f"{caixas_c:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            pecas_c_fmt = f"{pecas_c:,.0f}".replace(",", ".")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #E86C2C 0%, #c45216 100%);
+                        padding: 18px 20px; border-radius: 12px; color: white;
+                        box-shadow: 0 4px 12px rgba(232, 108, 44, 0.4);
+                        border: 2px solid #FF8C42;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">
+                        ⭐ CLASSE C
+                    </div>
+                    <div style="font-size: 20px;">🟠</div>
+                </div>
+                <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: rgba(255,255,255,0.15); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">📦 Caixas</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {caixas_c_fmt}
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.15); padding: 8px 10px; border-radius: 8px;">
+                        <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase;">🔩 Peças</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-top: 4px;">
+                            {pecas_c_fmt}
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; opacity: 0.85; text-align: center;">
+                    {len(qua_classe_c)} registro(s)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # ======================
+        # TABELA DE REGISTROS
+        # ======================
+        if qua_filtradas:
+            dados_tabela = []
+            for e in qua_filtradas:
+                status = e.get('status_quarentena', '')
+                dias = e.get('dias_restantes', 0)
+                
+                if status == 'EM QUARENTENA':
+                    status_display = f"🔴 EM QUARENTENA ({dias}d)"
+                elif status == 'LIBERA HOJE':
+                    status_display = "🟡 LIBERA HOJE"
+                else:
+                    status_display = "✅ LIBERADO"
+                
+                dados_tabela.append({
+                    "ID": e.get('id', ''),
+                    "Data Têmpera": e['data_tempera'].strftime('%d/%m/%Y') if e.get('data_tempera') else '-',
+                    "Lote": e.get('lote', ''),
+                    "Turno": e.get('turno', ''),
+                    "Quantidade (cx)": f"{e.get('quantidade', 0):,.2f}".replace(",", "."),
+                    "Base (pç/cx)": f"{e.get('base', 0):,.2f}".replace(",", "."),
+                    "Total Peças": f"{e.get('quantidade', 0) * e.get('base', 0):,.0f}".replace(",", "."),
+                    "Classe": e.get('classe', ''),
+                    "Quarentena": e['quarentena'].strftime('%d/%m/%Y') if e.get('quarentena') else '-',
+                    "Status": status_display
+                })
+            
+            df_qua = pd.DataFrame(dados_tabela)
+            
+            def style_qua(row):
+                status = row['Status']
+                
+                if 'EM QUARENTENA' in status:
+                    return ['background-color: #f8d7da; color: #721c24;'] * len(row)
+                elif 'LIBERA HOJE' in status:
+                    return ['background-color: #fff3cd; color: #856404;'] * len(row)
+                elif 'LIBERADO' in status:
+                    return ['background-color: #d4edda; color: #155724;'] * len(row)
+                else:
+                    return [''] * len(row)
+            
+            styled_df = df_qua.style.apply(style_qua, axis=1)
+            st.dataframe(styled_df, use_container_width=True, height=500, hide_index=True)
+            
+            # ======================
+            # EXPORTAR CSV
+            # ======================
+            csv = df_qua.to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 Baixar Lista Filtrada (CSV)",
+                data=csv,
+                file_name=f"quarentena_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+            # ======================
+            # AÇÕES POR REGISTRO
+            # ======================
+            st.markdown("---")
+            st.markdown("### 🔧 Ações")
+            
+            opcoes_ids = [f"{e.get('id')} - {e.get('lote', '')} - {e.get('data_tempera').strftime('%d/%m/%Y') if e.get('data_tempera') else ''}" for e in qua_filtradas]
+            
+            if opcoes_ids:
+                selecao = st.selectbox("Selecione um registro:", options=opcoes_ids, key="qua_select_acao")
+                
+                if selecao:
+                    id_selecionado = int(selecao.split(" - ")[0])
+                    registro_sel = next((e for e in qua_filtradas if e.get('id') == id_selecionado), None)
+                    
+                    if registro_sel:
+                        col_acao1, col_acao2 = st.columns(2)
+                        
+                        with col_acao1:
+                            if st.button("✏️ Editar Registro", use_container_width=True, key="qua_btn_editar"):
+                                st.session_state.quarentena_editando = registro_sel
+                                st.session_state.quarentena_aba = 'CADASTRAR'
+                                st.rerun()
+                        
+                        with col_acao2:
+                            if st.button("🗑️ Excluir Registro", use_container_width=True, key="qua_btn_excluir"):
+                                st.session_state.quarentena_confirmar_exclusao = id_selecionado
+                                st.rerun()
+            
+            # Confirmação de exclusão
+            if st.session_state.quarentena_confirmar_exclusao:
+                id_excluir = st.session_state.quarentena_confirmar_exclusao
+                reg_excluir = next((e for e in quarentenas if e.get('id') == id_excluir), None)
+                
+                if reg_excluir:
+                    st.markdown("---")
+                    st.error(f"⚠️ **ATENÇÃO!** Excluir registro ID {id_excluir}")
+                    st.write(f"**Lote:** {reg_excluir.get('lote')} | **Data:** {reg_excluir.get('data_tempera')}")
+                    st.write(f"**Quantidade:** {reg_excluir.get('quantidade')} caixas | **Classe:** {reg_excluir.get('classe')}")
+                    
+                    confirmar = st.checkbox("✅ Confirmo a exclusão permanente", key="qua_confirmar_excluir")
+                    
+                    if confirmar:
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key="qua_conf_excluir"):
+                                sucesso, msg = excluir_quarentena(id_excluir)
+                                if sucesso:
+                                    st.success(msg)
+                                    st.session_state.quarentena_confirmar_exclusao = None
+                                    st.cache_data.clear()
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        
+                        with col_conf2:
+                            if st.button("❌ Cancelar", use_container_width=True, key="qua_cancel_excluir"):
+                                st.session_state.quarentena_confirmar_exclusao = None
+                                st.rerun()
+        else:
+            st.info("📭 Nenhum registro encontrado com os filtros selecionados.")
+    
+    # ======================
+    # ABA: CADASTRAR (EM LOTE) / EDITAR (INDIVIDUAL)
+    # ======================
+    elif st.session_state.quarentena_aba == 'CADASTRAR':
+        editando = st.session_state.quarentena_editando
+        
+        # ============================================================
+        # MODO EDIÇÃO (registro único existente)
+        # ============================================================
+        if editando:
+            st.markdown(f"### ✏️ Editando Registro ID {editando.get('id')}")
+            
+            with st.form("form_quarentena_edicao"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("#### 📋 Dados do Registro")
+                    
+                    data_tempera = st.date_input(
+                        "📅 Data da Têmpera*",
+                        value=editando.get('data_tempera') if editando.get('data_tempera') else datetime.now().date(),
+                        key="qua_edit_data"
+                    )
+                    
+                    lote = st.text_input(
+                        "🏷️ Lote*",
+                        value=editando.get('lote', ''),
+                        placeholder="Ex: LOTE-2026-001",
+                        key="qua_edit_lote"
+                    )
+                    
+                    turno = st.selectbox(
+                        "🕐 Turno*",
+                        options=TURNOS_QUARENTENA,
+                        index=TURNOS_QUARENTENA.index(editando.get('turno')) if editando.get('turno') in TURNOS_QUARENTENA else 0,
+                        key="qua_edit_turno"
+                    )
+                
+                with col2:
+                    st.markdown("#### 📦 Quantidades e Classe")
+                    
+                    quantidade = st.number_input(
+                        "📦 Quantidade de Caixas*",
+                        min_value=0.01,
+                        step=0.5,
+                        value=float(editando.get('quantidade', 1.0)),
+                        key="qua_edit_quantidade"
+                    )
+                    
+                    base = st.number_input(
+                        "🔩 Peças por Caixa (Base)*",
+                        min_value=0.01,
+                        step=1.0,
+                        value=float(editando.get('base', 40.0)),
+                        key="qua_edit_base"
+                    )
+                    
+                    classe = st.selectbox(
+                        "⭐ Classe*",
+                        options=CLASSES_QUARENTENA,
+                        index=CLASSES_QUARENTENA.index(editando.get('classe')) if editando.get('classe') in CLASSES_QUARENTENA else 0,
+                        key="qua_edit_classe"
+                    )
+                
+                # Preview
+                st.markdown("---")
+                st.markdown("#### 📊 Pré-visualização")
+                
+                total_pecas_calc = quantidade * base
+                data_quarentena = data_tempera + timedelta(days=7)
+                hoje = datetime.now().date()
+                dias_restantes = (data_quarentena - hoje).days
+                
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    st.metric("🔩 Total de Peças", f"{total_pecas_calc:,.0f}".replace(",", "."))
+                with col_p2:
+                    st.metric("🏷️ Data Quarentena", data_quarentena.strftime('%d/%m/%Y'))
+                with col_p3:
+                    if dias_restantes > 0:
+                        st.metric("⏳ Dias Restantes", f"{dias_restantes} dias")
+                    elif dias_restantes == 0:
+                        st.metric("⏳ Status", "Libera Hoje")
+                    else:
+                        st.metric("✅ Status", "Liberado")
+                
+                st.markdown("---")
+                
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    submitted = st.form_submit_button(
+                        "💾 ATUALIZAR REGISTRO",
+                        type="primary",
+                        use_container_width=True
+                    )
+                
+                if submitted:
+                    if not lote or not lote.strip():
+                        st.error("❌ Informe o lote!")
+                    elif quantidade <= 0:
+                        st.error("❌ A quantidade deve ser maior que zero!")
+                    elif base <= 0:
+                        st.error("❌ A base deve ser maior que zero!")
+                    else:
+                        dados = {
+                            'data_tempera': data_tempera,
+                            'lote': lote.strip(),
+                            'turno': turno,
+                            'quantidade': quantidade,
+                            'base': base,
+                            'classe': classe
+                        }
+                        
+                        sucesso, msg = atualizar_quarentena(editando.get('id'), dados)
+                        
+                        if sucesso:
+                            st.success(msg)
+                            st.balloons()
+                            st.session_state.quarentena_editando = None
+                            st.session_state.quarentena_aba = 'QUARENTENA'
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            
+            if st.button("❌ Cancelar Edição", use_container_width=True, key="qua_cancelar_edicao"):
+                st.session_state.quarentena_editando = None
+                st.session_state.quarentena_aba = 'QUARENTENA'
+                st.rerun()
+        
+        # ============================================================
+        # MODO CADASTRO EM LOTE
+        # ============================================================
+        else:
+            st.markdown("### ➕ Cadastro em Lote")
+            st.caption("Adicione vários registros à lista abaixo e salve todos de uma vez.")
+            
+            # ======================
+            # FORMULÁRIO DE ADIÇÃO
+            # ======================
+            st.markdown("#### 📝 Adicionar Registro à Lista")
+            
+            with st.form("form_adicionar_quarentena", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("##### 📋 Dados do Registro")
+                    
+                    data_tempera_form = st.date_input(
+                        "📅 Data da Têmpera*",
+                        value=datetime.now().date(),
+                        key="qua_form_data_lote"
+                    )
+                    
+                    lote_form = st.text_input(
+                        "🏷️ Lote*",
+                        placeholder="Ex: LOTE-2026-001",
+                        key="qua_form_lote_lote"
+                    )
+                    
+                    turno_form = st.selectbox(
+                        "🕐 Turno*",
+                        options=TURNOS_QUARENTENA,
+                        key="qua_form_turno_lote"
+                    )
+                
+                with col2:
+                    st.markdown("##### 📦 Quantidades e Classe")
+                    
+                    quantidade_form = st.number_input(
+                        "📦 Quantidade de Caixas*",
+                        min_value=0.01,
+                        step=0.5,
+                        value=1.0,
+                        key="qua_form_quantidade_lote"
+                    )
+                    
+                    base_form = st.number_input(
+                        "🔩 Peças por Caixa (Base)*",
+                        min_value=0.01,
+                        step=1.0,
+                        value=40.0,
+                        key="qua_form_base_lote"
+                    )
+                    
+                    classe_form = st.selectbox(
+                        "⭐ Classe*",
+                        options=CLASSES_QUARENTENA,
+                        key="qua_form_classe_lote"
+                    )
+                
+                col_btn_add1, col_btn_add2, col_btn_add3 = st.columns([1, 1, 1])
+                
+                with col_btn_add1:
+                    submitted_add = st.form_submit_button(
+                        "➕ ADICIONAR À LISTA",
+                        type="primary",
+                        use_container_width=True
+                    )
+                
+                if submitted_add:
+                    if not lote_form or not lote_form.strip():
+                        st.error("❌ Informe o lote!")
+                    elif quantidade_form <= 0:
+                        st.error("❌ A quantidade deve ser maior que zero!")
+                    elif base_form <= 0:
+                        st.error("❌ A base deve ser maior que zero!")
+                    else:
+                        novo_item = {
+                            'temp_id': f"TEMP-{len(st.session_state.quarentena_lista_temporaria) + 1:03d}",
+                            'data_tempera': data_tempera_form,
+                            'lote': lote_form.strip(),
+                            'turno': turno_form,
+                            'quantidade': quantidade_form,
+                            'base': base_form,
+                            'classe': classe_form
+                        }
+                        
+                        st.session_state.quarentena_lista_temporaria.append(novo_item)
+                        st.success(f"✅ Registro adicionado à lista! ({len(st.session_state.quarentena_lista_temporaria)} itens)")
+                        st.rerun()
+            
+            st.markdown("---")
+            
+            # ======================
+            # LISTA TEMPORÁRIA
+            # ======================
+            st.markdown("#### 📋 Lista de Registros Pendentes")
+            
+            lista_temp = st.session_state.quarentena_lista_temporaria
+            
+            if lista_temp:
+                # Resumo
+                total_itens = len(lista_temp)
+                total_caixas_temp = sum(item['quantidade'] for item in lista_temp)
+                total_pecas_temp = sum(item['quantidade'] * item['base'] for item in lista_temp)
+                lotes_unicos = len(set(item['lote'] for item in lista_temp))
+                
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+                with col_r1:
+                    st.metric("📋 Total Itens", f"{total_itens}")
+                with col_r2:
+                    st.metric("📦 Total Caixas", f"{total_caixas_temp:,.2f}".replace(",", "."))
+                with col_r3:
+                    st.metric("🔩 Total Peças", f"{total_pecas_temp:,.0f}".replace(",", "."))
+                with col_r4:
+                    st.metric("🏷️ Lotes Únicos", f"{lotes_unicos}")
+                
+                st.markdown("---")
+                
+                # Tabela da lista
+                dados_lista = []
+                for idx, item in enumerate(lista_temp):
+                    data_quar = item['data_tempera'] + timedelta(days=7)
+                    dados_lista.append({
+                        "Nº": idx + 1,
+                        "Data Têmpera": item['data_tempera'].strftime('%d/%m/%Y'),
+                        "Lote": item['lote'],
+                        "Turno": item['turno'],
+                        "Quantidade (cx)": f"{item['quantidade']:,.2f}".replace(",", "."),
+                        "Base (pç/cx)": f"{item['base']:,.2f}".replace(",", "."),
+                        "Total Peças": f"{item['quantidade'] * item['base']:,.0f}".replace(",", "."),
+                        "Classe": item['classe'],
+                        "Quarentena": data_quar.strftime('%d/%m/%Y')
+                    })
+                
+                df_lista = pd.DataFrame(dados_lista)
+                st.dataframe(df_lista, use_container_width=True, hide_index=True, height=min(400, len(lista_temp) * 35 + 40))
+                
+                st.markdown("---")
+                
+                # ======================
+                # AÇÕES INDIVIDUAIS (EDITAR / REMOVER)
+                # ======================
+                st.markdown("#### 🔧 Ações Individuais")
+                
+                col_sel1, col_sel2, col_sel3 = st.columns([3, 1, 1])
+                
+                with col_sel1:
+                    opcoes_itens = [f"Nº {i+1} - {item['lote']} - {item['data_tempera'].strftime('%d/%m/%Y')}" 
+                                   for i, item in enumerate(lista_temp)]
+                    item_selecionado = st.selectbox(
+                        "Selecione um item para editar ou remover:",
+                        options=opcoes_itens,
+                        key="qua_select_item_lista"
+                    )
+                
+                if item_selecionado:
+                    idx_sel = opcoes_itens.index(item_selecionado)
+                    
+                    with col_sel2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("✏️ Editar", use_container_width=True, key="qua_btn_editar_item"):
+                            st.session_state.quarentena_editando_item = idx_sel
+                            st.rerun()
+                    
+                    with col_sel3:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🗑️ Remover", use_container_width=True, key="qua_btn_remover_item"):
+                            del st.session_state.quarentena_lista_temporaria[idx_sel]
+                            st.success("🗑️ Item removido!")
+                            st.rerun()
+                
+                # ======================
+                # FORMULÁRIO DE EDIÇÃO DE ITEM DA LISTA
+                # ======================
+                if st.session_state.quarentena_editando_item is not None:
+                    idx_edit = st.session_state.quarentena_editando_item
+                    if idx_edit < len(lista_temp):
+                        item_edit = lista_temp[idx_edit]
+                        
+                        st.markdown("---")
+                        st.markdown(f"#### ✏️ Editando Item Nº {idx_edit + 1}")
+                        
+                        with st.form("form_editar_item_lista_qua"):
+                            col_e1, col_e2 = st.columns(2)
+                            
+                            with col_e1:
+                                data_edit = st.date_input(
+                                    "📅 Data da Têmpera",
+                                    value=item_edit['data_tempera'],
+                                    key="qua_edit_item_data"
+                                )
+                                
+                                lote_edit = st.text_input(
+                                    "🏷️ Lote",
+                                    value=item_edit['lote'],
+                                    key="qua_edit_item_lote"
+                                )
+                                
+                                turno_edit = st.selectbox(
+                                    "🕐 Turno",
+                                    options=TURNOS_QUARENTENA,
+                                    index=TURNOS_QUARENTENA.index(item_edit['turno']) if item_edit['turno'] in TURNOS_QUARENTENA else 0,
+                                    key="qua_edit_item_turno"
+                                )
+                            
+                            with col_e2:
+                                quantidade_edit = st.number_input(
+                                    "📦 Quantidade de Caixas",
+                                    min_value=0.01,
+                                    step=0.5,
+                                    value=item_edit['quantidade'],
+                                    key="qua_edit_item_quantidade"
+                                )
+                                
+                                base_edit = st.number_input(
+                                    "🔩 Peças por Caixa (Base)",
+                                    min_value=0.01,
+                                    step=1.0,
+                                    value=item_edit['base'],
+                                    key="qua_edit_item_base"
+                                )
+                                
+                                classe_edit = st.selectbox(
+                                    "⭐ Classe",
+                                    options=CLASSES_QUARENTENA,
+                                    index=CLASSES_QUARENTENA.index(item_edit['classe']) if item_edit['classe'] in CLASSES_QUARENTENA else 0,
+                                    key="qua_edit_item_classe"
+                                )
+                            
+                            col_eb1, col_eb2 = st.columns(2)
+                            with col_eb1:
+                                salvar_edit = st.form_submit_button("💾 SALVAR ALTERAÇÕES", type="primary", use_container_width=True)
+                            with col_eb2:
+                                cancelar_edit = st.form_submit_button("❌ CANCELAR", use_container_width=True)
+                            
+                            if salvar_edit:
+                                if not lote_edit or not lote_edit.strip():
+                                    st.error("❌ Informe o lote!")
+                                else:
+                                    st.session_state.quarentena_lista_temporaria[idx_edit] = {
+                                        'temp_id': item_edit['temp_id'],
+                                        'data_tempera': data_edit,
+                                        'lote': lote_edit.strip(),
+                                        'turno': turno_edit,
+                                        'quantidade': quantidade_edit,
+                                        'base': base_edit,
+                                        'classe': classe_edit
+                                    }
+                                    st.session_state.quarentena_editando_item = None
+                                    st.success("✅ Item atualizado!")
+                                    st.rerun()
+                            
+                            if cancelar_edit:
+                                st.session_state.quarentena_editando_item = None
+                                st.rerun()
+                
+                # ======================
+                # BOTÕES DE AÇÃO EM LOTE
+                # ======================
+                st.markdown("---")
+                st.markdown("#### 💾 Salvar Lista Completa")
+                
+                col_acao1, col_acao2, col_acao3 = st.columns([1, 2, 1])
+                
+                with col_acao1:
+                    if st.button("🗑️ LIMPAR LISTA", use_container_width=True, key="qua_limpar_lista"):
+                        st.session_state.quarentena_lista_temporaria = []
+                        st.session_state.quarentena_editando_item = None
+                        st.success("🗑️ Lista limpa!")
+                        st.rerun()
+                
+                with col_acao2:
+                    if st.button("💾 SALVAR TODOS OS REGISTROS", type="primary", use_container_width=True, key="qua_salvar_lote"):
+                        st.session_state.quarentena_mostrar_confirmacao_lote = True
+                        st.rerun()
+                
+                with col_acao3:
+                    if st.button("❌ CANCELAR TUDO", use_container_width=True, key="qua_cancelar_tudo"):
+                        st.session_state.quarentena_lista_temporaria = []
+                        st.session_state.quarentena_editando_item = None
+                        st.success("❌ Todos os lançamentos cancelados!")
+                        st.rerun()
+                
+                # ======================
+                # CONFIRMAÇÃO DE SALVAMENTO EM LOTE
+                # ======================
+                if st.session_state.quarentena_mostrar_confirmacao_lote:
+                    st.markdown("---")
+                    st.markdown("### ⚠️ CONFIRMAÇÃO DE SALVAMENTO EM LOTE")
+                    
+                    st.warning(f"⚠️ Você está prestes a salvar **{len(lista_temp)} registros** de uma vez.")
+                    
+                    col_conf_info1, col_conf_info2, col_conf_info3 = st.columns(3)
+                    with col_conf_info1:
+                        st.metric("📋 Total de Itens", f"{len(lista_temp)}")
+                    with col_conf_info2:
+                        st.metric("📦 Total Caixas", f"{total_caixas_temp:,.2f}".replace(",", "."))
+                    with col_conf_info3:
+                        st.metric("🔩 Total Peças", f"{total_pecas_temp:,.0f}".replace(",", "."))
+                    
+                    st.markdown("**📋 Resumo dos registros:**")
+                    st.dataframe(df_lista, use_container_width=True, hide_index=True, height=min(300, len(lista_temp) * 35 + 40))
+                    
+                    col_conf1, col_conf2, col_conf3 = st.columns(3)
+                    
+                    with col_conf1:
+                        if st.button("✅ SIM, SALVAR TODOS", type="primary", use_container_width=True, key="qua_conf_salvar"):
+                            with st.spinner(f"Salvando {len(lista_temp)} registros no Supabase..."):
+                                sucessos = 0
+                                erros = []
+                                
+                                for item in lista_temp:
+                                    dados_salvar = {
+                                        'data_tempera': item['data_tempera'],
+                                        'lote': item['lote'],
+                                        'turno': item['turno'],
+                                        'quantidade': item['quantidade'],
+                                        'base': item['base'],
+                                        'classe': item['classe']
+                                    }
+                                    
+                                    sucesso, msg = salvar_quarentena(dados_salvar)
+                                    
+                                    if sucesso:
+                                        sucessos += 1
+                                    else:
+                                        erros.append(f"{item['lote']}: {msg}")
+                                
+                                if erros:
+                                    st.warning(f"⚠️ {sucessos} salvos, {len(erros)} erros.")
+                                    with st.expander("Ver erros"):
+                                        for e in erros:
+                                            st.error(e)
+                                else:
+                                    st.success(f"✅ {sucessos} registros salvos com sucesso!")
+                                    st.balloons()
+                                    st.session_state.quarentena_lista_temporaria = []
+                                    st.session_state.quarentena_editando_item = None
+                                    st.session_state.quarentena_mostrar_confirmacao_lote = False
+                                    time.sleep(1.5)
+                                    st.rerun()
+                    
+                    with col_conf2:
+                        if st.button("✏️ VOLTAR E EDITAR", use_container_width=True, key="qua_conf_voltar"):
+                            st.session_state.quarentena_mostrar_confirmacao_lote = False
+                            st.rerun()
+                    
+                    with col_conf3:
+                        if st.button("❌ CANCELAR", use_container_width=True, key="qua_conf_cancelar"):
+                            st.session_state.quarentena_mostrar_confirmacao_lote = False
+                            st.rerun()
+            
+            else:
+                st.info("📭 Nenhum registro na lista. Adicione itens usando o formulário acima.")
+                st.caption("💡 **Dica:** Use o cadastro em lote para registrar vários lotes de uma vez, ideal para produtividade!")
+    
+    # ======================
+    # FOOTER
+    # ======================
+    st.markdown(f"""
+    <div style="text-align:right;padding:16px 0 8px;
+        font-family:'JetBrains Mono',monospace;font-size:10px;
+        color:{THEME['text_muted']};letter-spacing:.1em;">
+        🏷️ QUARENTENA · {get_horario_brasilia()}
+    </div>
+    """, unsafe_allow_html=True)    
 # ==================================================================================================
 # RENDERIZAR FAIXA DE ROLAGEM
 # ==================================================================================================
