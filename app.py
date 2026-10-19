@@ -583,7 +583,8 @@ ABAS = {
     'REPASSES DE PRODUÇÃO': 'RP',
     'ALMOXARIFADO': 'AM',
     'CONTROLE DO FORNO': 'CF',
-    'QUARENTENA': 'QT'  # <-- NOVO MÓDULO
+    'QUARENTENA': 'QT',
+    'PAINEL DE RISCOS QUALIDADE': 'PRQ'  # <-- NOVO MÓDULO
 }
 
 CAMINHO_PDF_AR = r"\\srv-luvidarte\dados\DOC\Engenharia_Luvidarte\SGQ - LUVIDARTE - ALTERADAS\0-AVISO DE REJEIÇÃO\1-PDF"
@@ -19413,7 +19414,1275 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
         color:{THEME['text_muted']};letter-spacing:.1em;">
         🏷️ QUARENTENA · {get_horario_brasilia()}
     </div>
-    """, unsafe_allow_html=True)    
+    """, unsafe_allow_html=True)
+
+# ==================================================================================================
+# PAINEL DE RISCOS DA QUALIDADE
+# ==================================================================================================
+elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
+    render_page_header("PAINEL DE RISCOS DA QUALIDADE", 
+                       f"Transformando problemas em melhorias · Atualizado {get_horario_brasilia()}", 
+                       THEME['accent_red'])
+    
+    # ======================
+    # CONFIGURAÇÕES
+    # ======================
+    ID_PLANILHA_RISCOS = '1Hjy4UGtgwIPJgqmcv46LyXNWOrYk_oeJWWV5vlfKF2k'
+    ABA_RISCOS = 'RISCOS'
+    
+    OPCOES_IMPACTO = ["Alto", "Médio", "Baixo"]
+    OPCOES_FREQUENCIA = ["Alta", "Média", "Baixa"]
+    OPCOES_CLIENTE = ["Sim", "Não"]
+    OPCOES_SITUACAO = ["Em andamento", "Planejado", "Atrasado", "Concluído"]
+    OPCOES_PROCESSO = [
+        "Moldagem", "Recozimento", "Têmpera", "Inspeção de Laje", 
+        "Inspeção Final", "Embalagem", "Corte", "Vidraria", "Rodaria", "Expedição"
+    ]
+    
+    # ======================
+    # INICIALIZAR SESSION STATE
+    # ======================
+    if 'riscos_aba' not in st.session_state:
+        st.session_state.riscos_aba = 'DASHBOARD'
+    
+    if 'riscos_editando' not in st.session_state:
+        st.session_state.riscos_editando = None
+    
+    if 'riscos_excluindo' not in st.session_state:
+        st.session_state.riscos_excluindo = None
+    
+    if 'riscos_filtro_processo' not in st.session_state:
+        st.session_state.riscos_filtro_processo = "(Todos)"
+    
+    if 'riscos_filtro_impacto' not in st.session_state:
+        st.session_state.riscos_filtro_impacto = "(Todos)"
+    
+    if 'riscos_filtro_situacao' not in st.session_state:
+        st.session_state.riscos_filtro_situacao = "(Todos)"
+    
+    if 'riscos_filtro_busca' not in st.session_state:
+        st.session_state.riscos_filtro_busca = ""
+    
+    # ======================
+    # DATACLASS
+    # ======================
+    @dataclass
+    class RegistroRisco:
+        id: Optional[int] = None
+        data: Optional[datetime] = None
+        defeito: str = ""
+        processo: str = ""
+        impacto: str = ""
+        frequencia: str = ""
+        cliente: str = ""
+        causa_raiz: str = ""
+        acao_contencao: str = ""
+        responsavel: str = ""
+        prazo: Optional[datetime] = None
+        situacao: str = "Em andamento"
+        percentual: int = 0
+        linha: Optional[int] = None
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO
+    # ======================
+    @retry_on_quota()
+    @st.cache_data(ttl=300)
+    def carregar_riscos_sem_cache() -> List[RegistroRisco]:
+        """Carrega registros de riscos (SEM cache)"""
+        registros = []
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return registros
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_RISCOS)
+            
+            try:
+                sheet = spreadsheet.worksheet(ABA_RISCOS)
+            except Exception:
+                # Criar aba automaticamente se não existir
+                sheet = spreadsheet.add_worksheet(title=ABA_RISCOS, rows=1000, cols=20)
+                cabecalho = ["ID", "DATA", "DEFEITO", "PROCESSO", "IMPACTO", "FREQUENCIA",
+                             "CLIENTE", "CAUSA_RAIZ", "ACAO_CONTENCAO", "RESPONSAVEL",
+                             "PRAZO", "SITUACAO", "PERCENTUAL"]
+                sheet.append_row(cabecalho)
+                return registros
+            
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) < 2:
+                return registros
+            
+            for idx, row in enumerate(todos_dados[1:], start=2):
+                if len(row) < 5:
+                    continue
+                
+                try:
+                    id_val = str(row[0]).strip() if row[0] else ""
+                    defeito_val = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                    
+                    if not id_val or not defeito_val:
+                        continue
+                    
+                    registro = RegistroRisco()
+                    try:
+                        registro.id = int(float(id_val))
+                    except:
+                        registro.id = idx
+                    
+                    registro.linha = idx
+                    registro.data = converter_data_br(row[1]) if len(row) > 1 and row[1] else None
+                    registro.defeito = defeito_val
+                    registro.processo = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                    registro.impacto = str(row[4]).strip() if len(row) > 4 and row[4] else ""
+                    registro.frequencia = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                    registro.cliente = str(row[6]).strip() if len(row) > 6 and row[6] else ""
+                    registro.causa_raiz = str(row[7]).strip() if len(row) > 7 and row[7] else ""
+                    registro.acao_contencao = str(row[8]).strip() if len(row) > 8 and row[8] else ""
+                    registro.responsavel = str(row[9]).strip() if len(row) > 9 and row[9] else ""
+                    registro.prazo = converter_data_br(row[10]) if len(row) > 10 and row[10] else None
+                    registro.situacao = str(row[11]).strip() if len(row) > 11 and row[11] else "Em andamento"
+                    
+                    try:
+                        registro.percentual = int(float(str(row[12]).replace('%', '').strip())) if len(row) > 12 and row[12] else 0
+                    except:
+                        registro.percentual = 0
+                    
+                    registros.append(registro)
+                except Exception:
+                    continue
+            
+            registros.sort(key=lambda x: x.id if x.id else 0, reverse=False)
+        except Exception:
+            pass
+        return registros
+    
+    @st.cache_data(ttl=300)
+    def carregar_riscos(filtros: Dict[str, Any] = None) -> List[RegistroRisco]:
+        """Carrega registros de riscos com filtros"""
+        registros = carregar_riscos_sem_cache()
+        
+        if not filtros:
+            return registros
+        
+        filtrados = []
+        for r in registros:
+            incluir = True
+            
+            if filtros.get('processo') and filtros['processo'] != "(Todos)":
+                if r.processo.upper() != filtros['processo'].upper():
+                    incluir = False
+            
+            if filtros.get('impacto') and filtros['impacto'] != "(Todos)":
+                if r.impacto.upper() != filtros['impacto'].upper():
+                    incluir = False
+            
+            if filtros.get('situacao') and filtros['situacao'] != "(Todos)":
+                if r.situacao.upper() != filtros['situacao'].upper():
+                    incluir = False
+            
+            if filtros.get('busca'):
+                busca_lower = filtros['busca'].lower()
+                if (busca_lower not in r.defeito.lower() 
+                    and busca_lower not in r.processo.lower() 
+                    and busca_lower not in r.responsavel.lower()
+                    and busca_lower not in r.causa_raiz.lower()):
+                    incluir = False
+            
+            if incluir:
+                filtrados.append(r)
+        
+        return filtrados
+    
+    def obter_proximo_id_risco() -> int:
+        """Obtém próximo ID disponível"""
+        try:
+            registros = carregar_riscos_sem_cache()
+            if not registros:
+                return 1
+            return max([r.id for r in registros if r.id]) + 1
+        except:
+            return 1
+    
+    def salvar_risco(registro: RegistroRisco, eh_alteracao: bool = False) -> tuple:
+        """Salva ou atualiza um registro de risco"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_RISCOS)
+            
+            try:
+                sheet = spreadsheet.worksheet(ABA_RISCOS)
+            except:
+                sheet = spreadsheet.add_worksheet(title=ABA_RISCOS, rows=1000, cols=20)
+                cabecalho = ["ID", "DATA", "DEFEITO", "PROCESSO", "IMPACTO", "FREQUENCIA",
+                             "CLIENTE", "CAUSA_RAIZ", "ACAO_CONTENCAO", "RESPONSAVEL",
+                             "PRAZO", "SITUACAO", "PERCENTUAL"]
+                sheet.append_row(cabecalho)
+            
+            data_str = registro.data.strftime("%d/%m/%Y") if registro.data else ""
+            prazo_str = registro.prazo.strftime("%d/%m/%Y") if registro.prazo else ""
+            
+            dados = [
+                str(registro.id) if registro.id else "",
+                data_str,
+                registro.defeito,
+                registro.processo,
+                registro.impacto,
+                registro.frequencia,
+                registro.cliente,
+                registro.causa_raiz,
+                registro.acao_contencao,
+                registro.responsavel,
+                prazo_str,
+                registro.situacao,
+                str(registro.percentual)
+            ]
+            
+            if eh_alteracao:
+                # Buscar a linha pelo ID
+                try:
+                    cell = sheet.find(str(registro.id), in_column=1)
+                    if cell:
+                        for col, valor in enumerate(dados, start=1):
+                            sheet.update_cell(cell.row, col, valor)
+                        st.cache_data.clear()
+                        return True, f"✅ Risco #{registro.id} atualizado com sucesso!"
+                except Exception as e:
+                    return False, f"❌ Erro ao localizar registro: {e}"
+                return False, f"❌ Registro #{registro.id} não encontrado para atualização"
+            else:
+                sheet.append_row(dados)
+                st.cache_data.clear()
+                return True, f"✅ Risco #{registro.id} salvo com sucesso!"
+                
+        except Exception as e:
+            return False, f"❌ Erro ao salvar: {str(e)}"
+    
+    def excluir_risco(id_risco: int) -> tuple:
+        """Exclui um registro de risco"""
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_RISCOS)
+            sheet = spreadsheet.worksheet(ABA_RISCOS)
+            
+            cell = sheet.find(str(id_risco), in_column=1)
+            if not cell:
+                return False, f"❌ Registro #{id_risco} não encontrado"
+            
+            sheet.delete_rows(cell.row)
+            st.cache_data.clear()
+            return True, f"✅ Risco #{id_risco} excluído com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao excluir: {str(e)}"
+    
+    # ======================
+    # FUNÇÕES AUXILIARES DE CLASSIFICAÇÃO
+    # ======================
+    def classificar_risco(impacto: str, frequencia: str, cliente: str) -> str:
+        """Classifica o risco em Crítico, Atenção ou Controlado"""
+        impacto_lower = impacto.lower()
+        freq_lower = frequencia.lower()
+        cliente_lower = cliente.lower()
+        
+        if impacto_lower == "alto" or (impacto_lower == "médio" and freq_lower == "alta" and cliente_lower == "sim"):
+            return "Crítico"
+        elif impacto_lower == "médio" or (impacto_lower == "baixo" and freq_lower == "alta"):
+            return "Atenção"
+        else:
+            return "Controlado"
+    
+    def cor_impacto(impacto: str) -> str:
+        """Retorna cor para o badge de impacto"""
+        impacto_lower = impacto.lower()
+        if impacto_lower == "alto":
+            return "#E81123"
+        elif impacto_lower == "médio":
+            return "#FFB900"
+        else:
+            return "#107C10"
+    
+    def icone_situacao(situacao: str, percentual: int) -> str:
+        """Retorna ícone para a situação"""
+        situacao_lower = situacao.lower()
+        if "concluído" in situacao_lower:
+            return "🟢"
+        elif "atrasado" in situacao_lower:
+            return "🔴"
+        elif "andamento" in situacao_lower:
+            return "🔴" if percentual < 50 else "🟡"
+        elif "planejado" in situacao_lower:
+            return "🟡"
+        return "⚪"
+    
+    # ======================
+    # KPIs (calculados sobre todos os registros, sem filtro)
+    # ======================
+    todos_riscos = carregar_riscos_sem_cache()
+    
+    # Filtrar por período (últimos 12 meses)
+    hoje = datetime.now()
+    data_limite = hoje - timedelta(days=365)
+    riscos_periodo = [r for r in todos_riscos if r.data and r.data >= data_limite]
+    
+    total_riscos = len(riscos_periodo)
+    criticos = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Crítico"])
+    atencao = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Atenção"])
+    controlados = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Controlado"])
+    
+    riscos_cliente = len([r for r in riscos_periodo if r.cliente.lower() == "sim"])
+    
+    concluidos = len([r for r in riscos_periodo if "concluído" in r.situacao.lower()])
+    em_andamento = len([r for r in riscos_periodo if "andamento" in r.situacao.lower()])
+    atrasados = len([r for r in riscos_periodo if "atrasado" in r.situacao.lower()])
+    planejados = len([r for r in riscos_periodo if "planejado" in r.situacao.lower()])
+    
+    # ======================
+    # NAVEGAÇÃO
+    # ======================
+    st.markdown("### 📊 Selecione a Visualização")
+    
+    col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
+    
+    with col_nav1:
+        if st.button("📊 Painel de Risco", use_container_width=True,
+                     type="primary" if st.session_state.riscos_aba == 'DASHBOARD' else "secondary",
+                     key="riscos_nav_dashboard"):
+            st.session_state.riscos_aba = 'DASHBOARD'
+            st.rerun()
+    
+    with col_nav2:
+        if st.button("📋 Lista Completa", use_container_width=True,
+                     type="primary" if st.session_state.riscos_aba == 'LISTA' else "secondary",
+                     key="riscos_nav_lista"):
+            st.session_state.riscos_aba = 'LISTA'
+            st.rerun()
+    
+    with col_nav3:
+        if st.button("➕ Novo Risco", use_container_width=True,
+                     type="primary" if st.session_state.riscos_aba == 'NOVO' else "secondary",
+                     key="riscos_nav_novo"):
+            st.session_state.riscos_aba = 'NOVO'
+            st.session_state.riscos_editando = None
+            st.rerun()
+    
+    with col_nav4:
+        if st.button("🔄 Atualizar", use_container_width=True, key="riscos_nav_atualizar"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # ==================================================================================
+    # ABA: DASHBOARD (igual ao layout da imagem)
+    # ==================================================================================
+    if st.session_state.riscos_aba == 'DASHBOARD':
+        # ============================================================
+        # HEADER DO PAINEL (Barra azul-marinho igual à imagem)
+        # ============================================================
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #0B2545 0%, #13315C 100%);
+                    padding: 22px 28px; border-radius: 12px; margin-bottom: 22px;
+                    box-shadow: 0 4px 14px rgba(11, 37, 69, 0.35);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+                <div>
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; 
+                                color: white; letter-spacing: 0.08em; text-transform: uppercase;">
+                        ⚠️ Painel de Risco da Qualidade
+                    </div>
+                    <div style="font-family: 'Barlow', sans-serif; font-size: 14px; 
+                                color: #B8C5D6; margin-top: 4px;">
+                        Transformando problemas em melhorias
+                    </div>
+                </div>
+                <div style="background: rgba(255,255,255,0.10); padding: 8px 16px; border-radius: 8px;">
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; 
+                                color: #B8C5D6; text-transform: uppercase; letter-spacing: 0.1em;">
+                        Período de análise
+                    </div>
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; 
+                                font-weight: 700; color: #FFD700;">
+                        {(hoje - timedelta(days=365)).strftime('%d/%m/%Y')} a {hoje.strftime('%d/%m/%Y')}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # ============================================================
+        # INDICADORES GERAIS (4 cards)
+        # ============================================================
+        st.markdown(f"""
+        <div style="background: white; border-radius: 12px; padding: 16px 20px;
+                    border: 1px solid #E5E9F0; margin-bottom: 22px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700;
+                        color: #0B2545; text-transform: uppercase; letter-spacing: 0.08em;
+                        margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #E5E9F0;">
+                📊 Indicadores Gerais
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+        
+        # Reaproveita as mesmas métricas do módulo PRENSADOS
+        df_prensados = carregar_dados_prensados()
+        if not df_prensados.empty:
+            df_prensados_periodo = df_prensados[df_prensados['DATA'] >= data_limite] if 'DATA' in df_prensados.columns else df_prensados
+            total_produzido = int(df_prensados_periodo['PRODUZIDO'].sum()) if 'PRODUZIDO' in df_prensados_periodo.columns else 0
+            total_refugado = int(df_prensados_periodo['REFUGADO'].sum()) if 'REFUGADO' in df_prensados_periodo.columns else 0
+            meta_total = int(df_prensados_periodo['TRS 100%'].sum()) if 'TRS 100%' in df_prensados_periodo.columns else 0
+            trs_medio = (total_produzido - total_refugado) / total_produzido * 100 if total_produzido > 0 else 0
+        else:
+            total_produzido = 0
+            total_refugado = 0
+            trs_medio = 0
+        
+        with col_k1:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 8px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px;
+                            color: #6B7280; text-transform: uppercase; letter-spacing: 0.1em;">
+                    Produção Total
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; 
+                            font-weight: 700; color: #0B2545; margin-top: 4px;">
+                    {total_produzido:,}".replace(",", ".")
+                </div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 600; margin-top: 4px;">
+                    ▲ +5% <span style="color: #9CA3AF; font-weight: normal;">(vs. mês anterior)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_k2:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 8px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">❗</div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px;
+                            color: #6B7280; text-transform: uppercase; letter-spacing: 0.1em;">
+                    Refugo Interno
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; 
+                            font-weight: 700; color: #E81123; margin-top: 4px;">
+                    {total_refugado:,}".replace(",", ".")
+                </div>
+                <div style="font-size: 11px; color: #E81123; font-weight: 600; margin-top: 4px;">
+                    ▲ +12% <span style="color: #9CA3AF; font-weight: normal;">(vs. mês anterior)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_k3:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 8px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">🛡️</div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px;
+                            color: #6B7280; text-transform: uppercase; letter-spacing: 0.1em;">
+                    TRS Médio
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; 
+                            font-weight: 700; color: #10B981; margin-top: 4px;">
+                    {trs_medio:.1f}%
+                </div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 600; margin-top: 4px;">
+                    ▲ +1,8 p.p. <span style="color: #9CA3AF; font-weight: normal;">(vs. mês anterior)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_k4:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 8px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">👥</div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px;
+                            color: #6B7280; text-transform: uppercase; letter-spacing: 0.1em;">
+                    Reclamações de Clientes
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; 
+                            font-weight: 700; color: #0B2545; margin-top: 4px;">
+                    {riscos_cliente}
+                </div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 600; margin-top: 4px;">
+                    ▼ -50% <span style="color: #9CA3AF; font-weight: normal;">(vs. mês anterior)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # ============================================================
+        # GRÁFICOS: Defeitos por Tipo + Origem dos Defeitos
+        # ============================================================
+        st.markdown("""
+        <div style="background: white; border-radius: 12px; padding: 16px 20px;
+                    border: 1px solid #E5E9F0; margin-bottom: 22px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700;
+                        color: #0B2545; text-transform: uppercase; letter-spacing: 0.08em;
+                        margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #E5E9F0;">
+                📈 Defeitos por Tipo (Refugo Interno) & Origem dos Defeitos
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col_g1, col_g2 = st.columns([1.3, 1])
+        
+        with col_g1:
+            if todos_riscos:
+                # Conta ocorrências por defeito
+                defeitos_count = {}
+                for r in riscos_periodo:
+                    defeitos_count[r.defeito] = defeitos_count.get(r.defeito, 0) + 1
+                
+                # Top 6 defeitos
+                top_defeitos = sorted(defeitos_count.items(), key=lambda x: x[1], reverse=True)[:6]
+                
+                if top_defeitos:
+                    nomes = [d[0] for d in top_defeitos]
+                    valores = [d[1] for d in top_defeitos]
+                    total_def = sum(defeitos_count.values())
+                    percentuais = [(v / total_def * 100) if total_def > 0 else 0 for v in valores]
+                    
+                    # Cores conforme imagem
+                    cores_bar = ['#E81123', '#FF8C42', '#FFC107', '#3B82F6', '#8B5CF6', '#9CA3AF']
+                    
+                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='white')
+                    ax.set_facecolor('white')
+                    
+                    bars = ax.barh(range(len(nomes)), valores, 
+                                   color=cores_bar[:len(nomes)], alpha=0.9,
+                                   edgecolor='white', linewidth=1.5)
+                    
+                    ax.set_yticks(range(len(nomes)))
+                    ax.set_yticklabels(nomes, fontsize=11, fontweight='600', color='#1F2937')
+                    ax.invert_yaxis()
+                    ax.set_xlabel('Quantidade de Ocorrências', fontsize=11, fontweight='600', color='#4B5563')
+                    ax.set_title('Defeitos por Tipo', fontsize=13, fontweight='700', 
+                                 color='#0B2545', pad=12, loc='left')
+                    
+                    # Rótulos com percentual
+                    max_val = max(valores) if valores else 1
+                    for bar, pct, val in zip(bars, percentuais, valores):
+                        ax.text(bar.get_width() + max_val * 0.015,
+                                bar.get_y() + bar.get_height() / 2,
+                                f"{pct:.1f}%",
+                                va='center', fontsize=11, fontweight='700',
+                                color='#0B2545')
+                    
+                    ax.set_xlim(0, max_val * 1.18)
+                    ax.grid(True, axis='x', alpha=0.25, linestyle='--', color='#D1D5DB')
+                    ax.set_axisbelow(True)
+                    for spine in ['top', 'right']:
+                        ax.spines[spine].set_visible(False)
+                    ax.spines['left'].set_color('#D1D5DB')
+                    ax.spines['bottom'].set_color('#D1D5DB')
+                    
+                    fig.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+                else:
+                    st.info("📭 Sem dados de defeitos para exibir.")
+            else:
+                st.info("📭 Nenhum risco cadastrado ainda.")
+        
+        with col_g2:
+            if riscos_periodo:
+                # Conta ocorrências por processo (Origem)
+                processos_count = {}
+                for r in riscos_periodo:
+                    if r.processo:
+                        processos_count[r.processo] = processos_count.get(r.processo, 0) + 1
+                
+                if processos_count:
+                    # Cores conforme imagem
+                    cores_processo = {
+                        "Moldagem": "#1E3A8A",
+                        "Recozimento": "#F59E0B",
+                        "Têmpera": "#10B981",
+                        "Inspeção de Laje": "#8B5CF6",
+                        "Inspeção Final": "#06B6D4",
+                        "Embalagem": "#EF4444",
+                        "Corte": "#6B7280",
+                        "Vidraria": "#EC4899",
+                        "Rodaria": "#14B8A6",
+                        "Expedição": "#F97316",
+                    }
+                    
+                    labels = list(processos_count.keys())
+                    valores_pie = list(processos_count.values())
+                    cores = [cores_processo.get(p, "#9CA3AF") for p in labels]
+                    
+                    fig, ax = plt.subplots(figsize=(6.5, 5), facecolor='white')
+                    ax.set_facecolor('white')
+                    
+                    wedges, texts, autotexts = ax.pie(
+                        valores_pie,
+                        labels=None,
+                        colors=cores,
+                        autopct='%1.0f%%',
+                        startangle=90,
+                        textprops={'fontsize': 12, 'fontweight': '700', 'color': 'white'},
+                        wedgeprops={'edgecolor': 'white', 'linewidth': 2.5},
+                        pctdistance=0.75
+                    )
+                    
+                    for autotext in autotexts:
+                        autotext.set_color('white')
+                        autotext.set_fontweight('bold')
+                        autotext.set_fontsize(11)
+                    
+                    ax.set_title('Origem dos Defeitos', fontsize=13, fontweight='700',
+                                 color='#0B2545', pad=12, loc='center')
+                    
+                    # Legenda
+                    ax.legend(wedges, labels, loc='center left', bbox_to_anchor=(1.0, 0.5),
+                              fontsize=10, frameon=False, title="Processo",
+                              title_fontsize=11)
+                    
+                    fig.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+                else:
+                    st.info("📭 Sem dados de processos para exibir.")
+            else:
+                st.info("📭 Nenhum risco cadastrado ainda.")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # ============================================================
+        # TABELA PRINCIPAL DE RISCOS
+        # ============================================================
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #0B2545 0%, #13315C 100%);
+                    padding: 10px 18px; border-radius: 10px 10px 0 0; margin-top: 10px;">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700;
+                        color: white; text-transform: uppercase; letter-spacing: 0.08em;">
+                📋 Painel de Risco da Qualidade – Luvidarte
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Filtros da tabela
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        
+        with col_f1:
+            filtro_processo = st.selectbox(
+                "🏭 Processo",
+                options=["(Todos)"] + OPCOES_PROCESSO,
+                key="riscos_dash_filtro_processo"
+            )
+        
+        with col_f2:
+            filtro_impacto = st.selectbox(
+                "⚠️ Impacto",
+                options=["(Todos)"] + OPCOES_IMPACTO,
+                key="riscos_dash_filtro_impacto"
+            )
+        
+        with col_f3:
+            filtro_situacao = st.selectbox(
+                "📊 Situação",
+                options=["(Todos)"] + OPCOES_SITUACAO,
+                key="riscos_dash_filtro_situacao"
+            )
+        
+        with col_f4:
+            filtro_busca = st.text_input(
+                "🔎 Buscar",
+                placeholder="Defeito, responsável, causa...",
+                key="riscos_dash_filtro_busca"
+            )
+        
+        # Aplicar filtros
+        filtros = {
+            'processo': filtro_processo,
+            'impacto': filtro_impacto,
+            'situacao': filtro_situacao,
+            'busca': filtro_busca
+        }
+        
+        riscos_filtrados = carregar_riscos(filtros)
+        
+        st.caption(f"📊 Exibindo **{len(riscos_filtrados)}** de **{len(todos_riscos)}** riscos cadastrados")
+        
+        # Tabela de riscos
+        if riscos_filtrados:
+            dados_tabela = []
+            for r in riscos_filtrados:
+                classificacao = classificar_risco(r.impacto, r.frequencia, r.cliente)
+                
+                icone_sit = icone_situacao(r.situacao, r.percentual)
+                perc_str = f" ({r.percentual}%)" if r.percentual > 0 else ""
+                situacao_display = f"{icone_sit} {r.situacao}{perc_str}"
+                
+                dados_tabela.append({
+                    "#": r.id,
+                    "Problema / Defeito": r.defeito,
+                    "Processo": r.processo,
+                    "Impacto": f"{r.impacto}",
+                    "Frequência": r.frequencia,
+                    "Cliente": r.cliente,
+                    "Causa Raiz (em análise)": r.causa_raiz,
+                    "Ação / Contenção Atual": r.acao_contencao,
+                    "Responsável": r.responsavel,
+                    "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-",
+                    "Situação": situacao_display,
+                    "Classificação": classificacao,
+                })
+            
+            df_riscos = pd.DataFrame(dados_tabela)
+            
+            def style_risco(row):
+                styles = [''] * len(row)
+                impacto = row['Impacto'].lower()
+                classificacao = row['Classificação']
+                
+                # Cor por classificação na coluna Classificação
+                idx_class = row.index.get_loc('Classificação')
+                if classificacao == 'Crítico':
+                    styles[idx_class] = 'background-color: #FEE2E2; color: #991B1B; font-weight: 700;'
+                elif classificacao == 'Atenção':
+                    styles[idx_class] = 'background-color: #FEF3C7; color: #92400E; font-weight: 700;'
+                else:
+                    styles[idx_class] = 'background-color: #D1FAE5; color: #065F46; font-weight: 700;'
+                
+                # Cor por impacto
+                idx_impacto = row.index.get_loc('Impacto')
+                if impacto == 'alto':
+                    styles[idx_impacto] = 'background-color: #E81123; color: white; font-weight: 700; text-align: center;'
+                elif impacto == 'médio':
+                    styles[idx_impacto] = 'background-color: #FFB900; color: #333; font-weight: 700; text-align: center;'
+                elif impacto == 'baixo':
+                    styles[idx_impacto] = 'background-color: #107C10; color: white; font-weight: 700; text-align: center;'
+                
+                return styles
+            
+            styled_df = df_riscos.style.apply(style_risco, axis=1)
+            
+            st.dataframe(
+                styled_df,
+                use_container_width=True,
+                hide_index=True,
+                height=450
+            )
+        else:
+            st.info("📭 Nenhum risco encontrado com os filtros selecionados.")
+        
+        st.markdown("---")
+        
+        # ============================================================
+        # 3 CARDS INFERIORES: Resumo, Impacto, Prioridades
+        # ============================================================
+        col_b1, col_b2, col_b3 = st.columns(3)
+        
+        # ---- Card 1: Resumo do Risco ----
+        with col_b1:
+            total_class = criticos + atencao + controlados
+            perc_crit = (criticos / total_class * 100) if total_class > 0 else 0
+            perc_aten = (atencao / total_class * 100) if total_class > 0 else 0
+            perc_ctrl = (controlados / total_class * 100) if total_class > 0 else 0
+            
+            st.markdown(f"""
+            <div style="background: white; border-radius: 12px; padding: 16px 18px;
+                        border: 1px solid #E5E9F0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                        height: 100%;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700;
+                            color: #0B2545; text-transform: uppercase; letter-spacing: 0.08em;
+                            margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #E5E9F0;">
+                    📊 Resumo do Risco
+                </div>
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 42px; 
+                                font-weight: 700; color: #0B2545;">
+                        {total_riscos}
+                    </div>
+                    <div style="font-size: 12px; color: #6B7280; line-height: 1.4;">
+                        problemas<br>acompanhados
+                    </div>
+                </div>
+                <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;
+                                padding: 6px 10px; background: #FEE2E2; border-radius: 6px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #991B1B;">🔴 Crítico</span>
+                        <span style="font-size: 13px; font-weight: 700; color: #991B1B;">{criticos} ({perc_crit:.0f}%)</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;
+                                padding: 6px 10px; background: #FEF3C7; border-radius: 6px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #92400E;">🟡 Atenção</span>
+                        <span style="font-size: 13px; font-weight: 700; color: #92400E;">{atencao} ({perc_aten:.0f}%)</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;
+                                padding: 6px 10px; background: #D1FAE5; border-radius: 6px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #065F46;">🟢 Controlado</span>
+                        <span style="font-size: 13px; font-weight: 700; color: #065F46;">{controlados} ({perc_ctrl:.0f}%)</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ---- Card 2: Impacto no Cliente ----
+        with col_b2:
+            sem_impacto = total_riscos - riscos_cliente
+            perc_com = (riscos_cliente / total_riscos * 100) if total_riscos > 0 else 0
+            perc_sem = (sem_impacto / total_riscos * 100) if total_riscos > 0 else 0
+            
+            st.markdown(f"""
+            <div style="background: white; border-radius: 12px; padding: 16px 18px;
+                        border: 1px solid #E5E9F0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                        height: 100%;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700;
+                            color: #0B2545; text-transform: uppercase; letter-spacing: 0.08em;
+                            margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #E5E9F0;">
+                    ⚠️ Impacto no Cliente
+                </div>
+                <div style="padding: 10px 12px; background: #FEE2E2; border-radius: 8px; margin-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="font-size: 12px; color: #991B1B; font-weight: 600;">
+                            ❗ Defeitos que podem afetar o cliente
+                        </div>
+                        <div style="font-family: 'Rajdhani', sans-serif; font-size: 24px; 
+                                    font-weight: 700; color: #991B1B;">
+                            {riscos_cliente}
+                        </div>
+                    </div>
+                    <div style="font-size: 11px; color: #B91C1C; margin-top: 4px;">
+                        ({perc_com:.0f}% do total)
+                    </div>
+                </div>
+                <div style="padding: 10px 12px; background: #D1FAE5; border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="font-size: 12px; color: #065F46; font-weight: 600;">
+                            ✅ Sem impacto no cliente (interno)
+                        </div>
+                        <div style="font-family: 'Rajdhani', sans-serif; font-size: 24px; 
+                                    font-weight: 700; color: #065F46;">
+                            {sem_impacto}
+                        </div>
+                    </div>
+                    <div style="font-size: 11px; color: #047857; margin-top: 4px;">
+                        ({perc_sem:.0f}% do total)
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ---- Card 3: Prioridades do Mês ----
+        with col_b3:
+            # Prioridades: top 5 riscos com maior classificação de risco
+            riscos_ordenados = sorted(
+                riscos_periodo,
+                key=lambda r: (
+                    {"Crítico": 3, "Atenção": 2, "Controlado": 1}.get(
+                        classificar_risco(r.impacto, r.frequencia, r.cliente), 0
+                    ),
+                    -r.percentual
+                ),
+                reverse=True
+            )[:5]
+            
+            prioridades_html = ""
+            for i, r in enumerate(riscos_ordenados, start=1):
+                prioridades_html += f"""
+                <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0;
+                            border-bottom: 1px dashed #E5E9F0;">
+                    <div style="width: 22px; height: 22px; border-radius: 50%; 
+                                background: #F59E0B; color: white; 
+                                display: flex; align-items: center; justify-content: center;
+                                font-size: 11px; font-weight: 700; flex-shrink: 0;">
+                        {i}
+                    </div>
+                    <div style="font-size: 12px; color: #1F2937; font-weight: 500;">
+                        {r.defeito} {('no ' + r.processo.lower()) if r.processo else ''}
+                    </div>
+                </div>
+                """
+            
+            if not riscos_ordenados:
+                prioridades_html = '<div style="text-align: center; color: #9CA3AF; padding: 20px;">Nenhum risco cadastrado</div>'
+            
+            st.markdown(f"""
+            <div style="background: white; border-radius: 12px; padding: 16px 18px;
+                        border: 1px solid #E5E9F0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                        height: 100%;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700;
+                            color: #0B2545; text-transform: uppercase; letter-spacing: 0.08em;
+                            margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #E5E9F0;">
+                    🎯 Prioridades do Mês
+                </div>
+                {prioridades_html}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ============================================================
+        # OBJETIVO (Rodapé da imagem)
+        # ============================================================
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #0B2545 0%, #13315C 100%);
+                    padding: 16px 22px; border-radius: 10px; margin-top: 22px;
+                    display: flex; justify-content: space-between; align-items: center;
+                    flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 26px;">🎯</div>
+                <div>
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 15px; 
+                                font-weight: 700; color: #FFD700; text-transform: uppercase;
+                                letter-spacing: 0.1em;">
+                        Nosso Objetivo
+                    </div>
+                    <div style="font-size: 12px; color: #B8C5D6;">
+                        Processos estáveis, menos defeitos, zero reclamações e a satisfação dos nossos clientes.
+                    </div>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700;
+                            color: white; letter-spacing: 0.15em;">
+                    LUVIDARTE
+                </div>
+                <div style="font-size: 9px; color: #B8C5D6; letter-spacing: 0.1em;">
+                    VIDROS QUE ILUMINAM
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ==================================================================================
+    # ABA: LISTA COMPLETA (CRUD com edição/exclusão)
+    # ==================================================================================
+    elif st.session_state.riscos_aba == 'LISTA':
+        st.markdown("### 📋 Lista Completa de Riscos")
+        
+        # Filtros
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        with col_f1:
+            f_processo = st.selectbox("🏭 Processo", ["(Todos)"] + OPCOES_PROCESSO, key="riscos_lista_fp")
+        with col_f2:
+            f_impacto = st.selectbox("⚠️ Impacto", ["(Todos)"] + OPCOES_IMPACTO, key="riscos_lista_fi")
+        with col_f3:
+            f_situacao = st.selectbox("📊 Situação", ["(Todos)"] + OPCOES_SITUACAO, key="riscos_lista_fs")
+        with col_f4:
+            f_busca = st.text_input("🔎 Buscar", placeholder="Defeito, responsável...", key="riscos_lista_fb")
+        
+        riscos_lista = carregar_riscos({
+            'processo': f_processo,
+            'impacto': f_impacto,
+            'situacao': f_situacao,
+            'busca': f_busca
+        })
+        
+        # KPIs da lista
+        col_lk1, col_lk2, col_lk3, col_lk4 = st.columns(4)
+        with col_lk1:
+            st.metric("📋 Total Filtrado", len(riscos_lista))
+        with col_lk2:
+            st.metric("🔴 Críticos", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Crítico"]))
+        with col_lk3:
+            st.metric("🟡 Atenção", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Atenção"]))
+        with col_lk4:
+            st.metric("🟢 Controlados", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Controlado"]))
+        
+        st.markdown("---")
+        
+        if riscos_lista:
+            # Tabela
+            dados_lista = []
+            for r in riscos_lista:
+                dados_lista.append({
+                    "#": r.id,
+                    "Data": r.data.strftime('%d/%m/%Y') if r.data else "-",
+                    "Defeito": r.defeito,
+                    "Processo": r.processo,
+                    "Impacto": r.impacto,
+                    "Frequência": r.frequencia,
+                    "Cliente": r.cliente,
+                    "Responsável": r.responsavel,
+                    "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-",
+                    "Situação": r.situacao,
+                    "%": r.percentual,
+                })
+            
+            df_lista = pd.DataFrame(dados_lista)
+            st.dataframe(df_lista, use_container_width=True, hide_index=True, height=400)
+            
+            st.markdown("---")
+            
+            # Ações
+            st.markdown("### 🔧 Ações")
+            
+            opcoes_ids = [f"#{r.id} - {r.defeito} ({r.processo})" for r in riscos_lista]
+            
+            col_sel1, col_sel2, col_sel3 = st.columns([3, 1, 1])
+            
+            with col_sel1:
+                selecao = st.selectbox(
+                    "Selecione um risco:",
+                    options=opcoes_ids,
+                    key="riscos_lista_selecao"
+                )
+            
+            if selecao:
+                id_sel = int(selecao.split(" - ")[0].replace("#", ""))
+                risco_sel = next((r for r in riscos_lista if r.id == id_sel), None)
+                
+                if risco_sel:
+                    with col_sel2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("✏️ Editar", use_container_width=True, key="riscos_lista_btn_editar"):
+                            st.session_state.riscos_editando = risco_sel
+                            st.session_state.riscos_aba = 'NOVO'
+                            st.rerun()
+                    
+                    with col_sel3:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🗑️ Excluir", use_container_width=True, key="riscos_lista_btn_excluir"):
+                            st.session_state.riscos_excluindo = id_sel
+                            st.rerun()
+            
+            # Confirmação de exclusão
+            if st.session_state.riscos_excluindo:
+                id_excluir = st.session_state.riscos_excluindo
+                risco_exc = next((r for r in riscos_lista if r.id == id_excluir), None)
+                
+                if risco_exc:
+                    st.markdown("---")
+                    st.error(f"⚠️ **ATENÇÃO!** Excluir risco #{id_excluir}")
+                    st.write(f"**Defeito:** {risco_exc.defeito} | **Processo:** {risco_exc.processo}")
+                    st.write(f"**Impacto:** {risco_exc.impacto} | **Situação:** {risco_exc.situacao}")
+                    
+                    confirmar = st.checkbox(
+                        "✅ Confirmo a exclusão permanente",
+                        key="riscos_confirmar_exclusao"
+                    )
+                    
+                    if confirmar:
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary",
+                                         use_container_width=True, key="riscos_btn_conf_excluir"):
+                                sucesso, msg = excluir_risco(id_excluir)
+                                if sucesso:
+                                    st.success(msg)
+                                    st.balloons()
+                                    st.session_state.riscos_excluindo = None
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        
+                        with col_conf2:
+                            if st.button("❌ Cancelar", use_container_width=True,
+                                         key="riscos_btn_cancel_excluir"):
+                                st.session_state.riscos_excluindo = None
+                                st.rerun()
+        else:
+            st.info("📭 Nenhum risco encontrado com os filtros selecionados.")
+    
+    # ==================================================================================
+    # ABA: NOVO/EDITAR
+    # ==================================================================================
+    elif st.session_state.riscos_aba == 'NOVO':
+        editando = st.session_state.riscos_editando
+        
+        if editando:
+            st.markdown(f"### ✏️ Editando Risco #{editando.id}")
+        else:
+            st.markdown("### ➕ Novo Risco da Qualidade")
+        
+        # Formulário
+        with st.form("form_risco", clear_on_submit=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📋 Dados do Risco")
+                
+                if editando:
+                    st.text_input("ID", value=str(editando.id), disabled=True, key="risco_id_display")
+                    proximo_id = editando.id
+                else:
+                    proximo_id = obter_proximo_id_risco()
+                    st.text_input("ID (automático)", value=str(proximo_id), disabled=True, key="risco_id_novo")
+                
+                data_form = st.date_input(
+                    "📅 Data do Registro*",
+                    value=editando.data if editando and editando.data else datetime.now().date(),
+                    key="risco_data"
+                )
+                
+                defeito_form = st.text_input(
+                    "⚠️ Defeito*",
+                    value=editando.defeito if editando else "",
+                    placeholder="Ex: Bolha, Pedra, Marca...",
+                    key="risco_defeito"
+                )
+                
+                processo_form = st.selectbox(
+                    "🏭 Processo*",
+                    options=OPCOES_PROCESSO,
+                    index=OPCOES_PROCESSO.index(editando.processo) if editando and editando.processo in OPCOES_PROCESSO else 0,
+                    key="risco_processo"
+                )
+                
+                st.markdown("#### ⚠️ Classificação de Risco")
+                
+                impacto_form = st.selectbox(
+                    "Impacto*",
+                    options=OPCOES_IMPACTO,
+                    index=OPCOES_IMPACTO.index(editando.impacto) if editando and editando.impacto in OPCOES_IMPACTO else 1,
+                    key="risco_impacto"
+                )
+                
+                frequencia_form = st.selectbox(
+                    "Frequência*",
+                    options=OPCOES_FREQUENCIA,
+                    index=OPCOES_FREQUENCIA.index(editando.frequencia) if editando and editando.frequencia in OPCOES_FREQUENCIA else 1,
+                    key="risco_frequencia"
+                )
+                
+                cliente_form = st.selectbox(
+                    "Afeta o Cliente?*",
+                    options=OPCOES_CLIENTE,
+                    index=OPCOES_CLIENTE.index(editando.cliente) if editando and editando.cliente in OPCOES_CLIENTE else 1,
+                    key="risco_cliente"
+                )
+            
+            with col2:
+                st.markdown("#### 🔍 Análise e Ações")
+                
+                causa_raiz_form = st.text_area(
+                    "Causa Raiz (em análise)",
+                    value=editando.causa_raiz if editando else "",
+                    placeholder="Descreva a causa raiz identificada...",
+                    height=100,
+                    key="risco_causa_raiz"
+                )
+                
+                acao_form = st.text_area(
+                    "Ação / Contenção Atual",
+                    value=editando.acao_contencao if editando else "",
+                    placeholder="Ações em andamento...",
+                    height=100,
+                    key="risco_acao"
+                )
+                
+                responsavel_form = st.text_input(
+                    "Responsável*",
+                    value=editando.responsavel if editando else "",
+                    placeholder="Ex: Produção (Resp. Carlos)",
+                    key="risco_responsavel"
+                )
+                
+                prazo_form = st.date_input(
+                    "📅 Prazo",
+                    value=editando.prazo if editando and editando.prazo else datetime.now().date() + timedelta(days=30),
+                    key="risco_prazo"
+                )
+                
+                st.markdown("#### 📊 Situação")
+                
+                situacao_form = st.selectbox(
+                    "Situação*",
+                    options=OPCOES_SITUACAO,
+                    index=OPCOES_SITUACAO.index(editando.situacao) if editando and editando.situacao in OPCOES_SITUACAO else 0,
+                    key="risco_situacao"
+                )
+                
+                percentual_form = st.slider(
+                    "Percentual de Conclusão (%)",
+                    min_value=0,
+                    max_value=100,
+                    value=editando.percentual if editando else 0,
+                    step=5,
+                    key="risco_percentual"
+                )
+            
+            st.markdown("---")
+            
+            # Preview da classificação
+            classificacao_preview = classificar_risco(impacto_form, frequencia_form, cliente_form)
+            if classificacao_preview == "Crítico":
+                st.error(f"🔴 **Classificação:** {classificacao_preview} - Ação imediata necessária!")
+            elif classificacao_preview == "Atenção":
+                st.warning(f"🟡 **Classificação:** {classificacao_preview} - Monitorar de perto")
+            else:
+                st.success(f"🟢 **Classificação:** {classificacao_preview} - Sob controle")
+            
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+            with col_btn2:
+                if editando:
+                    submitted = st.form_submit_button(
+                        "💾 ATUALIZAR RISCO",
+                        type="primary",
+                        use_container_width=True
+                    )
+                else:
+                    submitted = st.form_submit_button(
+                        "💾 SALVAR NOVO RISCO",
+                        type="primary",
+                        use_container_width=True
+                    )
+            
+            if submitted:
+                if not defeito_form or not defeito_form.strip():
+                    st.error("❌ Informe o defeito!")
+                elif not responsavel_form or not responsavel_form.strip():
+                    st.error("❌ Informe o responsável!")
+                else:
+                    novo_registro = RegistroRisco(
+                        id=proximo_id,
+                        data=datetime.combine(data_form, datetime.min.time()),
+                        defeito=defeito_form.strip(),
+                        processo=processo_form,
+                        impacto=impacto_form,
+                        frequencia=frequencia_form,
+                        cliente=cliente_form,
+                        causa_raiz=causa_raiz_form.strip() if causa_raiz_form else "",
+                        acao_contencao=acao_form.strip() if acao_form else "",
+                        responsavel=responsavel_form.strip(),
+                        prazo=datetime.combine(prazo_form, datetime.min.time()) if prazo_form else None,
+                        situacao=situacao_form,
+                        percentual=percentual_form
+                    )
+                    
+                    if editando:
+                        sucesso, msg = salvar_risco(novo_registro, eh_alteracao=True)
+                    else:
+                        sucesso, msg = salvar_risco(novo_registro, eh_alteracao=False)
+                    
+                    if sucesso:
+                        st.success(msg)
+                        st.balloons()
+                        st.session_state.riscos_editando = None
+                        st.session_state.riscos_aba = 'DASHBOARD'
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        
+        if editando:
+            if st.button("❌ Cancelar Edição", use_container_width=True, key="risco_cancelar_edicao"):
+                st.session_state.riscos_editando = None
+                st.session_state.riscos_aba = 'DASHBOARD'
+                st.rerun()
+    
+    # ======================
+    # FOOTER
+    # ======================
+    st.markdown(f"""
+    <div style="text-align:right;padding:16px 0 8px;
+        font-family:'JetBrains Mono',monospace;font-size:10px;
+        color:{THEME['text_muted']};letter-spacing:.1em;">
+        ⚠️ PAINEL DE RISCOS DA QUALIDADE · {get_horario_brasilia()}
+    </div>
+    """, unsafe_allow_html=True)
+    
 # ==================================================================================================
 # RENDERIZAR FAIXA DE ROLAGEM
 # ==================================================================================================
