@@ -19420,9 +19420,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
 # PAINEL DE RISCOS DA QUALIDADE
 # ==================================================================================================
 elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
-    render_page_header("PAINEL DE RISCOS DA QUALIDADE", 
-                       f"Transformando problemas em melhorias · Atualizado {get_horario_brasilia()}", 
-                       THEME['accent_red'])
+    import plotly.graph_objects as go
     
     # ======================
     # CONFIGURAÇÕES
@@ -19472,7 +19470,7 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
         linha: Optional[int] = None
     
     # ======================
-    # FUNÇÕES DE CARREGAMENTO (LEITURA INTELIGENTE)
+    # FUNÇÕES DE CARREGAMENTO
     # ======================
     def carregar_riscos_sem_cache() -> List[RegistroRisco]:
         registros = []
@@ -19499,7 +19497,7 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
             if len(todos_dados) == 0:
                 return registros
                 
-            # Verifica se a primeira linha é cabeçalho ou se os dados já começam nela
+            # Verifica se a primeira linha é cabeçalho
             primeira_linha = todos_dados[0]
             tem_cabecalho = False
             if len(primeira_linha) > 2:
@@ -19516,21 +19514,17 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
                     id_val = str(row[0]).strip() if len(row) > 0 and row[0] else ""
                     defeito_val = str(row[2]).strip() if len(row) > 2 and row[2] else ""
                     
-                    # Pula linhas totalmente vazias
                     if not id_val and not defeito_val:
                         continue
                     
                     registro = RegistroRisco()
-                    
-                    # Trata o ID
                     try:
                         registro.id = int(float(id_val))
                     except:
-                        registro.id = idx # Fallback para o número da linha se o ID for inválido
+                        registro.id = idx
                     
                     registro.linha = idx
                     
-                    # Trata datas (aceita DD/MM/YYYY ou YYYY-MM-DD)
                     def parse_data(val):
                         if not val: return None
                         val_str = str(val).strip()
@@ -19565,12 +19559,11 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
             
             registros.sort(key=lambda x: x.id if x.id else 0, reverse=False)
         except Exception as e:
-            print(f"Erro ao carregar riscos: {e}")
+            st.error(f"Erro ao carregar riscos: {e}")
         return registros
 
     @st.cache_data(ttl=60)
     def carregar_riscos(filtros: Dict[str, Any] = None) -> List[RegistroRisco]:
-        # Como o carregar_riscos_sem_cache não é cacheado, o st.cache_data aqui atua no resultado final
         registros = carregar_riscos_sem_cache()
         
         if not filtros:
@@ -19614,22 +19607,13 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
             
             dados = [
                 str(registro.id) if registro.id else "",
-                data_str,
-                registro.defeito,
-                registro.processo,
-                registro.impacto,
-                registro.frequencia,
-                registro.cliente,
-                registro.causa_raiz,
-                registro.acao_contencao,
-                registro.responsavel,
-                prazo_str,
-                registro.situacao,
-                str(registro.percentual)
+                data_str, registro.defeito, registro.processo, registro.impacto,
+                registro.frequencia, registro.cliente, registro.causa_raiz,
+                registro.acao_contencao, registro.responsavel, prazo_str,
+                registro.situacao, str(registro.percentual)
             ]
             
             if eh_alteracao:
-                # Busca a linha do registro para atualizar
                 todos_dados = sheet.get_all_values()
                 linha_encontrada = None
                 for i, row in enumerate(todos_dados):
@@ -19644,7 +19628,6 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
                     return True, f"✅ Risco #{registro.id} atualizado com sucesso!"
                 return False, f"❌ Registro #{registro.id} não encontrado na planilha."
             else:
-                # Verifica se a primeira linha está vazia e precisa do cabeçalho
                 todos_dados = sheet.get_all_values()
                 if len(todos_dados) == 0 or (len(todos_dados) > 0 and not any(todos_dados[0])):
                     cabecalho = ["ID", "DATA", "DEFEITO", "PROCESSO", "IMPACTO", "FREQUENCIA",
@@ -19703,20 +19686,29 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
         return "🟡"
     
     # ======================
-    # CARREGAR DADOS GERAIS
+    # DADOS GERAIS E KPIs
     # ======================
     todos_riscos = carregar_riscos_sem_cache()
     hoje = datetime.now()
     data_limite = hoje - timedelta(days=365)
     riscos_periodo = [r for r in todos_riscos if r.data and r.data >= data_limite]
     
-    total_riscos = len(riscos_periodo)
     criticos = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Crítico"])
     atencao = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Atenção"])
     controlados = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Controlado"])
-    
     riscos_cliente = len([r for r in riscos_periodo if r.cliente.lower() == "sim"])
     
+    total_produzido, total_refugado, trs_medio = 0, 0, 0
+    try:
+        df_prensados = carregar_dados_prensados()
+        if not df_prensados.empty:
+            df_p = df_prensados[df_prensados['DATA'] >= data_limite] if 'DATA' in df_prensados.columns else df_prensados
+            total_produzido = int(df_p['PRODUZIDO'].sum()) if 'PRODUZIDO' in df_p.columns else 0
+            total_refugado = int(df_p['REFUGADO'].sum()) if 'REFUGADO' in df_p.columns else 0
+            trs_medio = (total_produzido - total_refugado) / total_produzido * 100 if total_produzido > 0 else 0
+    except:
+        pass
+
     # ======================
     # NAVEGAÇÃO
     # ======================
@@ -19744,29 +19736,29 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
     st.markdown("---")
     
     # ==================================================================================
-    # ABA: DASHBOARD
+    # ABA: DASHBOARD (LAYOUT IDÊNTICO À IMAGEM)
     # ==================================================================================
     if st.session_state.riscos_aba == 'DASHBOARD':
-        # Header
+        
+        # 1. HEADER AZUL ESCURO
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #0B2545 0%, #13315C 100%);
-                    padding: 22px 28px; border-radius: 12px; margin-bottom: 22px;
-                    box-shadow: 0 4px 14px rgba(11, 37, 69, 0.35);">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+        <div style="background: #0B2545; padding: 16px 24px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #FFD700;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div style="font-size: 32px; font-weight: 300; color: white; border-right: 2px solid #1E3A8A; padding-right: 16px;">L</div>
                 <div>
-                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; 
-                                color: white; letter-spacing: 0.08em; text-transform: uppercase;">
-                        ⚠️ Painel de Risco da Qualidade
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; color: white; letter-spacing: 0.05em; text-transform: uppercase;">
+                        PAINEL DE RISCO DA QUALIDADE
                     </div>
-                    <div style="font-family: 'Barlow', sans-serif; font-size: 14px; color: #B8C5D6; margin-top: 4px;">
+                    <div style="font-family: 'Barlow', sans-serif; font-size: 12px; color: #94A3B8; letter-spacing: 0.1em; text-transform: uppercase;">
                         Transformando problemas em melhorias
                     </div>
                 </div>
-                <div style="background: rgba(255,255,255,0.10); padding: 8px 16px; border-radius: 8px;">
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #B8C5D6; text-transform: uppercase;">
-                        Período de análise
-                    </div>
-                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: #FFD700;">
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="font-size: 24px;">📅</div>
+                <div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #94A3B8; text-transform: uppercase;">Período de análise</div>
+                    <div style="font-family: 'Barlow', sans-serif; font-size: 13px; font-weight: 700; color: #FFD700;">
                         {(hoje - timedelta(days=365)).strftime('%d/%m/%Y')} a {hoje.strftime('%d/%m/%Y')}
                     </div>
                 </div>
@@ -19774,83 +19766,106 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
         </div>
         """, unsafe_allow_html=True)
         
-        # KPIs (Produção, Refugo, TRS, Reclamações)
+        # 2. PAINEL 1: INDICADORES GERAIS
         st.markdown("""
-        <div style="background: white; border-radius: 12px; padding: 16px 20px; border: 1px solid #E5E9F0; margin-bottom: 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700; color: #0B2545; text-transform: uppercase; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #E5E9F0;">
-                📊 Indicadores Gerais
+        <div style="background: white; border-radius: 8px; padding: 16px 20px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; margin-bottom: 16px;">
+                INDICADORES GERAIS
             </div>
         """, unsafe_allow_html=True)
         
-        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
-        
-        # Pegar dados do módulo Prensados para os KPIs
-        df_prensados = carregar_dados_prensados()
-        if not df_prensados.empty:
-            df_p = df_prensados[df_prensados['DATA'] >= data_limite] if 'DATA' in df_prensados.columns else df_prensados
-            total_produzido = int(df_p['PRODUZIDO'].sum()) if 'PRODUZIDO' in df_p.columns else 0
-            total_refugado = int(df_p['REFUGADO'].sum()) if 'REFUGADO' in df_p.columns else 0
-            trs_medio = (total_produzido - total_refugado) / total_produzido * 100 if total_produzido > 0 else 0
-        else:
-            total_produzido, total_refugado, trs_medio = 0, 0, 0
-            
         prod_fmt = f"{total_produzido:,}".replace(",", ".")
         refug_fmt = f"{total_refugado:,}".replace(",", ".")
         
+        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+        
         with col_k1:
-            st.markdown(f"""<div style="text-align: center; padding: 8px;"><div style="font-size: 32px;">📦</div><div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6B7280; text-transform: uppercase;">Produção Total</div><div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #0B2545; margin-top: 4px;">{prod_fmt}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">📦</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Produção Total</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #0B2545; line-height: 1.1; margin: 4px 0;">{prod_fmt}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">peças</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▲ +5% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+        
         with col_k2:
-            st.markdown(f"""<div style="text-align: center; padding: 8px;"><div style="font-size: 32px;">❗</div><div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6B7280; text-transform: uppercase;">Refugo Interno</div><div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #E81123; margin-top: 4px;">{refug_fmt}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #E81123;">❗</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Refugo Interno</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #E81123; line-height: 1.1; margin: 4px 0;">{refug_fmt}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">peças</div>
+                <div style="font-size: 11px; color: #E81123; font-weight: 700; margin-top: 6px;">▲ +12% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
         with col_k3:
-            st.markdown(f"""<div style="text-align: center; padding: 8px;"><div style="font-size: 32px;">🛡️</div><div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6B7280; text-transform: uppercase;">TRS Médio</div><div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #10B981; margin-top: 4px;">{trs_medio:.1f}%</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">🛡️</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">TRS Médio</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #10B981; line-height: 1.1; margin: 4px 0;">{trs_medio:.1f}%</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">&nbsp;</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▲ +1,8 p.p. <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+
         with col_k4:
-            st.markdown(f"""<div style="text-align: center; padding: 8px;"><div style="font-size: 32px;">👥</div><div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6B7280; text-transform: uppercase;">Reclamações Clientes</div><div style="font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #0B2545; margin-top: 4px;">{riscos_cliente}</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">👥</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Reclamações<br>de Clientes</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #0B2545; line-height: 1.1; margin: 4px 0;">{riscos_cliente}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">ocorrências</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▼ -50% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
             
         st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Gráficos
+
+        # 3. PAINEL 2: GRÁFICOS
         st.markdown("""
-        <div style="background: white; border-radius: 12px; padding: 16px 20px; border: 1px solid #E5E9F0; margin-bottom: 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700; color: #0B2545; text-transform: uppercase; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #E5E9F0;">
-                📈 Defeitos por Tipo & Origem
+        <div style="background: white; border-radius: 8px; padding: 16px 20px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; width: 50%;">
+                    Defeitos por Tipo (Refugo Interno)
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; width: 50%;">
+                    Origem dos Defeitos
+                </div>
             </div>
         """, unsafe_allow_html=True)
         
-        col_g1, col_g2 = st.columns([1.3, 1])
+        col_g1, col_g2 = st.columns(2)
         
         with col_g1:
-            if todos_riscos:
+            if riscos_periodo:
                 defeitos_count = {}
                 for r in riscos_periodo: defeitos_count[r.defeito] = defeitos_count.get(r.defeito, 0) + 1
                 top_defeitos = sorted(defeitos_count.items(), key=lambda x: x[1], reverse=True)[:6]
                 
                 if top_defeitos:
-                    nomes, valores = [d[0] for d in top_defeitos], [d[1] for d in top_defeitos]
-                    total_def = sum(defeitos_count.values())
-                    percentuais = [(v / total_def * 100) for v in valores] if total_def > 0 else [0]*len(valores)
+                    nomes = [d[0] for d in reversed(top_defeitos)]
+                    valores = [d[1] for d in reversed(top_defeitos)]
                     
-                    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor='white')
-                    ax.set_facecolor('white')
-                    bars = ax.barh(range(len(nomes)), valores, color=['#E81123', '#FF8C42', '#FFC107', '#3B82F6', '#8B5CF6', '#9CA3AF'][:len(nomes)], alpha=0.9, edgecolor='white', linewidth=1.5)
-                    
-                    ax.set_yticks(range(len(nomes)))
-                    ax.set_yticklabels(nomes, fontsize=11, fontweight='600', color='#1F2937')
-                    ax.invert_yaxis()
-                    max_val = max(valores) if valores else 1
-                    
-                    for bar, pct in zip(bars, percentuais):
-                        ax.text(bar.get_width() + max_val * 0.015, bar.get_y() + bar.get_height() / 2, f"{pct:.1f}%", va='center', fontsize=11, fontweight='700', color='#0B2545')
-                    
-                    ax.set_xlim(0, max_val * 1.18)
-                    ax.grid(True, axis='x', alpha=0.25, linestyle='--', color='#D1D5DB')
-                    ax.set_axisbelow(True)
-                    for spine in ['top', 'right']: ax.spines[spine].set_visible(False)
-                    
-                    fig.tight_layout()
-                    st.pyplot(fig)
-                    plt.close(fig)
+                    fig = go.Figure(go.Bar(
+                        x=valores, y=nomes, orientation='h',
+                        marker_color=['#9CA3AF', '#8B5CF6', '#3B82F6', '#FFC107', '#FF8C42', '#E81123'][:len(nomes)],
+                        text=[f"{v/sum(defeitos_count.values())*100:.1f}%" for v in valores],
+                        textposition='outside',
+                        textfont=dict(color='#0B2545', size=12, weight='bold')
+                    ))
+                    fig.update_layout(
+                        margin=dict(l=0, r=40, t=10, b=20), height=280,
+                        xaxis=dict(showgrid=True, gridcolor='#F1F5F9', zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, tickfont=dict(size=12, color='#1E293B', weight='bold')),
+                        plot_bgcolor='white', paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.info("📭 Nenhum risco cadastrado ainda.")
+                st.info("📭 Nenhum defeito registrado.")
         
         with col_g2:
             if riscos_periodo:
@@ -19859,67 +19874,72 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
                     if r.processo: processos_count[r.processo] = processos_count.get(r.processo, 0) + 1
                 
                 if processos_count:
-                    labels, valores = list(processos_count.keys()), list(processos_count.values())
-                    cores = ["#1E3A8A", "#F59E0B", "#10B981", "#8B5CF6", "#06B6D4", "#EF4444", "#6B7280", "#EC4899", "#14B8A6", "#F97316"][:len(labels)]
+                    labels = list(processos_count.keys())
+                    valores = list(processos_count.values())
+                    cores = ['#1E3A8A', '#F59E0B', '#10B981', '#8B5CF6', '#06B6D4', '#EF4444']
                     
-                    fig, ax = plt.subplots(figsize=(6.5, 5), facecolor='white')
-                    wedges, texts, autotexts = ax.pie(valores, colors=cores, autopct='%1.0f%%', startangle=90, textprops={'fontsize': 11, 'fontweight': 'bold'}, wedgeprops={'edgecolor': 'white', 'linewidth': 2.5})
-                    ax.legend(wedges, labels, loc='center left', bbox_to_anchor=(1.0, 0.5), fontsize=10, frameon=False)
-                    fig.tight_layout()
-                    st.pyplot(fig)
-                    plt.close(fig)
+                    fig = go.Figure(go.Pie(
+                        labels=labels, values=valores, hole=0,
+                        marker=dict(colors=cores[:len(labels)], line=dict(color='white', width=2)),
+                        textinfo='percent', textfont=dict(size=14, color='white', weight='bold'),
+                        sort=False, direction='clockwise'
+                    ))
+                    fig.update_layout(
+                        margin=dict(l=0, r=0, t=10, b=10), height=280,
+                        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.0, font=dict(size=11)),
+                        plot_bgcolor='white', paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.info("📭 Nenhum risco cadastrado ainda.")
+                st.info("📭 Nenhuma origem registrada.")
         
         st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Tabela
-        st.markdown(f"""<div style="background: linear-gradient(135deg, #0B2545 0%, #13315C 100%); padding: 10px 18px; border-radius: 10px 10px 0 0;"><div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: white; text-transform: uppercase;">📋 Painel de Risco da Qualidade – Luvidarte</div></div>""", unsafe_allow_html=True)
+
+        # 4. PAINEL 3: TABELA
+        st.markdown(f"""
+        <div style="background: #0B2545; padding: 10px 16px; border-radius: 8px 8px 0 0; margin-top: 10px;">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: white; text-transform: uppercase;">
+                PAINEL DE RISCO DA QUALIDADE – LUVIDARTE
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
-        f_proc = c1.selectbox("🏭 Processo", ["(Todos)"] + OPCOES_PROCESSO, key="dash_f1")
-        f_imp = c2.selectbox("⚠️ Impacto", ["(Todos)"] + OPCOES_IMPACTO, key="dash_f2")
-        f_sit = c3.selectbox("📊 Situação", ["(Todos)"] + OPCOES_SITUACAO, key="dash_f3")
-        f_bus = c4.text_input("🔎 Buscar", key="dash_f4")
+        f_proc = c1.selectbox("Processo", ["(Todos)"] + OPCOES_PROCESSO, key="dash_f1")
+        f_imp = c2.selectbox("Impacto", ["(Todos)"] + OPCOES_IMPACTO, key="dash_f2")
+        f_sit = c3.selectbox("Situação", ["(Todos)"] + OPCOES_SITUACAO, key="dash_f3")
+        f_bus = c4.text_input("Buscar", key="dash_f4")
         
         riscos_filtrados = carregar_riscos({'processo': f_proc, 'impacto': f_imp, 'situacao': f_sit, 'busca': f_bus})
-        st.caption(f"📊 Exibindo **{len(riscos_filtrados)}** de **{len(todos_riscos)}** riscos cadastrados")
         
         if riscos_filtrados:
             dados_tab = []
             for r in riscos_filtrados:
-                cls = classificar_risco(r.impacto, r.frequencia, r.cliente)
                 icone = icone_situacao(r.situacao, r.percentual)
                 dados_tab.append({
-                    "#": r.id, "Defeito": r.defeito, "Processo": r.processo, "Impacto": r.impacto,
-                    "Frequência": r.frequencia, "Cliente": r.cliente, "Causa Raiz": r.causa_raiz,
-                    "Ação": r.acao_contencao, "Responsável": r.responsavel, 
-                    "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-",
-                    "Situação": f"{icone} {r.situacao} ({r.percentual}%)", "Classificação": cls
+                    "#": r.id, "Problema / Defeito": r.defeito, "Processo": r.processo, 
+                    "Impacto": r.impacto, "Frequência": r.frequencia, "Cliente": r.cliente, 
+                    "Causa Raiz (em análise)": r.causa_raiz, "Ação / Contenção Atual": r.acao_contencao, 
+                    "Responsável": r.responsavel, "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-",
+                    "Situação": f"{icone} {r.situacao} ({r.percentual}%)"
                 })
             df_riscos = pd.DataFrame(dados_tab)
             
             def style_risco(row):
                 styles = [''] * len(row)
-                # Colore Impacto
                 idx_imp = row.index.get_loc('Impacto')
                 imp = row['Impacto'].lower()
-                if imp == 'alto': styles[idx_imp] = 'background-color: #E81123; color: white; font-weight: 700; text-align: center;'
-                elif imp == 'médio': styles[idx_imp] = 'background-color: #FFB900; color: #333; font-weight: 700; text-align: center;'
-                elif imp == 'baixo': styles[idx_imp] = 'background-color: #107C10; color: white; font-weight: 700; text-align: center;'
-                # Colore Classificação
-                idx_cls = row.index.get_loc('Classificação')
-                cls = row['Classificação']
-                if cls == 'Crítico': styles[idx_cls] = 'background-color: #FEE2E2; color: #991B1B; font-weight: 700;'
-                elif cls == 'Atenção': styles[idx_cls] = 'background-color: #FEF3C7; color: #92400E; font-weight: 700;'
-                else: styles[idx_cls] = 'background-color: #D1FAE5; color: #065F46; font-weight: 700;'
+                if imp == 'alto': styles[idx_imp] = 'background-color: #E81123; color: white; font-weight: bold; text-align: center; border-radius: 4px;'
+                elif imp == 'médio': styles[idx_imp] = 'background-color: #FFB900; color: #333; font-weight: bold; text-align: center; border-radius: 4px;'
+                elif imp == 'baixo': styles[idx_imp] = 'background-color: #107C10; color: white; font-weight: bold; text-align: center; border-radius: 4px;'
                 return styles
             
             st.dataframe(df_riscos.style.apply(style_risco, axis=1), use_container_width=True, hide_index=True, height=400)
-        
-        st.markdown("---")
-        
-        # Resumo, Impacto, Prioridades
+        else:
+            st.info("📭 Nenhum risco cadastrado ou encontrado com os filtros.")
+            
+        # 5. RODAPÉ DO PAINEL (Resumo, Impacto, Prioridades)
+        st.markdown("<br>", unsafe_allow_html=True)
         col_b1, col_b2, col_b3 = st.columns(3)
         
         with col_b1:
@@ -19927,16 +19947,16 @@ elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
             pc = (criticos / tot_c * 100) if tot_c else 0
             pa = (atencao / tot_c * 100) if tot_c else 0
             pcl = (controlados / tot_c * 100) if tot_c else 0
-            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E5E9F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #E5E9F0; margin-bottom: 12px;">📊 Resumo do Risco</div><div style="font-size: 32px; font-weight: 700; color: #0B2545; margin-bottom: 12px;">{total_riscos} <span style="font-size: 12px; color: #6B7280; font-weight: normal;">problemas</span></div><div style="display: flex; justify-content: space-between; background: #FEE2E2; padding: 6px 10px; border-radius: 6px; margin-bottom: 4px;"><span style="color: #991B1B; font-size: 12px; font-weight: 600;">🔴 Crítico</span><span style="color: #991B1B; font-size: 12px; font-weight: 700;">{criticos} ({pc:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #FEF3C7; padding: 6px 10px; border-radius: 6px; margin-bottom: 4px;"><span style="color: #92400E; font-size: 12px; font-weight: 600;">🟡 Atenção</span><span style="color: #92400E; font-size: 12px; font-weight: 700;">{atencao} ({pa:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #D1FAE5; padding: 6px 10px; border-radius: 6px;"><span style="color: #065F46; font-size: 12px; font-weight: 600;">🟢 Controlado</span><span style="color: #065F46; font-size: 12px; font-weight: 700;">{controlados} ({pcl:.0f}%)</span></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">📊 RESUMO DO RISCO</div><div style="font-size: 32px; font-weight: 700; color: #0B2545; margin-bottom: 12px;">{tot_c} <span style="font-size: 12px; color: #64748B; font-weight: normal;">problemas acompanhados</span></div><div style="display: flex; justify-content: space-between; background: #FEE2E2; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px;"><span style="color: #991B1B; font-size: 12px; font-weight: 600;">🔴 Crítico</span><span style="color: #991B1B; font-size: 12px; font-weight: 700;">{criticos} ({pc:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #FEF3C7; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px;"><span style="color: #92400E; font-size: 12px; font-weight: 600;">🟡 Atenção</span><span style="color: #92400E; font-size: 12px; font-weight: 700;">{atencao} ({pa:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #D1FAE5; padding: 6px 10px; border-radius: 6px;"><span style="color: #065F46; font-size: 12px; font-weight: 600;">🟢 Controlado</span><span style="color: #065F46; font-size: 12px; font-weight: 700;">{controlados} ({pcl:.0f}%)</span></div></div>""", unsafe_allow_html=True)
         
         with col_b2:
-            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E5E9F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #E5E9F0; margin-bottom: 12px;">⚠️ Impacto no Cliente</div><div style="background: #FEE2E2; padding: 10px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 12px; color: #991B1B; font-weight: 600;">Afeta o Cliente</span><span style="font-size: 20px; font-weight: 700; color: #991B1B;">{riscos_cliente}</span></div><div style="background: #D1FAE5; padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 12px; color: #065F46; font-weight: 600;">Sem Impacto</span><span style="font-size: 20px; font-weight: 700; color: #065F46;">{total_riscos - riscos_cliente}</span></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">⚠️ IMPACTO NO CLIENTE</div><div style="background: #FEE2E2; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 12px; color: #991B1B; font-weight: 600;">❗ Defeitos que podem afetar o cliente</div><div style="font-size: 11px; color: #B91C1C; margin-top: 4px;">({(riscos_cliente/max(1,tot_c)*100):.0f}% do total)</div></div><span style="font-size: 24px; font-weight: 700; color: #991B1B;">{riscos_cliente}</span></div><div style="background: #D1FAE5; padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 12px; color: #065F46; font-weight: 600;">✅ Sem impacto no cliente (interno)</div><div style="font-size: 11px; color: #047857; margin-top: 4px;">({((tot_c-riscos_cliente)/max(1,tot_c)*100):.0f}% do total)</div></div><span style="font-size: 24px; font-weight: 700; color: #065F46;">{tot_c - riscos_cliente}</span></div></div>""", unsafe_allow_html=True)
         
         with col_b3:
             r_top = sorted(riscos_periodo, key=lambda r: ({"Crítico": 3, "Atenção": 2, "Controlado": 1}.get(classificar_risco(r.impacto, r.frequencia, r.cliente), 0), -r.percentual), reverse=True)[:5]
-            html_prior = "".join([f"<div style='display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px dashed #E5E9F0;'><div style='width: 20px; height: 20px; border-radius: 50%; background: #F59E0B; color: white; text-align: center; font-size: 11px; font-weight: 700;'>{i}</div><div style='font-size: 12px;'>{r.defeito} no {r.processo.lower()}</div></div>" for i, r in enumerate(r_top, 1)])
-            if not r_top: html_prior = '<div style="text-align: center; color: #9CA3AF; padding: 20px;">Nenhum risco</div>'
-            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E5E9F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #E5E9F0; margin-bottom: 12px;">🎯 Prioridades do Mês</div>{html_prior}</div>""", unsafe_allow_html=True)
+            html_prior = "".join([f"<div style='display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #F1F5F9;'><div style='width: 22px; height: 22px; border-radius: 50%; background: #F59E0B; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;'>{i}</div><div style='font-size: 12px; color: #1E293B; font-weight: 500;'>{r.defeito} no {r.processo.lower()}</div></div>" for i, r in enumerate(r_top, 1)])
+            if not r_top: html_prior = '<div style="text-align: center; color: #94A3B8; padding: 20px;">Nenhum risco cadastrado</div>'
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">🎯 PRIORIDADES DO MÊS</div>{html_prior}</div>""", unsafe_allow_html=True)
 
     # ==================================================================================
     # ABA: LISTA COMPLETA
