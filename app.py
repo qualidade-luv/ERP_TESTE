@@ -10975,7 +10975,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
     # FUNÇÕES AUXILIARES DE TEMPO
     # ======================
     def time_to_decimal_local(time_val):
-        """Converte time para horas decimais"""
         from datetime import time as dt_time
         if pd.isna(time_val): return 0.0
         if isinstance(time_val, dt_time): return time_val.hour + time_val.minute / 60 + time_val.second / 3600
@@ -10994,7 +10993,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         except: return 0.0
 
     def is_acertos_245(time_val):
-        """Verifica se o valor de ACERTOS é 02:45:00"""
         if pd.isna(time_val): return False
         time_str = str(time_val).strip()
         if any(fmt in time_str for fmt in ["02:45:00", "2:45:00", "02:45", "2:45"]): return True
@@ -11004,7 +11002,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         return False
 
     def calcular_horas_programadas(row):
-        """Calcula as horas programadas com regra especial para ACERTOS."""
         if 'ACERTOS' in row and is_acertos_245(row['ACERTOS']):
             return 5.0
         return (
@@ -11020,58 +11017,26 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 
     with col_f1:
-        data_ini = st.date_input(
-            "📅 Data Inicial",
-            value=datetime.now().date() - timedelta(days=30),
-            key="premio_data_ini"
-        )
-
+        data_ini = st.date_input("📅 Data Inicial", value=datetime.now().date() - timedelta(days=30), key="premio_data_ini")
     with col_f2:
-        data_fim = st.date_input(
-            "📅 Data Final",
-            value=datetime.now().date(),
-            key="premio_data_fim"
-        )
-
+        data_fim = st.date_input("📅 Data Final", value=datetime.now().date(), key="premio_data_fim")
     with col_f3:
-        turno_premio = st.selectbox(
-            "🕐 Turno",
-            options=["(Todos)", "M", "T", "N"],
-            key="premio_turno"
-        )
-
+        turno_premio = st.selectbox("🕐 Turno", options=["(Todos)", "M", "T", "N"], key="premio_turno")
     with col_f4:
-        prensa_tipo_premio = st.selectbox(
-            "🏭 Tipo de Prensa",
-            options=["(Todos)", "Semi-Automática", "Automática"],
-            key="premio_prensa"
-        )
+        prensa_tipo_premio = st.selectbox("🏭 Tipo de Prensa", options=["(Todos)", "Semi-Automática", "Automática"], key="premio_prensa")
 
     col_r1, col_r2 = st.columns([2, 1])
 
     with col_r1:
-        referencia_premio = st.text_input(
-            "🔍 Referência (parte do código)",
-            placeholder="Digite parte da referência para filtrar...",
-            key="premio_referencia"
-        )
+        referencia_premio = st.text_input("🔍 Referência (parte do código)", placeholder="Digite parte da referência para filtrar...", key="premio_referencia")
 
     with col_r2:
         st.markdown("<br>", unsafe_allow_html=True)
-        gerar_por_mes_premio = st.checkbox(
-            "📆 Separar por mês",
-            value=False,
-            key="premio_separar_mes"
-        )
+        gerar_por_mes_premio = st.checkbox("📆 Separar por mês", value=False, key="premio_separar_mes")
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
     with col_btn2:
-        gerar_relatorio_btn = st.button(
-            "📊 GERAR RELATÓRIO",
-            type="primary",
-            use_container_width=True,
-            key="btn_gerar_premio"
-        )
+        gerar_relatorio_btn = st.button("📊 GERAR RELATÓRIO", type="primary", use_container_width=True, key="btn_gerar_premio")
 
     # ======================
     # FUNÇÃO PARA GERAR RELATÓRIO EM MEMÓRIA (PDF)
@@ -11269,17 +11234,12 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
             df_filtrado = df_base.copy()
 
-            if data_ini:
-                df_filtrado = df_filtrado[df_filtrado["DATA"] >= pd.to_datetime(data_ini)]
-            if data_fim:
-                df_filtrado = df_filtrado[df_filtrado["DATA"] <= pd.to_datetime(data_fim)]
-
+            if data_ini: df_filtrado = df_filtrado[df_filtrado["DATA"] >= pd.to_datetime(data_ini)]
+            if data_fim: df_filtrado = df_filtrado[df_filtrado["DATA"] <= pd.to_datetime(data_fim)]
             if turno_premio != "(Todos)" and "TURNO" in df_filtrado.columns:
                 df_filtrado = df_filtrado[df_filtrado["TURNO"] == turno_premio]
-
             if referencia_premio and "REFERÊNCIA" in df_filtrado.columns:
                 df_filtrado = df_filtrado[df_filtrado["REFERÊNCIA"].fillna('').str.lower().str.contains(referencia_premio.lower())]
-
             if prensa_tipo_premio != "(Todos)" and "BOQUETA" in df_filtrado.columns:
                 if "Semi" in prensa_tipo_premio: df_filtrado = df_filtrado[df_filtrado["BOQUETA"] == 1]
                 elif "Auto" in prensa_tipo_premio: df_filtrado = df_filtrado[df_filtrado["BOQUETA"] == 2]
@@ -11291,51 +11251,48 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_relatorio = df_filtrado.copy()
 
             # =====================================================================
-            # 1. FORÇAR A LEITURA E LIMPEZA DOS DADOS NA MARRA
+            # 1. TRATAMENTO DAS COLUNAS DE VALORES (RESOLVENDO O CONFLITO)
             # =====================================================================
-            colunas_necessarias = ["DATA", "TURNO", "REFERÊNCIA", "TRS 100%", "HORAS TOTAIS", "ACERTOS", "MANUT."]
-            for col in colunas_necessarias:
-                if col not in df_relatorio.columns:
-                    st.error(f"❌ Coluna '{col}' não encontrada na planilha!")
-                    st.stop()
+            # A coluna original "APROVADO FINAL" foi renomeada para "EMBALADO" no carregamento.
+            # Então, para pegar o valor real do APROVADO FINAL, precisamos olhar para EMBALADO.
+            
+            if "EMBALADO" in df_relatorio.columns:
+                df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["EMBALADO"], errors="coerce").fillna(0)
+            elif "APROVADO FINAL" in df_relatorio.columns:
+                df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["APROVADO FINAL"], errors="coerce").fillna(0)
+            else:
+                df_relatorio["APROVADO FINAL"] = 0
+                
+            if "APROVADO" in df_relatorio.columns:
+                df_relatorio["APROVADO"] = pd.to_numeric(df_relatorio["APROVADO"], errors="coerce").fillna(0)
+            else:
+                df_relatorio["APROVADO"] = 0
 
-            # Garantir que as colunas de código existam
+            # =====================================================================
+            # 2. TRATAMENTO DO CÓDIGO
+            # =====================================================================
             col_codigo = 'CÓDIGO' if 'CÓDIGO' in df_relatorio.columns else 'CODIGO'
             if col_codigo not in df_relatorio.columns:
                 df_relatorio['CÓDIGO'] = ""
                 col_codigo = 'CÓDIGO'
 
-            # Garantir que as colunas de aprovado existam e sejam numéricas
-            if "APROVADO" not in df_relatorio.columns:
-                df_relatorio["APROVADO"] = 0
-            if "APROVADO FINAL" not in df_relatorio.columns:
-                df_relatorio["APROVADO FINAL"] = df_relatorio["APROVADO"]
-
-            df_relatorio["APROVADO"] = pd.to_numeric(df_relatorio["APROVADO"], errors="coerce").fillna(0)
-            df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["APROVADO FINAL"], errors="coerce").fillna(0)
-
-            # Função pesada para extrair os valores corretos diretamente da linha
+            # =====================================================================
+            # 3. APLICAÇÃO DA REGRA
+            # =====================================================================
             def calcular_aprovado_linha(row):
-                # 1. Limpa o código
                 cod_raw = str(row[col_codigo]).strip()
-                if '.' in cod_raw:
-                    cod_raw = cod_raw.split('.')[0] # remove o .0
+                if '.' in cod_raw: cod_raw = cod_raw.split('.')[0]
                 cod_limpo = "".join(filter(str.isdigit, cod_raw))
 
-                # 2. Pega os valores
-                val_aprov = float(row["APROVADO"])
-                val_aprov_final = float(row["APROVADO FINAL"])
-
-                # 3. Aplica a regra
                 if cod_limpo.endswith('0'):
-                    return val_aprov_final
+                    return float(row["APROVADO FINAL"])
                 else:
-                    return val_aprov
+                    return float(row["APROVADO"])
 
             df_relatorio["APROVADO_CALC"] = df_relatorio.apply(calcular_aprovado_linha, axis=1)
 
             # =====================================================================
-            # 2. PREPARAÇÃO GERAL PARA O PDF
+            # 4. PREPARAÇÃO GERAL PARA O PDF
             # =====================================================================
             df_relatorio = df_relatorio.rename(columns={"TRS 100%": "META"})
             if not pd.api.types.is_datetime64_any_dtype(df_relatorio["DATA"]):
@@ -11394,7 +11351,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                     df_preview_display["REFERÊNCIA"] = df_preview["REFERÊNCIA"]
                     df_preview_display["CÓDIGO LIDO"] = df_preview[col_codigo].astype(str)
                     
-                    # ADICIONADO PARA AUDITORIA NA TELA:
+                    # AUDITORIA NA TELA
                     df_preview_display["APROVADO ORIG."] = df_preview["APROVADO"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     df_preview_display["APROVADO FINAL ORIG."] = df_preview["APROVADO FINAL"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     
@@ -11407,7 +11364,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
                     st.dataframe(df_preview_display.head(20), use_container_width=True, hide_index=True)
                     
-                    st.info("👆 **Atenção:** Verifique a linha do dia 03/06. Se a coluna 'APROVADO FINAL ORIG.' estiver mostrando 2.056, os dados chegaram invertidos da planilha.")
+                    st.info("👆 **Atenção:** Verifique a linha do dia 03/06. Se a coluna 'APROVADO FINAL ORIG.' estiver mostrando 1.225 e a coluna 'VALOR USADO' também estiver 1.225, a regra funcionou perfeitamente.")
 
                 # ===== DOWNLOAD =====
                 nome_arquivo = f"Premio_Produtividade_Prensados_{datetime.now().strftime('%Y-%m-%d')}.pdf"
