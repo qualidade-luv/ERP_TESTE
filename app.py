@@ -11043,7 +11043,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
     # ======================
     def gerar_pdf_premio(df_dados, titulo_extra=""):
         from io import BytesIO
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A4, portrait
         from reportlab.lib.units import cm
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -11051,7 +11051,17 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+        
+        # LAYOUT RETRATO
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=portrait(A4), 
+            leftMargin=1.5 * cm, 
+            rightMargin=1.5 * cm, 
+            topMargin=1.5 * cm, 
+            bottomMargin=1.5 * cm
+        )
+        
         story = []
         styles = getSampleStyleSheet()
 
@@ -11074,7 +11084,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         if data_ini: info_filtros.append(f"Data inicial: {data_ini.strftime('%d/%m/%Y')}")
         if data_fim: info_filtros.append(f"Data final: {data_fim.strftime('%d/%m/%Y')}")
         info_filtros.append("✅ Apenas registros com TRS > 100%")
-        info_filtros.append("📌 Regra: código final 0 → APROVADO FINAL | final 1 → APROVADO")
+        info_filtros.append("📌 Regra: código final 0 → EMBALADO FINAL | final 1 → APROVADO 1ª ESC.")
 
         if info_filtros:
             story.append(Paragraph("Filtros aplicados: " + " | ".join(info_filtros), style_filter))
@@ -11096,7 +11106,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_filtrado = df_calc[df_calc["TRS_%"] > 100]
             if df_filtrado.empty: return None
 
-            headers = ["DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRABALHADAS", "HORAS\nPROGRAMADAS"]
+            headers = ["DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRAB.", "HORAS\nPROG."]
             dados_tabela = [headers]
 
             for _, row in df_filtrado.iterrows():
@@ -11127,20 +11137,21 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
             dados_tabela.append(["TOTAL", "", "", f"{total_meta:,.0f}", f"{total_aprovado:,.0f}", f"{total_media_excesso:.2f}%", total_horas_trab_str, total_horas_prog_str])
 
-            col_widths = [55, 35, 110, 60, 60, 55, 60, 60]
-            tabela = Table(dados_tabela, hAlign="LEFT", colWidths=col_widths)
+            # Larguras ajustadas para modo Retrato (A4 = 21cm - margens = ~18cm disponíveis)
+            col_widths = [45, 30, 85, 50, 50, 45, 45, 45]
+            tabela = Table(dados_tabela, hAlign="CENTER", colWidths=col_widths)
             estilo = TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("FONTSIZE", (0, 0), (-1, -1), 6.5),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("TOPPADDING", (0, 0), (-1, -1), 3),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
             ])
 
             for i, row in enumerate(df_filtrado.itertuples(), start=1):
@@ -11149,7 +11160,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
             estilo.add("BACKGROUND", (0, -1), (-1, -1), colors.lightgrey)
             estilo.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
-            estilo.add("FONTSIZE", (0, -1), (-1, -1), 8)
+            estilo.add("FONTSIZE", (0, -1), (-1, -1), 7.5)
             tabela.setStyle(estilo)
 
             return tabela, df_filtrado
@@ -11192,12 +11203,12 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 total_horas_prog_str = f"{int(total_horas_prog_geral):02d}:{int((total_horas_prog_geral % 1) * 60):02d}"
 
                 dados_resumo = [
-                    ["DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRABALHADAS", "HORAS\nPROGRAMADAS"],
+                    ["DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRAB.", "HORAS\nPROG."],
                     ["TOTAL GERAL", "", "", f"{total_meta_geral:,.0f}", f"{total_aprovado_geral:,.0f}", f"{total_excesso_medio:.2f}%", total_horas_trab_str, total_horas_prog_str]
                 ]
 
-                col_widths_resumo = [55, 35, 110, 60, 60, 55, 60, 60]
-                tabela_resumo = Table(dados_resumo, hAlign="LEFT", colWidths=col_widths_resumo)
+                col_widths_resumo = [45, 30, 85, 50, 50, 45, 45, 45]
+                tabela_resumo = Table(dados_resumo, hAlign="CENTER", colWidths=col_widths_resumo)
                 tabela_resumo.setStyle(TableStyle([
                     ("BACKGROUND", (0, 0), (-1, 0), colors.blue),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
@@ -11205,7 +11216,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
                     ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
                     ("TOPPADDING", (0, 0), (-1, -1), 4),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
@@ -11251,11 +11262,8 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_relatorio = df_filtrado.copy()
 
             # =====================================================================
-            # 1. TRATAMENTO DAS COLUNAS DE VALORES (RESOLVENDO O CONFLITO)
+            # 1. TRATAMENTO DAS COLUNAS DE VALORES
             # =====================================================================
-            # A coluna original "APROVADO FINAL" foi renomeada para "EMBALADO" no carregamento.
-            # Então, para pegar o valor real do APROVADO FINAL, precisamos olhar para EMBALADO.
-            
             if "EMBALADO" in df_relatorio.columns:
                 df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["EMBALADO"], errors="coerce").fillna(0)
             elif "APROVADO FINAL" in df_relatorio.columns:
@@ -11318,9 +11326,9 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 st.success(f"✅ Relatório gerado com sucesso! {len(df_relatorio)} registros processados.")
 
                 st.caption(
-                    f"📌 Regra aplicada — Códigos final **0**: {qtd_final_0} registro(s) usando `APROVADO FINAL` | "
-                    f"final **1**: {qtd_final_1} registro(s) usando `APROVADO` | "
-                    f"outros finais: {qtd_outros} registro(s) usando `APROVADO` (fallback)"
+                    f"📌 Regra aplicada — Códigos final **0**: {qtd_final_0} registro(s) usando `EMBALADO FINAL` | "
+                    f"final **1**: {qtd_final_1} registro(s) usando `APROVADO 1ª ESC.` | "
+                    f"outros finais: {qtd_outros} registro(s) usando `APROVADO 1ª ESC.` (fallback)"
                 )
 
                 # ===== PREVIEW =====
@@ -11351,9 +11359,9 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                     df_preview_display["REFERÊNCIA"] = df_preview["REFERÊNCIA"]
                     df_preview_display["CÓDIGO LIDO"] = df_preview[col_codigo].astype(str)
                     
-                    # AUDITORIA NA TELA
-                    df_preview_display["APROVADO ORIG."] = df_preview["APROVADO"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
-                    df_preview_display["APROVADO FINAL ORIG."] = df_preview["APROVADO FINAL"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    # Nomes alterados conforme solicitado
+                    df_preview_display["APROVADO 1ª ESC."] = df_preview["APROVADO"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    df_preview_display["EMBALADO FINAL"] = df_preview["APROVADO FINAL"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     
                     df_preview_display["META (TRS 100%)"] = df_preview["META"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     df_preview_display["VALOR USADO"] = df_preview["APROVADO_CALC"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
@@ -11364,7 +11372,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
                     st.dataframe(df_preview_display.head(20), use_container_width=True, hide_index=True)
                     
-                    st.info("👆 **Atenção:** Verifique a linha do dia 03/06. Se a coluna 'APROVADO FINAL ORIG.' estiver mostrando 1.225 e a coluna 'VALOR USADO' também estiver 1.225, a regra funcionou perfeitamente.")
+                    # O aviso "Atenção: Verifique a linha..." foi removido.
 
                 # ===== DOWNLOAD =====
                 nome_arquivo = f"Premio_Produtividade_Prensados_{datetime.now().strftime('%Y-%m-%d')}.pdf"
@@ -11404,9 +11412,9 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         **📌 Regra de negócio (final do CÓDIGO):**
         | Final do CÓDIGO | Coluna usada no cálculo |
         |-----------------|-------------------------|
-        | `0` | `APROVADO FINAL` |
-        | `1` | `APROVADO` |
-        | outros (2-9, vazio) | `APROVADO` (fallback) |
+        | `0` | `EMBALADO FINAL` |
+        | `1` | `APROVADO 1ª ESC.` |
+        | outros (2-9, vazio) | `APROVADO 1ª ESC.` (fallback) |
 
         **🎯 Filtros disponíveis:**
         - Período (Data Inicial e Final)
