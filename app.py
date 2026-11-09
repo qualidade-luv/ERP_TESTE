@@ -11119,11 +11119,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             if df_tabela.empty: return None
             df_calc = df_tabela.copy()
 
-            if "APROVADO FINAL" not in df_calc.columns: df_calc["APROVADO FINAL"] = df_calc.get("APROVADO", 0)
-            if "APROVADO" not in df_calc.columns: df_calc["APROVADO"] = 0
-            df_calc["APROVADO"] = pd.to_numeric(df_calc["APROVADO"], errors="coerce").fillna(0)
-            df_calc["APROVADO FINAL"] = pd.to_numeric(df_calc["APROVADO FINAL"], errors="coerce").fillna(0)
-
             df_calc["TRS_%"] = 0.0
             mask_meta = df_calc["META"] > 0
             df_calc.loc[mask_meta, "TRS_%"] = (df_calc.loc[mask_meta, "APROVADO_CALC"] / df_calc.loc[mask_meta, "META"] * 100).round(2)
@@ -11296,64 +11291,67 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_relatorio = df_filtrado.copy()
 
             # =====================================================================
-            # 1. TRATAMENTO DE CÓDIGO (A PROVA DE FALHAS)
+            # 1. FORÇAR A LEITURA E LIMPEZA DOS DADOS NA MARRA
             # =====================================================================
-            if "CÓDIGO" not in df_relatorio.columns and "CODIGO" in df_relatorio.columns:
-                df_relatorio["CÓDIGO"] = df_relatorio["CODIGO"]
-            elif "CÓDIGO" not in df_relatorio.columns:
-                df_relatorio["CÓDIGO"] = ""
-
-            # Transforma tudo em string e remove qualquer '.0' ou caracteres invisíveis que o Pandas possa ter colocado
-            df_relatorio["CÓDIGO"] = df_relatorio["CÓDIGO"].apply(
-                lambda x: str(int(x)) if isinstance(x, (int, float)) and float(x).is_integer() else str(x).strip()
-            )
-
-            # =====================================================================
-            # 2. PREPARAÇÃO DAS COLUNAS BASE
-            # =====================================================================
-            colunas_necessarias = ["DATA", "TURNO", "REFERÊNCIA", "TRS 100%", "APROVADO", "HORAS TOTAIS", "ACERTOS", "MANUT."]
+            colunas_necessarias = ["DATA", "TURNO", "REFERÊNCIA", "TRS 100%", "HORAS TOTAIS", "ACERTOS", "MANUT."]
             for col in colunas_necessarias:
                 if col not in df_relatorio.columns:
                     st.error(f"❌ Coluna '{col}' não encontrada na planilha!")
                     st.stop()
 
-            if "APROVADO FINAL" not in df_relatorio.columns:
-                df_relatorio["APROVADO FINAL"] = df_relatorio.get("APROVADO", 0)
+            # Garantir que as colunas de código existam
+            col_codigo = 'CÓDIGO' if 'CÓDIGO' in df_relatorio.columns else 'CODIGO'
+            if col_codigo not in df_relatorio.columns:
+                df_relatorio['CÓDIGO'] = ""
+                col_codigo = 'CÓDIGO'
+
+            # Garantir que as colunas de aprovado existam e sejam numéricas
             if "APROVADO" not in df_relatorio.columns:
                 df_relatorio["APROVADO"] = 0
+            if "APROVADO FINAL" not in df_relatorio.columns:
+                df_relatorio["APROVADO FINAL"] = df_relatorio["APROVADO"]
 
             df_relatorio["APROVADO"] = pd.to_numeric(df_relatorio["APROVADO"], errors="coerce").fillna(0)
             df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["APROVADO FINAL"], errors="coerce").fillna(0)
 
+            # Função pesada para extrair os valores corretos diretamente da linha
+            def calcular_aprovado_linha(row):
+                # 1. Limpa o código
+                cod_raw = str(row[col_codigo]).strip()
+                if '.' in cod_raw:
+                    cod_raw = cod_raw.split('.')[0] # remove o .0
+                cod_limpo = "".join(filter(str.isdigit, cod_raw))
+
+                # 2. Pega os valores
+                val_aprov = float(row["APROVADO"])
+                val_aprov_final = float(row["APROVADO FINAL"])
+
+                # 3. Aplica a regra
+                if cod_limpo.endswith('0'):
+                    return val_aprov_final
+                else:
+                    return val_aprov
+
+            df_relatorio["APROVADO_CALC"] = df_relatorio.apply(calcular_aprovado_linha, axis=1)
+
+            # =====================================================================
+            # 2. PREPARAÇÃO GERAL PARA O PDF
+            # =====================================================================
             df_relatorio = df_relatorio.rename(columns={"TRS 100%": "META"})
             if not pd.api.types.is_datetime64_any_dtype(df_relatorio["DATA"]):
                 df_relatorio["DATA"] = pd.to_datetime(df_relatorio["DATA"])
 
             df_relatorio["MES_ANO"] = df_relatorio["DATA"].dt.strftime("%m/%Y")
-
             df_relatorio["HORAS_TOTAIS_DEC"] = df_relatorio["HORAS TOTAIS"].apply(time_to_decimal_local)
             df_relatorio["ACERTOS_DEC"] = df_relatorio["ACERTOS"].apply(time_to_decimal_local)
             df_relatorio["MANUT_DEC"] = df_relatorio["MANUT."].apply(time_to_decimal_local)
-
-            # =====================================================================
-            # 3. APLICAÇÃO DA REGRA (VETORIZADA - SEM APPLY)
-            # =====================================================================
-            # Obtém o último caractere do código
-            ultimo_digito = df_relatorio["CÓDIGO"].str[-1]
-
-            # Aplica a regra: final '0' -> APROVADO FINAL, final '1' -> APROVADO, resto -> APROVADO
-            df_relatorio["APROVADO_CALC"] = np.where(
-                ultimo_digito == "0", 
-                df_relatorio["APROVADO FINAL"], 
-                df_relatorio["APROVADO"]
-            )
-
-            # Contadores para o st.caption
-            qtd_final_0 = int((ultimo_digito == "0").sum())
-            qtd_final_1 = int((ultimo_digito == "1").sum())
-            qtd_outros = int(len(df_relatorio) - qtd_final_0 - qtd_final_1)
-
             df_relatorio["HORAS_PROGRAMADAS_CALC"] = df_relatorio.apply(calcular_horas_programadas, axis=1)
+
+            # Contadores de auditoria
+            codigos_str = df_relatorio[col_codigo].astype(str).str.strip()
+            qtd_final_0 = int((codigos_str.str[-1] == "0").sum())
+            qtd_final_1 = int((codigos_str.str[-1] == "1").sum())
+            qtd_outros = int(len(df_relatorio) - qtd_final_0 - qtd_final_1)
 
             # Gerar PDF
             titulo_extra = f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
@@ -11389,26 +11387,27 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                         lambda x: f"{int(x):02d}:{int((x % 1) * 60):02d}"
                     )
 
-                    # Criar DataFrame exclusivo para exibição (evita conflito de nomes)
+                    # Criar DataFrame exclusivo para exibição
                     df_preview_display = pd.DataFrame()
                     df_preview_display["DATA"] = pd.to_datetime(df_preview["DATA"]).dt.strftime("%d/%m/%Y")
                     df_preview_display["TURNO"] = df_preview["TURNO"]
                     df_preview_display["REFERÊNCIA"] = df_preview["REFERÊNCIA"]
+                    df_preview_display["CÓDIGO LIDO"] = df_preview[col_codigo].astype(str)
                     
-                    # Adicionado para depuração: mostra o código exato que o sistema leu
-                    df_preview_display["CÓDIGO LIDO"] = df_preview["CÓDIGO"] 
+                    # ADICIONADO PARA AUDITORIA NA TELA:
+                    df_preview_display["APROVADO ORIG."] = df_preview["APROVADO"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    df_preview_display["APROVADO FINAL ORIG."] = df_preview["APROVADO FINAL"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     
                     df_preview_display["META (TRS 100%)"] = df_preview["META"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
-                    df_preview_display["APROVADO UTILIZADO"] = df_preview["APROVADO_CALC"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    df_preview_display["VALOR USADO"] = df_preview["APROVADO_CALC"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
                     df_preview_display["TRS % (Excesso)"] = df_preview["TRS_EXCESSO"].apply(lambda x: f"{x:.2f}%" if x > 0 else "0.00%")
-                    df_preview_display["HORAS TRABALHADAS"] = df_preview["HORAS_TRABALHADAS_STR"]
-                    df_preview_display["HORAS PROGRAMADAS"] = df_preview["HORAS_PROGRAMADAS_STR"]
 
                     # Filtra apenas as linhas com TRS > 100%
                     df_preview_display = df_preview_display[df_preview["TRS_%"] > 100]
 
                     st.dataframe(df_preview_display.head(20), use_container_width=True, hide_index=True)
-                    st.caption(f"Total: {len(df_relatorio)} registros | Exibindo apenas registros com TRS > 100%")
+                    
+                    st.info("👆 **Atenção:** Verifique a linha do dia 03/06. Se a coluna 'APROVADO FINAL ORIG.' estiver mostrando 2.056, os dados chegaram invertidos da planilha.")
 
                 # ===== DOWNLOAD =====
                 nome_arquivo = f"Premio_Produtividade_Prensados_{datetime.now().strftime('%Y-%m-%d')}.pdf"
@@ -11426,6 +11425,9 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             else:
                 st.error("❌ Erro ao gerar o relatório PDF.")
 
+    # ======================
+    # INFORMAÇÕES ADICIONAIS
+    # ======================
     with st.expander("ℹ️ Informações sobre o Relatório", expanded=False):
         st.markdown("""
         **📊 O que é este relatório?**
@@ -11436,9 +11438,8 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         - **DATA**: Data da produção
         - **TURNO**: Turno de produção (M, T, N)
         - **REFERÊNCIA**: Código da referência produzida
-        - **CÓDIGO LIDO**: O código exato que o sistema interpretou da sua planilha.
         - **META (TRS 100%)**: Meta de produção para TRS 100%
-        - **APROVADO UTILIZADO**: Quantidade aprovada (calculada pela regra do final do código)
+        - **APROVADO**: Quantidade aprovada (calculada pela regra do final do código)
         - **TRS % (Excesso)**: Percentual que excedeu 100%
         - **HORAS TRABALHADAS**: Horas efetivamente trabalhadas
         - **HORAS PROGRAMADAS**: Se ACERTOS = 02:45:00, considera 05:00:00; caso contrário, HORAS TOTAIS + ACERTOS + MANUT + 15 min
@@ -11449,6 +11450,12 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         | `0` | `APROVADO FINAL` |
         | `1` | `APROVADO` |
         | outros (2-9, vazio) | `APROVADO` (fallback) |
+
+        **🎯 Filtros disponíveis:**
+        - Período (Data Inicial e Final)
+        - Turno
+        - Referência (busca parcial)
+        - Tipo de Prensa (Semi-Automática ou Automática)
         """)
 
     st.markdown(f"""
