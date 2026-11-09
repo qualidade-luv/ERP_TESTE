@@ -583,7 +583,8 @@ ABAS = {
     'REPASSES DE PRODUÇÃO': 'RP',
     'ALMOXARIFADO': 'AM',
     'CONTROLE DO FORNO': 'CF',
-    'QUARENTENA': 'QT'  # <-- NOVO MÓDULO
+    'QUARENTENA': 'QT',
+    'PAINEL DE RISCOS QUALIDADE': 'PRQ'  # <-- NOVO MÓDULO
 }
 
 CAMINHO_PDF_AR = r"\\srv-luvidarte\dados\DOC\Engenharia_Luvidarte\SGQ - LUVIDARTE - ALTERADAS\0-AVISO DE REJEIÇÃO\1-PDF"
@@ -2509,7 +2510,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="text-align: center; padding: 20px 0 16px; border-bottom: 1px solid {THEME['border_bright']}; margin-bottom: 20px;">
         <div style="font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 700; color: {THEME['accent_cyan']}; letter-spacing: 0.2em;">⚙ ERP - Luvidarte</div>
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: {THEME['text_muted']}; letter-spacing: 0.2em; text-transform: uppercase;">Aqui tem Café no bule Versão Teste</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: {THEME['text_muted']}; letter-spacing: 0.2em; text-transform: uppercase;">Aqui tem Café no bule Versão Teste-05-10</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2598,7 +2599,7 @@ renderizar_popups_pendentes()
 verificar_e_exibir_popups()
 
 # ==================================================================================================
-# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA E COLUNA TEMPERADO
+# PRENSADOS - VERSÃO COM DEFEITOS DE TÊMPERA, COLUNA TEMPERADO E ÍNDICES APURADOS NO LOTE
 # ==================================================================================================
 if aba_selecionada == 'PRENSADOS':
     with st.spinner("Carregando dados..."):
@@ -2653,9 +2654,9 @@ if aba_selecionada == 'PRENSADOS':
 
     # ===== IDENTIFICAR COLUNAS DE DEFEITOS DE EMBALAGEM =====
     colunas_defeitos_embalagem = [
-        'BOLHA E', 'PEDRA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
+        'BOLHA E', 'QUARENTENA E', 'TRINCA E', 'RUGA E', 'CORTE TESOURA E',
         'DOBRA E', 'FARINHA E', 'QUEBRA E', 'ARREADO E', 'VIDRO GRUDADO E',
-        'CONTRA-PEÇA E', 'FALHA E', 'CHUPADO E', 'ÓLEO TESOURA E',
+        'CONTRA-PEÇA E', 'FALHA E', 'IMPACTO E', 'ÓLEO TESOURA E',
         'CROMO E', 'RISCO E', 'BARRO E', 'EMPENO E', 'SUJEIRA E'
     ]
     
@@ -3679,6 +3680,415 @@ if aba_selecionada == 'PRENSADOS':
                     plt.close(fig2)
         else:
             st.info("📭 Nenhum defeito da Embalagem registrado no período selecionado")
+
+    # ==========================================================================
+    # NOVA SEÇÃO: ÍNDICES APURADOS NO LOTE
+    # ==========================================================================
+    st.markdown("<hr>", unsafe_allow_html=True)
+    render_section_header("ÍNDICES APURADOS NO LOTE", "📌", THEME['accent_orange'])
+    st.caption("Análise consolidada de ocorrências específicas — Têmpera e Embalagem — com percentual sobre o total de peças produzidas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # MAPEAMENTO VISUAL (nome exibido no app ≠ nome real da coluna)
+    # ---------------------------------------------------------------
+    # Cada item: (nome_exibicao, coluna_real, grupo)
+    INDICES_APURADOS_CONFIG = [
+        # Grupo TÊMPERA
+        ("DROP BALL",    "IMPACTO T",              "TÊMPERA"),
+        ("RESFRIAMENTO", "QUEBRA RESFRIAMENTO T",  "TÊMPERA"),
+        ("OVALIZADA",    "OVALIZADA T",            "TÊMPERA"),
+        # Grupo EMBALAGEM
+        ("DROP BALL",    "IMPACTO E",              "EMBALAGEM"),
+        ("RESFRIAMENTO", "QUARENTENA E",           "EMBALAGEM"),
+        ("OVALIZADA",    "CONTRA-PEÇA E",          "EMBALAGEM"),
+    ]
+
+    # ---------------------------------------------------------------
+    # COLETA DOS DADOS RESPEITANDO OS FILTROS ATIVOS (df já filtrado)
+    # ---------------------------------------------------------------
+    indices_apurados = []
+    total_pecas_base = 0.0
+
+    if not df.empty:
+        # Base de cálculo: total de peças produzidas no período filtrado
+        total_pecas_base = float(df['PRODUZIDO'].sum()) if 'PRODUZIDO' in df.columns else 0.0
+        if total_pecas_base <= 0:
+            aprov = float(df['APROVADO'].sum()) if 'APROVADO' in df.columns else 0.0
+            refug = float(df['REFUGADO'].sum()) if 'REFUGADO' in df.columns else 0.0
+            total_pecas_base = aprov + refug
+
+        for nome_exib, col_real, grupo in INDICES_APURADOS_CONFIG:
+            col_encontrada = None
+            for c in df.columns:
+                if str(c).strip().upper() == str(col_real).strip().upper():
+                    col_encontrada = c
+                    break
+
+            if col_encontrada is not None:
+                qtd = float(pd.to_numeric(df[col_encontrada], errors='coerce').fillna(0).sum())
+            else:
+                qtd = 0.0
+
+            perc = (qtd / total_pecas_base * 100.0) if total_pecas_base > 0 else 0.0
+
+            indices_apurados.append({
+                "nome_exibicao": nome_exib,
+                "coluna_real": col_real,
+                "grupo": grupo,
+                "quantidade": qtd,
+                "percentual": perc,
+                "coluna_existe": col_encontrada is not None,
+            })
+
+    # ---------------------------------------------------------------
+    # GRÁFICO: BARRAS (quantidade) + LINHA TRACEJADA EM 3% (eixo secundário)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+        quantidades = [i['quantidade'] for i in indices_apurados]
+        percentuais = [i['percentual'] for i in indices_apurados]
+        grupos = [i['grupo'] for i in indices_apurados]
+
+        # Cores: TÊMPERA (laranja) e EMBALAGEM (verde) para diferenciar visualmente
+        cores_barras = [
+            THEME['accent_orange'] if g == "TÊMPERA" else THEME['accent_lime']
+            for g in grupos
+        ]
+
+        fig, ax1 = plt.subplots(figsize=(13, 6), facecolor=THEME['bg_card'])
+        fig.patch.set_facecolor(THEME['bg_card'])
+        ax1.set_facecolor(THEME['bg_card'])
+
+        x = np.arange(len(nomes))
+        width = 0.55
+
+        bars = ax1.bar(x, quantidades, width, color=cores_barras, alpha=0.88,
+                       edgecolor=THEME['bg_card'], linewidth=1.5)
+
+        # Rótulos de quantidade em cima das barras
+        _max_qtd = max(quantidades) if quantidades else 1
+        for bar, qtd in zip(bars, quantidades):
+            if qtd > 0:
+                ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + _max_qtd*0.01,
+                         f"{int(qtd):,}".replace(",", "."),
+                         ha='center', va='bottom', fontsize=10, fontweight='bold',
+                         color=THEME['text_primary'])
+
+        ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11, fontweight='bold',
+                       color=THEME['text_primary'])
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(nomes, fontsize=10, fontweight='bold')
+        ax1.tick_params(axis='y', labelcolor=THEME['text_primary'])
+        ax1.grid(True, axis='y', alpha=0.3, color=THEME['grid'],
+                 linewidth=0.8, linestyle='--')
+        ax1.set_axisbelow(True)
+        for spine in ['top', 'right']:
+            ax1.spines[spine].set_visible(False)
+
+        # Eixo secundário — percentual
+        ax2 = ax1.twinx()
+        ax2.plot(x, percentuais, marker='o', markersize=9, linewidth=2.5,
+                 color=THEME['accent_red'], label='% sobre o total',
+                 markerfacecolor=THEME['bg_card'],
+                 markeredgecolor=THEME['accent_red'], markeredgewidth=2)
+        ax2.axhline(y=3.0, color=THEME['accent_red'], linestyle='--',
+                    linewidth=2, alpha=0.85, label='Limite 3%')
+        ax2.set_ylabel("% sobre o Total de Peças", fontsize=11, fontweight='bold',
+                       color=THEME['accent_red'])
+        ax2.tick_params(axis='y', labelcolor=THEME['accent_red'])
+        ax2.set_ylim(0, max(max(percentuais) * 1.35, 4.0) if percentuais else 5.0)
+        for spine in ['top']:
+            ax2.spines[spine].set_visible(False)
+
+        # Anotação de % em cada ponto
+        for xi, pct in zip(x, percentuais):
+            ax2.annotate(f"{pct:.2f}%", (xi, pct),
+                         textcoords="offset points", xytext=(0, 12),
+                         ha='center', fontsize=9, fontweight='bold',
+                         color=THEME['accent_red'],
+                         bbox=dict(boxstyle="round,pad=0.3", facecolor='white',
+                                   alpha=0.85, edgecolor=THEME['accent_red']))
+
+        ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                      fontsize=15, fontweight='bold',
+                      color=THEME['text_primary'], pad=16)
+
+        # Legenda combinada
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
+                   fontsize=9, framealpha=0.9)
+
+        fig.tight_layout(pad=1.8)
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # -----------------------------------------------------------
+        # TABELA RESUMO DOS ÍNDICES
+        # -----------------------------------------------------------
+        with st.expander("📊 Ver tabela detalhada dos Índices Apurados", expanded=False):
+            df_indices = pd.DataFrame([{
+                "Defeito": i['nome_exibicao'],
+                "Grupo": i['grupo'],
+                "Coluna Original": i['coluna_real'],
+                "Quantidade": f"{int(i['quantidade']):,}".replace(",", "."),
+                "Percentual (%)": f"{i['percentual']:.2f}%",
+                "Status": "🔴 CRÍTICO (>3%)" if i['percentual'] > 3.0
+                          else "🟢 OK (≤3%)" if i['quantidade'] > 0
+                          else "⚪ Sem ocorrências"
+            } for i in indices_apurados])
+            st.dataframe(df_indices, use_container_width=True, hide_index=True)
+
+    elif indices_apurados:
+        st.info("📭 Nenhuma peça produzida no período filtrado — não há base para cálculo dos índices.")
+    else:
+        st.info("📭 Colunas de defeitos não encontradas no período filtrado.")
+
+    # ---------------------------------------------------------------
+    # BOTÃO — GERAR RELATÓRIO GERENCIAL (HTML/PDF)
+    # ---------------------------------------------------------------
+    if indices_apurados and total_pecas_base > 0:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        def _gerar_html_indices_apurados():
+            """Gera HTML gerencial profissional dos ÍNDICES APURADOS NO LOTE."""
+            from datetime import datetime as _dt
+
+            periodo_str = "Período filtrado"
+            if data_ini and data_fim:
+                periodo_str = f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+            elif data_ini:
+                periodo_str = f"A partir de {data_ini.strftime('%d/%m/%Y')}"
+            elif data_fim:
+                periodo_str = f"Até {data_fim.strftime('%d/%m/%Y')}"
+
+            # Reconstrói o gráfico em base64 para embutir no HTML
+            import base64
+            from io import BytesIO
+
+            _fig, _ax1 = plt.subplots(figsize=(13, 6), facecolor='white')
+            _fig.patch.set_facecolor('white')
+            _ax1.set_facecolor('white')
+
+            _nomes = [f"{i['nome_exibicao']}\n({i['grupo']})" for i in indices_apurados]
+            _qtds = [i['quantidade'] for i in indices_apurados]
+            _pcts = [i['percentual'] for i in indices_apurados]
+            _grupos = [i['grupo'] for i in indices_apurados]
+            _cores = ['#E86C2C' if g == "TÊMPERA" else '#107C10' for g in _grupos]
+
+            _x = np.arange(len(_nomes))
+            _bars = _ax1.bar(_x, _qtds, 0.55, color=_cores, alpha=0.9,
+                             edgecolor='white', linewidth=1.5)
+
+            _max_q = max(_qtds) if _qtds else 1
+            for _b, _q in zip(_bars, _qtds):
+                if _q > 0:
+                    _ax1.text(_b.get_x() + _b.get_width()/2,
+                              _b.get_height() + _max_q*0.01,
+                              f"{int(_q):,}".replace(",", "."),
+                              ha='center', va='bottom', fontsize=10,
+                              fontweight='bold', color='#1a1a2e')
+
+            _ax1.set_ylabel("Quantidade de Ocorrências", fontsize=11,
+                            fontweight='bold', color='#1a1a2e')
+            _ax1.set_xticks(_x)
+            _ax1.set_xticklabels(_nomes, fontsize=10, fontweight='bold')
+            _ax1.grid(True, axis='y', alpha=0.3, color='#e0e0e0',
+                      linewidth=0.8, linestyle='--')
+            _ax1.set_axisbelow(True)
+            for _sp in ['top', 'right']:
+                _ax1.spines[_sp].set_visible(False)
+
+            _ax2 = _ax1.twinx()
+            _ax2.plot(_x, _pcts, marker='o', markersize=9, linewidth=2.5,
+                      color='#E81123', label='% sobre o total',
+                      markerfacecolor='white',
+                      markeredgecolor='#E81123', markeredgewidth=2)
+            _ax2.axhline(y=3.0, color='#E81123', linestyle='--',
+                         linewidth=2, alpha=0.85, label='Limite 3%')
+            _ax2.set_ylabel("% sobre o Total de Peças", fontsize=11,
+                            fontweight='bold', color='#E81123')
+            _ax2.tick_params(axis='y', labelcolor='#E81123')
+            _ax2.set_ylim(0, max(max(_pcts) * 1.35, 4.0) if _pcts else 5.0)
+            for _sp in ['top']:
+                _ax2.spines[_sp].set_visible(False)
+
+            for _xi, _p in zip(_x, _pcts):
+                _ax2.annotate(f"{_p:.2f}%", (_xi, _p),
+                              textcoords="offset points", xytext=(0, 12),
+                              ha='center', fontsize=9, fontweight='bold',
+                              color='#E81123',
+                              bbox=dict(boxstyle="round,pad=0.3",
+                                        facecolor='white', alpha=0.85,
+                                        edgecolor='#E81123'))
+
+            _ax1.set_title("ÍNDICES APURADOS NO LOTE — Ocorrências por Defeito",
+                           fontsize=15, fontweight='bold',
+                           color='#1a1a2e', pad=16)
+
+            _lines1, _labels1 = _ax1.get_legend_handles_labels()
+            _lines2, _labels2 = _ax2.get_legend_handles_labels()
+            _ax1.legend(_lines1 + _lines2, _labels1 + _labels2,
+                        loc='upper right', fontsize=9, framealpha=0.9)
+
+            _fig.tight_layout(pad=1.8)
+
+            _buf = BytesIO()
+            _fig.savefig(_buf, format='png', dpi=140,
+                         facecolor='white', bbox_inches='tight')
+            plt.close(_fig)
+            _buf.seek(0)
+            _img_b64 = base64.b64encode(_buf.read()).decode('utf-8')
+
+            # Linhas da tabela
+            _linhas_html = ""
+            for _i in indices_apurados:
+                _q = int(_i['quantidade'])
+                _p = _i['percentual']
+                if _p > 3.0:
+                    _status = "🔴 CRÍTICO (>3%)"
+                    _cor_status = "#E81123"
+                    _bg = "#f8d7da"
+                elif _q > 0:
+                    _status = "🟢 OK (≤3%)"
+                    _cor_status = "#107C10"
+                    _bg = "#d4edda"
+                else:
+                    _status = "⚪ Sem ocorrências"
+                    _cor_status = "#6b7280"
+                    _bg = "#f3f4f6"
+
+                _linhas_html += f"""
+                <tr style="background:{_bg};">
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-weight:600;">{_i['nome_exibicao']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;">{_i['grupo']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;font-family:monospace;">{_i['coluna_real']}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;">{_q:,}</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:700;color:{_cor_status};">{_p:.2f}%</td>
+                    <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;color:{_cor_status};font-weight:700;">{_status}</td>
+                </tr>
+                """
+
+            _total_qtd = sum(i['quantidade'] for i in indices_apurados)
+            _total_perc = sum(i['percentual'] for i in indices_apurados)
+
+            _html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório Gerencial — Índices Apurados no Lote</title>
+<style>
+    @page {{ size: A4 landscape; margin: 12mm; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; background:#fff; color:#1a1a2e; margin:0; padding:0; }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; padding: 10px; }}
+    .header {{
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color:#fff; padding:18px 24px; border-radius:10px; margin-bottom:18px;
+        border-left: 6px solid #E86C2C;
+    }}
+    .header h1 {{ margin:0; font-size:22px; letter-spacing:.06em; text-transform:uppercase; }}
+    .header .sub {{ font-size:12px; color:#a0aec0; margin-top:4px; }}
+    .header .meta {{ font-size:11px; color:#cbd5e0; margin-top:8px; }}
+    .section {{ font-size:15px; font-weight:700; margin:18px 0 10px; padding-bottom:6px; border-bottom:2px solid #e0e0e0; }}
+    table {{ width:100%; border-collapse:collapse; margin-bottom:14px; font-size:12px; }}
+    th {{ background:#2c3e50; color:#fff; padding:9px 10px; border:1px solid #2c3e50; text-align:center; font-weight:700; }}
+    td {{ padding:8px 10px; border:1px solid #ddd; }}
+    .chart-box {{ background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:14px; text-align:center; margin-bottom:14px; }}
+    .chart-box img {{ max-width:100%; height:auto; border-radius:6px; }}
+    .cards {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }}
+    .card {{ background:#f8f9fc; border-left:4px solid #0078D4; border-radius:8px; padding:12px 14px; }}
+    .card .lbl {{ font-size:10px; text-transform:uppercase; color:#666; letter-spacing:.08em; font-weight:600; }}
+    .card .val {{ font-size:22px; font-weight:700; color:#1a1a2e; margin-top:4px; }}
+    .card.alert {{ border-left-color:#E81123; }}
+    .card.ok {{ border-left-color:#107C10; }}
+    .footer {{ margin-top:18px; padding-top:10px; border-top:1px solid #e0e0e0; text-align:center; font-size:10px; color:#999; }}
+    @media print {{
+        .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        th {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        .card {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        td {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    }}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="header">
+        <h1>📌 Relatório Gerencial — Índices Apurados no Lote</h1>
+        <div class="sub">Análise consolidada de ocorrências — Têmpera e Embalagem</div>
+        <div class="meta">
+            <b>Período:</b> {periodo_str} &nbsp;|&nbsp;
+            <b>Total de peças no período:</b> {int(total_pecas_base):,} &nbsp;|&nbsp;
+            <b>Gerado em:</b> {_dt.now().strftime('%d/%m/%Y %H:%M:%S')}
+        </div>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="lbl">📦 Base de Cálculo</div>
+            <div class="val">{int(total_pecas_base):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">🔴 Total de Ocorrências</div>
+            <div class="val">{int(_total_qtd):,}</div>
+        </div>
+        <div class="card alert">
+            <div class="lbl">📉 % Acumulado</div>
+            <div class="val">{_total_perc:.2f}%</div>
+        </div>
+        <div class="card ok">
+            <div class="lbl">🎯 Limite de Referência</div>
+            <div class="val">3,00%</div>
+        </div>
+    </div>
+
+    <div class="section">📊 Gráfico — Índices Apurados no Lote</div>
+    <div class="chart-box">
+        <img src="data:image/png;base64,{_img_b64}" alt="Gráfico Índices Apurados no Lote">
+    </div>
+
+    <div class="section">📋 Tabela — Detalhamento dos Índices</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Defeito (visual)</th>
+                <th>Grupo</th>
+                <th>Coluna Original</th>
+                <th>Quantidade</th>
+                <th>% sobre o Total</th>
+                <th>Status vs. Limite 3%</th>
+            </tr>
+        </thead>
+        <tbody>
+            {_linhas_html}
+            <tr style="background:#2c3e50;color:#fff;font-weight:700;">
+                <td colspan="3" style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">TOTAL</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{int(_total_qtd):,}</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:right;">{_total_perc:.2f}%</td>
+                <td style="padding:9px 10px;border:1px solid #2c3e50;text-align:center;">—</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Relatório gerado automaticamente pelo Sistema TRS Dashboard — Luvidarte<br>
+        Módulo PRENSADOS · Índices Apurados no Lote
+    </div>
+</div>
+</body>
+</html>"""
+            return _html
+
+        _html_bytes = _gerar_html_indices_apurados().encode('utf-8')
+        st.download_button(
+            label="📥 GERAR RELATÓRIO GERENCIAL (PDF/HTML)",
+            data=_html_bytes,
+            file_name=f"indices_apurados_lote_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary",
+            key="btn_relatorio_indices_apurados"
+        )
+        st.caption("💡 Dica: abra o arquivo HTML gerado no navegador e use **Ctrl+P** para salvar como PDF.")
 
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
@@ -18552,7 +18962,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
                         "📦 Quantidade de Caixas*",
                         min_value=0.01,
                         step=0.5,
-                        value=float(editando.get('quantidade', 1.0)),
+                        value=float(editando.get('quantidade', )),
                         key="qua_edit_quantidade"
                     )
                     
@@ -18560,7 +18970,7 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
                         "🔩 Peças por Caixa (Base)*",
                         min_value=0.01,
                         step=1.0,
-                        value=float(editando.get('base', 40.0)),
+                        value=float(editando.get('base', 60.0)),
                         key="qua_edit_base"
                     )
                     
@@ -19004,7 +19414,698 @@ CREATE INDEX IF NOT EXISTS idx_embalagem_quarentena ON public.embalagem (quarent
         color:{THEME['text_muted']};letter-spacing:.1em;">
         🏷️ QUARENTENA · {get_horario_brasilia()}
     </div>
+    """, unsafe_allow_html=True)
+
+# ==================================================================================================
+# PAINEL DE RISCOS DA QUALIDADE
+# ==================================================================================================
+elif aba_selecionada == 'PAINEL DE RISCOS QUALIDADE':
+    import plotly.graph_objects as go
+    
+    # ======================
+    # CONFIGURAÇÕES
+    # ======================
+    ID_PLANILHA_RISCOS = '1Hjy4UGtgwIPJgqmcv46LyXNWOrYk_oeJWWV5vlfKF2k'
+    ABA_RISCOS = 'RISCOS'
+    
+    OPCOES_IMPACTO = ["Alto", "Médio", "Baixo"]
+    OPCOES_FREQUENCIA = ["Alta", "Média", "Baixa"]
+    OPCOES_CLIENTE = ["Sim", "Não"]
+    OPCOES_SITUACAO = ["Em andamento", "Planejado", "Atrasado", "Concluído"]
+    OPCOES_PROCESSO = [
+        "Moldagem", "Recozimento", "Têmpera", "Inspeção de Laje", 
+        "Inspeção Final", "Embalagem", "Corte", "Vidraria", "Rodaria", "Expedição"
+    ]
+    
+    # ======================
+    # INICIALIZAR SESSION STATE
+    # ======================
+    if 'riscos_aba' not in st.session_state:
+        st.session_state.riscos_aba = 'DASHBOARD'
+    
+    if 'riscos_editando' not in st.session_state:
+        st.session_state.riscos_editando = None
+    
+    if 'riscos_excluindo' not in st.session_state:
+        st.session_state.riscos_excluindo = None
+    
+    # ======================
+    # DATACLASS
+    # ======================
+    @dataclass
+    class RegistroRisco:
+        id: Optional[int] = None
+        data: Optional[datetime] = None
+        defeito: str = ""
+        processo: str = ""
+        impacto: str = ""
+        frequencia: str = ""
+        cliente: str = ""
+        causa_raiz: str = ""
+        acao_contencao: str = ""
+        responsavel: str = ""
+        prazo: Optional[datetime] = None
+        situacao: str = "Em andamento"
+        percentual: int = 0
+        linha: Optional[int] = None
+    
+    # ======================
+    # FUNÇÕES DE CARREGAMENTO
+    # ======================
+    def carregar_riscos_sem_cache() -> List[RegistroRisco]:
+        registros = []
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return registros
+            
+            spreadsheet = client.open_by_key(ID_PLANILHA_RISCOS)
+            
+            try:
+                sheet = spreadsheet.worksheet(ABA_RISCOS)
+            except Exception:
+                # Cria a aba automaticamente se não existir
+                sheet = spreadsheet.add_worksheet(title=ABA_RISCOS, rows=1000, cols=20)
+                cabecalho = ["ID", "DATA", "DEFEITO", "PROCESSO", "IMPACTO", "FREQUENCIA",
+                             "CLIENTE", "CAUSA_RAIZ", "ACAO_CONTENCAO", "RESPONSAVEL",
+                             "PRAZO", "SITUACAO", "PERCENTUAL"]
+                sheet.append_row(cabecalho)
+                return registros
+            
+            todos_dados = sheet.get_all_values()
+            
+            if len(todos_dados) == 0:
+                return registros
+                
+            # Verifica se a primeira linha é cabeçalho
+            primeira_linha = todos_dados[0]
+            tem_cabecalho = False
+            if len(primeira_linha) > 2:
+                if "DEFEITO" in str(primeira_linha[2]).upper() or "ID" in str(primeira_linha[0]).upper():
+                    tem_cabecalho = True
+            
+            start_row = 1 if tem_cabecalho else 0
+            
+            for idx, row in enumerate(todos_dados[start_row:], start=start_row+1):
+                if len(row) < 5 or not any(row):
+                    continue
+                
+                try:
+                    id_val = str(row[0]).strip() if len(row) > 0 and row[0] else ""
+                    defeito_val = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                    
+                    if not id_val and not defeito_val:
+                        continue
+                    
+                    registro = RegistroRisco()
+                    try:
+                        registro.id = int(float(id_val))
+                    except:
+                        registro.id = idx
+                    
+                    registro.linha = idx
+                    
+                    def parse_data(val):
+                        if not val: return None
+                        val_str = str(val).strip()
+                        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+                            try:
+                                return datetime.strptime(val_str, fmt)
+                            except:
+                                pass
+                        return None
+
+                    registro.data = parse_data(row[1]) if len(row) > 1 and row[1] else None
+                    registro.defeito = defeito_val
+                    registro.processo = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                    registro.impacto = str(row[4]).strip() if len(row) > 4 and row[4] else ""
+                    registro.frequencia = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                    registro.cliente = str(row[6]).strip() if len(row) > 6 and row[6] else ""
+                    registro.causa_raiz = str(row[7]).strip() if len(row) > 7 and row[7] else ""
+                    registro.acao_contencao = str(row[8]).strip() if len(row) > 8 and row[8] else ""
+                    registro.responsavel = str(row[9]).strip() if len(row) > 9 and row[9] else ""
+                    registro.prazo = parse_data(row[10]) if len(row) > 10 and row[10] else None
+                    registro.situacao = str(row[11]).strip() if len(row) > 11 and row[11] else "Em andamento"
+                    
+                    try:
+                        perc_str = str(row[12]).replace('%', '').strip()
+                        registro.percentual = int(float(perc_str)) if len(row) > 12 and perc_str else 0
+                    except:
+                        registro.percentual = 0
+                    
+                    registros.append(registro)
+                except Exception as e:
+                    pass
+            
+            registros.sort(key=lambda x: x.id if x.id else 0, reverse=False)
+        except Exception as e:
+            st.error(f"Erro ao carregar riscos: {e}")
+        return registros
+
+    @st.cache_data(ttl=60)
+    def carregar_riscos(filtros: Dict[str, Any] = None) -> List[RegistroRisco]:
+        registros = carregar_riscos_sem_cache()
+        
+        if not filtros:
+            return registros
+        
+        filtrados = []
+        for r in registros:
+            incluir = True
+            if filtros.get('processo') and filtros['processo'] != "(Todos)":
+                if r.processo.upper() != filtros['processo'].upper(): incluir = False
+            if filtros.get('impacto') and filtros['impacto'] != "(Todos)":
+                if r.impacto.upper() != filtros['impacto'].upper(): incluir = False
+            if filtros.get('situacao') and filtros['situacao'] != "(Todos)":
+                if r.situacao.upper() != filtros['situacao'].upper(): incluir = False
+            if filtros.get('busca'):
+                busca = filtros['busca'].lower()
+                if (busca not in r.defeito.lower() and busca not in r.processo.lower() 
+                    and busca not in r.responsavel.lower() and busca not in r.causa_raiz.lower()):
+                    incluir = False
+            if incluir: filtrados.append(r)
+        return filtrados
+    
+    def obter_proximo_id_risco() -> int:
+        try:
+            registros = carregar_riscos_sem_cache()
+            if not registros: return 1
+            return max([r.id for r in registros if r.id]) + 1
+        except:
+            return 1
+    
+    def salvar_risco(registro: RegistroRisco, eh_alteracao: bool = False) -> tuple:
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            sheet = client.open_by_key(ID_PLANILHA_RISCOS).worksheet(ABA_RISCOS)
+            
+            data_str = registro.data.strftime("%d/%m/%Y") if registro.data else ""
+            prazo_str = registro.prazo.strftime("%d/%m/%Y") if registro.prazo else ""
+            
+            dados = [
+                str(registro.id) if registro.id else "",
+                data_str, registro.defeito, registro.processo, registro.impacto,
+                registro.frequencia, registro.cliente, registro.causa_raiz,
+                registro.acao_contencao, registro.responsavel, prazo_str,
+                registro.situacao, str(registro.percentual)
+            ]
+            
+            if eh_alteracao:
+                todos_dados = sheet.get_all_values()
+                linha_encontrada = None
+                for i, row in enumerate(todos_dados):
+                    if len(row) > 0 and str(row[0]).strip() == str(registro.id):
+                        linha_encontrada = i + 1
+                        break
+                
+                if linha_encontrada:
+                    for col, valor in enumerate(dados, start=1):
+                        sheet.update_cell(linha_encontrada, col, valor)
+                    st.cache_data.clear()
+                    return True, f"✅ Risco #{registro.id} atualizado com sucesso!"
+                return False, f"❌ Registro #{registro.id} não encontrado na planilha."
+            else:
+                todos_dados = sheet.get_all_values()
+                if len(todos_dados) == 0 or (len(todos_dados) > 0 and not any(todos_dados[0])):
+                    cabecalho = ["ID", "DATA", "DEFEITO", "PROCESSO", "IMPACTO", "FREQUENCIA",
+                                 "CLIENTE", "CAUSA_RAIZ", "ACAO_CONTENCAO", "RESPONSAVEL",
+                                 "PRAZO", "SITUACAO", "PERCENTUAL"]
+                    sheet.insert_row(cabecalho, 1)
+                
+                sheet.append_row(dados)
+                st.cache_data.clear()
+                return True, f"✅ Risco #{registro.id} salvo com sucesso!"
+                
+        except Exception as e:
+            return False, f"❌ Erro ao salvar: {str(e)}"
+    
+    def excluir_risco(id_risco: int) -> tuple:
+        try:
+            client = get_gspread_client()
+            if client is None:
+                return False, "❌ Erro ao conectar ao Google Sheets"
+            
+            sheet = client.open_by_key(ID_PLANILHA_RISCOS).worksheet(ABA_RISCOS)
+            todos_dados = sheet.get_all_values()
+            
+            linha_encontrada = None
+            for i, row in enumerate(todos_dados):
+                if len(row) > 0 and str(row[0]).strip() == str(id_risco):
+                    linha_encontrada = i + 1
+                    break
+            
+            if not linha_encontrada:
+                return False, f"❌ Registro #{id_risco} não encontrado"
+            
+            sheet.delete_rows(linha_encontrada)
+            st.cache_data.clear()
+            return True, f"✅ Risco #{id_risco} excluído com sucesso!"
+            
+        except Exception as e:
+            return False, f"❌ Erro ao excluir: {str(e)}"
+    
+    # ======================
+    # FUNÇÕES AUXILIARES
+    # ======================
+    def classificar_risco(impacto: str, frequencia: str, cliente: str) -> str:
+        i, f, c = impacto.lower(), frequencia.lower(), cliente.lower()
+        if i == "alto" or (i == "médio" and f == "alta" and c == "sim"):
+            return "Crítico"
+        elif i == "médio" or (i == "baixo" and f == "alta"):
+            return "Atenção"
+        return "Controlado"
+    
+    def icone_situacao(situacao: str, percentual: int) -> str:
+        s = situacao.lower()
+        if "concluído" in s: return "🟢"
+        if "atrasado" in s: return "🔴"
+        if "andamento" in s: return "🔴" if percentual < 50 else "🟡"
+        return "🟡"
+    
+    # ======================
+    # DADOS GERAIS E KPIs
+    # ======================
+    todos_riscos = carregar_riscos_sem_cache()
+    hoje = datetime.now()
+    data_limite = hoje - timedelta(days=365)
+    riscos_periodo = [r for r in todos_riscos if r.data and r.data >= data_limite]
+    
+    criticos = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Crítico"])
+    atencao = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Atenção"])
+    controlados = len([r for r in riscos_periodo if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Controlado"])
+    riscos_cliente = len([r for r in riscos_periodo if r.cliente.lower() == "sim"])
+    
+    total_produzido, total_refugado, trs_medio = 0, 0, 0
+    try:
+        df_prensados = carregar_dados_prensados()
+        if not df_prensados.empty:
+            df_p = df_prensados[df_prensados['DATA'] >= data_limite] if 'DATA' in df_prensados.columns else df_prensados
+            total_produzido = int(df_p['PRODUZIDO'].sum()) if 'PRODUZIDO' in df_p.columns else 0
+            total_refugado = int(df_p['REFUGADO'].sum()) if 'REFUGADO' in df_p.columns else 0
+            trs_medio = (total_produzido - total_refugado) / total_produzido * 100 if total_produzido > 0 else 0
+    except:
+        pass
+
+    # ======================
+    # NAVEGAÇÃO
+    # ======================
+    st.markdown("### 📊 Selecione a Visualização")
+    col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
+    
+    with col_nav1:
+        if st.button("📊 Painel de Risco", use_container_width=True, type="primary" if st.session_state.riscos_aba == 'DASHBOARD' else "secondary", key="riscos_nav_dashboard"):
+            st.session_state.riscos_aba = 'DASHBOARD'
+            st.rerun()
+    with col_nav2:
+        if st.button("📋 Lista Completa", use_container_width=True, type="primary" if st.session_state.riscos_aba == 'LISTA' else "secondary", key="riscos_nav_lista"):
+            st.session_state.riscos_aba = 'LISTA'
+            st.rerun()
+    with col_nav3:
+        if st.button("➕ Novo Risco", use_container_width=True, type="primary" if st.session_state.riscos_aba == 'NOVO' else "secondary", key="riscos_nav_novo"):
+            st.session_state.riscos_aba = 'NOVO'
+            st.session_state.riscos_editando = None
+            st.rerun()
+    with col_nav4:
+        if st.button("🔄 Atualizar", use_container_width=True, key="riscos_nav_atualizar"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # ==================================================================================
+    # ABA: DASHBOARD (LAYOUT IDÊNTICO À IMAGEM)
+    # ==================================================================================
+    if st.session_state.riscos_aba == 'DASHBOARD':
+        
+        # 1. HEADER AZUL ESCURO
+        st.markdown(f"""
+        <div style="background: #0B2545; padding: 16px 24px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #FFD700;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div style="font-size: 32px; font-weight: 300; color: white; border-right: 2px solid #1E3A8A; padding-right: 16px;">L</div>
+                <div>
+                    <div style="font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; color: white; letter-spacing: 0.05em; text-transform: uppercase;">
+                        PAINEL DE RISCO DA QUALIDADE
+                    </div>
+                    <div style="font-family: 'Barlow', sans-serif; font-size: 12px; color: #94A3B8; letter-spacing: 0.1em; text-transform: uppercase;">
+                        Transformando problemas em melhorias
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="font-size: 24px;">📅</div>
+                <div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #94A3B8; text-transform: uppercase;">Período de análise</div>
+                    <div style="font-family: 'Barlow', sans-serif; font-size: 13px; font-weight: 700; color: #FFD700;">
+                        {(hoje - timedelta(days=365)).strftime('%d/%m/%Y')} a {hoje.strftime('%d/%m/%Y')}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 2. PAINEL 1: INDICADORES GERAIS
+        st.markdown("""
+        <div style="background: white; border-radius: 8px; padding: 16px 20px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; margin-bottom: 16px;">
+                INDICADORES GERAIS
+            </div>
+        """, unsafe_allow_html=True)
+        
+        prod_fmt = f"{total_produzido:,}".replace(",", ".")
+        refug_fmt = f"{total_refugado:,}".replace(",", ".")
+        
+        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+        
+        with col_k1:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">📦</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Produção Total</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #0B2545; line-height: 1.1; margin: 4px 0;">{prod_fmt}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">peças</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▲ +5% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_k2:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #E81123;">❗</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Refugo Interno</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #E81123; line-height: 1.1; margin: 4px 0;">{refug_fmt}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">peças</div>
+                <div style="font-size: 11px; color: #E81123; font-weight: 700; margin-top: 6px;">▲ +12% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_k3:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0; border-right: 1px solid #F1F5F9;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">🛡️</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">TRS Médio</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #10B981; line-height: 1.1; margin: 4px 0;">{trs_medio:.1f}%</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">&nbsp;</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▲ +1,8 p.p. <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_k4:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px 0;">
+                <div style="font-size: 28px; margin-bottom: 8px; color: #0B2545;">👥</div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Reclamações<br>de Clientes</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 28px; font-weight: 700; color: #0B2545; line-height: 1.1; margin: 4px 0;">{riscos_cliente}</div>
+                <div style="font-family: 'Barlow', sans-serif; font-size: 10px; color: #64748B;">ocorrências</div>
+                <div style="font-size: 11px; color: #10B981; font-weight: 700; margin-top: 6px;">▼ -50% <span style="color: #94A3B8; font-weight: normal;">(vs. mês anterior)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # 3. PAINEL 2: GRÁFICOS
+        st.markdown("""
+        <div style="background: white; border-radius: 8px; padding: 16px 20px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; width: 50%;">
+                    Defeitos por Tipo (Refugo Interno)
+                </div>
+                <div style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; width: 50%;">
+                    Origem dos Defeitos
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col_g1, col_g2 = st.columns(2)
+        
+        with col_g1:
+            if riscos_periodo:
+                defeitos_count = {}
+                for r in riscos_periodo: defeitos_count[r.defeito] = defeitos_count.get(r.defeito, 0) + 1
+                top_defeitos = sorted(defeitos_count.items(), key=lambda x: x[1], reverse=True)[:6]
+                
+                if top_defeitos:
+                    nomes = [d[0] for d in reversed(top_defeitos)]
+                    valores = [d[1] for d in reversed(top_defeitos)]
+                    
+                    fig = go.Figure(go.Bar(
+                        x=valores, y=nomes, orientation='h',
+                        marker_color=['#9CA3AF', '#8B5CF6', '#3B82F6', '#FFC107', '#FF8C42', '#E81123'][:len(nomes)],
+                        text=[f"{v/sum(defeitos_count.values())*100:.1f}%" for v in valores],
+                        textposition='outside',
+                        textfont=dict(color='#0B2545', size=12, weight='bold')
+                    ))
+                    fig.update_layout(
+                        margin=dict(l=0, r=40, t=10, b=20), height=280,
+                        xaxis=dict(showgrid=True, gridcolor='#F1F5F9', zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, tickfont=dict(size=12, color='#1E293B', weight='bold')),
+                        plot_bgcolor='white', paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("📭 Nenhum defeito registrado.")
+        
+        with col_g2:
+            if riscos_periodo:
+                processos_count = {}
+                for r in riscos_periodo:
+                    if r.processo: processos_count[r.processo] = processos_count.get(r.processo, 0) + 1
+                
+                if processos_count:
+                    labels = list(processos_count.keys())
+                    valores = list(processos_count.values())
+                    cores = ['#1E3A8A', '#F59E0B', '#10B981', '#8B5CF6', '#06B6D4', '#EF4444']
+                    
+                    fig = go.Figure(go.Pie(
+                        labels=labels, values=valores, hole=0,
+                        marker=dict(colors=cores[:len(labels)], line=dict(color='white', width=2)),
+                        textinfo='percent', textfont=dict(size=14, color='white', weight='bold'),
+                        sort=False, direction='clockwise'
+                    ))
+                    fig.update_layout(
+                        margin=dict(l=0, r=0, t=10, b=10), height=280,
+                        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.0, font=dict(size=11)),
+                        plot_bgcolor='white', paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("📭 Nenhuma origem registrada.")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # 4. PAINEL 3: TABELA
+        st.markdown(f"""
+        <div style="background: #0B2545; padding: 10px 16px; border-radius: 8px 8px 0 0; margin-top: 10px;">
+            <div style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: white; text-transform: uppercase;">
+                PAINEL DE RISCO DA QUALIDADE – LUVIDARTE
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        c1, c2, c3, c4 = st.columns(4)
+        f_proc = c1.selectbox("Processo", ["(Todos)"] + OPCOES_PROCESSO, key="dash_f1")
+        f_imp = c2.selectbox("Impacto", ["(Todos)"] + OPCOES_IMPACTO, key="dash_f2")
+        f_sit = c3.selectbox("Situação", ["(Todos)"] + OPCOES_SITUACAO, key="dash_f3")
+        f_bus = c4.text_input("Buscar", key="dash_f4")
+        
+        riscos_filtrados = carregar_riscos({'processo': f_proc, 'impacto': f_imp, 'situacao': f_sit, 'busca': f_bus})
+        
+        if riscos_filtrados:
+            dados_tab = []
+            for r in riscos_filtrados:
+                icone = icone_situacao(r.situacao, r.percentual)
+                dados_tab.append({
+                    "#": r.id, "Problema / Defeito": r.defeito, "Processo": r.processo, 
+                    "Impacto": r.impacto, "Frequência": r.frequencia, "Cliente": r.cliente, 
+                    "Causa Raiz (em análise)": r.causa_raiz, "Ação / Contenção Atual": r.acao_contencao, 
+                    "Responsável": r.responsavel, "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-",
+                    "Situação": f"{icone} {r.situacao} ({r.percentual}%)"
+                })
+            df_riscos = pd.DataFrame(dados_tab)
+            
+            def style_risco(row):
+                styles = [''] * len(row)
+                idx_imp = row.index.get_loc('Impacto')
+                imp = row['Impacto'].lower()
+                if imp == 'alto': styles[idx_imp] = 'background-color: #E81123; color: white; font-weight: bold; text-align: center; border-radius: 4px;'
+                elif imp == 'médio': styles[idx_imp] = 'background-color: #FFB900; color: #333; font-weight: bold; text-align: center; border-radius: 4px;'
+                elif imp == 'baixo': styles[idx_imp] = 'background-color: #107C10; color: white; font-weight: bold; text-align: center; border-radius: 4px;'
+                return styles
+            
+            st.dataframe(df_riscos.style.apply(style_risco, axis=1), use_container_width=True, hide_index=True, height=400)
+        else:
+            st.info("📭 Nenhum risco cadastrado ou encontrado com os filtros.")
+            
+        # 5. RODAPÉ DO PAINEL (Resumo, Impacto, Prioridades)
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_b1, col_b2, col_b3 = st.columns(3)
+        
+        with col_b1:
+            tot_c = criticos + atencao + controlados
+            pc = (criticos / tot_c * 100) if tot_c else 0
+            pa = (atencao / tot_c * 100) if tot_c else 0
+            pcl = (controlados / tot_c * 100) if tot_c else 0
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">📊 RESUMO DO RISCO</div><div style="font-size: 32px; font-weight: 700; color: #0B2545; margin-bottom: 12px;">{tot_c} <span style="font-size: 12px; color: #64748B; font-weight: normal;">problemas acompanhados</span></div><div style="display: flex; justify-content: space-between; background: #FEE2E2; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px;"><span style="color: #991B1B; font-size: 12px; font-weight: 600;">🔴 Crítico</span><span style="color: #991B1B; font-size: 12px; font-weight: 700;">{criticos} ({pc:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #FEF3C7; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px;"><span style="color: #92400E; font-size: 12px; font-weight: 600;">🟡 Atenção</span><span style="color: #92400E; font-size: 12px; font-weight: 700;">{atencao} ({pa:.0f}%)</span></div><div style="display: flex; justify-content: space-between; background: #D1FAE5; padding: 6px 10px; border-radius: 6px;"><span style="color: #065F46; font-size: 12px; font-weight: 600;">🟢 Controlado</span><span style="color: #065F46; font-size: 12px; font-weight: 700;">{controlados} ({pcl:.0f}%)</span></div></div>""", unsafe_allow_html=True)
+        
+        with col_b2:
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">⚠️ IMPACTO NO CLIENTE</div><div style="background: #FEE2E2; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 12px; color: #991B1B; font-weight: 600;">❗ Defeitos que podem afetar o cliente</div><div style="font-size: 11px; color: #B91C1C; margin-top: 4px;">({(riscos_cliente/max(1,tot_c)*100):.0f}% do total)</div></div><span style="font-size: 24px; font-weight: 700; color: #991B1B;">{riscos_cliente}</span></div><div style="background: #D1FAE5; padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 12px; color: #065F46; font-weight: 600;">✅ Sem impacto no cliente (interno)</div><div style="font-size: 11px; color: #047857; margin-top: 4px;">({((tot_c-riscos_cliente)/max(1,tot_c)*100):.0f}% do total)</div></div><span style="font-size: 24px; font-weight: 700; color: #065F46;">{tot_c - riscos_cliente}</span></div></div>""", unsafe_allow_html=True)
+        
+        with col_b3:
+            r_top = sorted(riscos_periodo, key=lambda r: ({"Crítico": 3, "Atenção": 2, "Controlado": 1}.get(classificar_risco(r.impacto, r.frequencia, r.cliente), 0), -r.percentual), reverse=True)[:5]
+            html_prior = "".join([f"<div style='display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #F1F5F9;'><div style='width: 22px; height: 22px; border-radius: 50%; background: #F59E0B; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;'>{i}</div><div style='font-size: 12px; color: #1E293B; font-weight: 500;'>{r.defeito} no {r.processo.lower()}</div></div>" for i, r in enumerate(r_top, 1)])
+            if not r_top: html_prior = '<div style="text-align: center; color: #94A3B8; padding: 20px;">Nenhum risco cadastrado</div>'
+            st.markdown(f"""<div style="background: white; border-radius: 12px; padding: 16px; border: 1px solid #E2E8F0; height: 100%;"><div style="font-size: 14px; font-weight: 700; color: #0B2545; border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">🎯 PRIORIDADES DO MÊS</div>{html_prior}</div>""", unsafe_allow_html=True)
+
+    # ==================================================================================
+    # ABA: LISTA COMPLETA
+    # ==================================================================================
+    elif st.session_state.riscos_aba == 'LISTA':
+        st.markdown("### 📋 Lista Completa de Riscos")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        f_proc = c1.selectbox("🏭 Processo", ["(Todos)"] + OPCOES_PROCESSO, key="list_f1")
+        f_imp = c2.selectbox("⚠️ Impacto", ["(Todos)"] + OPCOES_IMPACTO, key="list_f2")
+        f_sit = c3.selectbox("📊 Situação", ["(Todos)"] + OPCOES_SITUACAO, key="list_f3")
+        f_bus = c4.text_input("🔎 Buscar", key="list_f4")
+        
+        riscos_lista = carregar_riscos({'processo': f_proc, 'impacto': f_imp, 'situacao': f_sit, 'busca': f_bus})
+        
+        ck1, ck2, ck3, ck4 = st.columns(4)
+        ck1.metric("📋 Total Filtrado", len(riscos_lista))
+        ck2.metric("🔴 Críticos", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Crítico"]))
+        ck3.metric("🟡 Atenção", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Atenção"]))
+        ck4.metric("🟢 Controlados", len([r for r in riscos_lista if classificar_risco(r.impacto, r.frequencia, r.cliente) == "Controlado"]))
+        st.markdown("---")
+        
+        if riscos_lista:
+            dados_l = [{"#": r.id, "Data": r.data.strftime('%d/%m/%Y') if r.data else "-", "Defeito": r.defeito, "Processo": r.processo, "Impacto": r.impacto, "Cliente": r.cliente, "Responsável": r.responsavel, "Prazo": r.prazo.strftime('%d/%m/%Y') if r.prazo else "-", "Situação": r.situacao} for r in riscos_lista]
+            st.dataframe(pd.DataFrame(dados_l), use_container_width=True, hide_index=True)
+            
+            st.markdown("### 🔧 Ações")
+            opcoes_ids = [f"#{r.id} - {r.defeito}" for r in riscos_lista]
+            
+            cs1, cs2, cs3 = st.columns([3, 1, 1])
+            sel = cs1.selectbox("Selecione um risco:", opcoes_ids, key="list_sel")
+            
+            if sel:
+                id_sel = int(sel.split(" - ")[0].replace("#", ""))
+                risco_sel = next((r for r in riscos_lista if r.id == id_sel), None)
+                
+                if risco_sel:
+                    cs2.markdown("<br>", unsafe_allow_html=True)
+                    if cs2.button("✏️ Editar", use_container_width=True):
+                        st.session_state.riscos_editando = risco_sel
+                        st.session_state.riscos_aba = 'NOVO'
+                        st.rerun()
+                    
+                    cs3.markdown("<br>", unsafe_allow_html=True)
+                    if cs3.button("🗑️ Excluir", use_container_width=True):
+                        st.session_state.riscos_excluindo = id_sel
+                        st.rerun()
+            
+            if st.session_state.riscos_excluindo:
+                st.error(f"⚠️ Confirmar exclusão do Risco #{st.session_state.riscos_excluindo}?")
+                if st.checkbox("Sim, desejo excluir"):
+                    if st.button("🗑️ EXCLUIR DEFINITIVAMENTE", type="primary"):
+                        sucesso, msg = excluir_risco(st.session_state.riscos_excluindo)
+                        if sucesso:
+                            st.success(msg)
+                            st.session_state.riscos_excluindo = None
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+        else:
+            st.info("📭 Nenhum risco encontrado.")
+    
+    # ==================================================================================
+    # ABA: NOVO/EDITAR
+    # ==================================================================================
+    elif st.session_state.riscos_aba == 'NOVO':
+        editando = st.session_state.riscos_editando
+        st.markdown(f"### {'✏️ Editando Risco #' + str(editando.id) if editando else '➕ Novo Risco da Qualidade'}")
+        
+        with st.form("form_risco"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📋 Dados do Risco")
+                if editando:
+                    st.text_input("ID", value=str(editando.id), disabled=True)
+                    proximo_id = editando.id
+                else:
+                    proximo_id = obter_proximo_id_risco()
+                    st.text_input("ID (automático)", value=str(proximo_id), disabled=True)
+                    
+                data_form = st.date_input("📅 Data do Registro*", value=editando.data.date() if editando and editando.data else datetime.now().date())
+                defeito_form = st.text_input("⚠️ Defeito*", value=editando.defeito if editando else "", placeholder="Ex: Bolha, Pedra...")
+                processo_form = st.selectbox("🏭 Processo*", options=OPCOES_PROCESSO, index=OPCOES_PROCESSO.index(editando.processo) if editando and editando.processo in OPCOES_PROCESSO else 0)
+                
+                st.markdown("#### ⚠️ Classificação")
+                impacto_form = st.selectbox("Impacto*", OPCOES_IMPACTO, index=OPCOES_IMPACTO.index(editando.impacto) if editando and editando.impacto in OPCOES_IMPACTO else 1)
+                frequencia_form = st.selectbox("Frequência*", OPCOES_FREQUENCIA, index=OPCOES_FREQUENCIA.index(editando.frequencia) if editando and editando.frequencia in OPCOES_FREQUENCIA else 1)
+                cliente_form = st.selectbox("Afeta o Cliente?*", OPCOES_CLIENTE, index=OPCOES_CLIENTE.index(editando.cliente) if editando and editando.cliente in OPCOES_CLIENTE else 1)
+            
+            with col2:
+                st.markdown("#### 🔍 Análise e Ações")
+                causa_raiz_form = st.text_area("Causa Raiz (em análise)", value=editando.causa_raiz if editando else "", height=100)
+                acao_form = st.text_area("Ação / Contenção Atual", value=editando.acao_contencao if editando else "", height=100)
+                responsavel_form = st.text_input("Responsável*", value=editando.responsavel if editando else "", placeholder="Ex: Produção (Resp. Carlos)")
+                prazo_form = st.date_input("📅 Prazo", value=editando.prazo.date() if editando and editando.prazo else datetime.now().date() + timedelta(days=30))
+                
+                st.markdown("#### 📊 Situação")
+                situacao_form = st.selectbox("Situação*", OPCOES_SITUACAO, index=OPCOES_SITUACAO.index(editando.situacao) if editando and editando.situacao in OPCOES_SITUACAO else 0)
+                percentual_form = st.slider("Percentual de Conclusão (%)", 0, 100, value=editando.percentual if editando else 0, step=5)
+            
+            st.markdown("---")
+            cls_prev = classificar_risco(impacto_form, frequencia_form, cliente_form)
+            if cls_prev == "Crítico": st.error(f"🔴 Classificação: {cls_prev}")
+            elif cls_prev == "Atenção": st.warning(f"🟡 Classificação: {cls_prev}")
+            else: st.success(f"🟢 Classificação: {cls_prev}")
+            
+            cb1, cb2, cb3 = st.columns([1, 2, 1])
+            submitted = cb2.form_submit_button("💾 SALVAR" if not editando else "💾 ATUALIZAR", type="primary", use_container_width=True)
+            
+            if submitted:
+                if not defeito_form or not responsavel_form:
+                    st.error("❌ Preencha Defeito e Responsável!")
+                else:
+                    reg = RegistroRisco(
+                        id=proximo_id, data=datetime.combine(data_form, datetime.min.time()),
+                        defeito=defeito_form.strip(), processo=processo_form, impacto=impacto_form,
+                        frequencia=frequencia_form, cliente=cliente_form, causa_raiz=causa_raiz_form.strip(),
+                        acao_contencao=acao_form.strip(), responsavel=responsavel_form.strip(),
+                        prazo=datetime.combine(prazo_form, datetime.min.time()) if prazo_form else None,
+                        situacao=situacao_form, percentual=percentual_form
+                    )
+                    sucesso, msg = salvar_risco(reg, eh_alteracao=bool(editando))
+                    if sucesso:
+                        st.success(msg)
+                        st.session_state.riscos_editando = None
+                        st.session_state.riscos_aba = 'DASHBOARD'
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        
+        if editando and st.button("❌ Cancelar Edição", use_container_width=True):
+            st.session_state.riscos_editando = None
+            st.session_state.riscos_aba = 'DASHBOARD'
+            st.rerun()
+
+    # ======================
+    # FOOTER
+    # ======================
+    st.markdown(f"""
+    <div style="text-align:right;padding:16px 0 8px;
+        font-family:'JetBrains Mono',monospace;font-size:10px;
+        color:{THEME['text_muted']};letter-spacing:.1em;">
+        ⚠️ PAINEL DE RISCOS DA QUALIDADE · {get_horario_brasilia()}
+    </div>
     """, unsafe_allow_html=True)    
+    
 # ==================================================================================================
 # RENDERIZAR FAIXA DE ROLAGEM
 # ==================================================================================================
