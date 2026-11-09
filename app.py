@@ -10981,32 +10981,21 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         - Se o CÓDIGO termina em '1' → usa APROVADO
         - Caso contrário → usa APROVADO (fallback seguro)
         """
-        codigo_raw = row.get('CÓDIGO', row.get('CODIGO', ''))
+        codigo_raw = row.get('CÓDIGO', '')
         
-        # Limpeza agressiva: transforma em string e remove tudo que não for número
-        if pd.isna(codigo_raw):
-            codigo_limpo = ""
-        else:
-            # Se for float (ex: 1132041700.0), converte para inteiro primeiro
-            if isinstance(codigo_raw, float) and codigo_raw.is_integer():
-                codigo_raw = int(codigo_raw)
-            
-            codigo_str = str(codigo_raw).strip()
-            # Mantém apenas dígitos (remove pontos, traços, espaços, etc)
-            codigo_limpo = "".join(filter(str.isdigit, codigo_str))
+        # Como forçamos a coluna a ser string no Pandas, aqui é garantido que será texto limpo
+        codigo = str(codigo_raw).strip()
 
-        if not codigo_limpo:
-            # Se não sobrou nenhum número, fallback para APROVADO
+        if not codigo or codigo.lower() in ('nan', 'none', ''):
             return row.get('APROVADO', 0)
 
-        ultimo_digito = codigo_limpo[-1]
+        ultimo_digito = codigo[-1]
 
         if ultimo_digito == '0':
             return row.get('APROVADO FINAL', row.get('APROVADO', 0))
         elif ultimo_digito == '1':
             return row.get('APROVADO', 0)
         else:
-            # Fallback para códigos que terminam com outros números
             return row.get('APROVADO', 0)
 
     # ======================
@@ -11224,10 +11213,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 df_calc["APROVADO FINAL"] = df_calc.get("APROVADO", 0)
             if "APROVADO" not in df_calc.columns:
                 df_calc["APROVADO"] = 0
-            if "CÓDIGO" not in df_calc.columns and "CODIGO" in df_calc.columns:
-                df_calc["CÓDIGO"] = df_calc["CODIGO"]
-            if "CÓDIGO" not in df_calc.columns:
-                df_calc["CÓDIGO"] = ""
 
             df_calc["APROVADO"] = pd.to_numeric(df_calc["APROVADO"], errors="coerce").fillna(0)
             df_calc["APROVADO FINAL"] = pd.to_numeric(df_calc["APROVADO FINAL"], errors="coerce").fillna(0)
@@ -11438,6 +11423,17 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
             df_relatorio = df_filtrado.copy()
 
+            # ===== TRATAMENTO CRÍTICO: FORÇAR CÓDIGO A SER STRING =====
+            if "CÓDIGO" not in df_relatorio.columns and "CODIGO" in df_relatorio.columns:
+                df_relatorio["CÓDIGO"] = df_relatorio["CODIGO"]
+            elif "CÓDIGO" not in df_relatorio.columns:
+                df_relatorio["CÓDIGO"] = ""
+
+            # A MÁGICA ACONTECE AQUI: Força a coluna a ser lida como texto, removendo o ".0" 
+            df_relatorio["CÓDIGO"] = df_relatorio["CÓDIGO"].apply(
+                lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x)
+            )
+
             # Garantir colunas necessárias
             colunas_necessarias = ["DATA", "TURNO", "REFERÊNCIA", "TRS 100%", "APROVADO", "HORAS TOTAIS", "ACERTOS", "MANUT."]
             for col in colunas_necessarias:
@@ -11465,10 +11461,6 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 df_relatorio["APROVADO FINAL"] = df_relatorio.get("APROVADO", 0)
             if "APROVADO" not in df_relatorio.columns:
                 df_relatorio["APROVADO"] = 0
-            if "CÓDIGO" not in df_relatorio.columns and "CODIGO" in df_relatorio.columns:
-                df_relatorio["CÓDIGO"] = df_relatorio["CODIGO"]
-            elif "CÓDIGO" not in df_relatorio.columns:
-                df_relatorio["CÓDIGO"] = ""
 
             df_relatorio["APROVADO"] = pd.to_numeric(df_relatorio["APROVADO"], errors="coerce").fillna(0)
             df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["APROVADO FINAL"], errors="coerce").fillna(0)
@@ -11476,11 +11468,8 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_relatorio["APROVADO_CALC"] = df_relatorio.apply(obter_aprovado_por_codigo, axis=1)
 
             # Contadores de auditoria
-            codigos_str = df_relatorio["CÓDIGO"].apply(
-                lambda x: str(int(x)).strip() if isinstance(x, (int, float)) and not pd.isna(x) else str(x).strip()
-            )
-            qtd_final_0 = int((codigos_str.str[-1] == "0").sum())
-            qtd_final_1 = int((codigos_str.str[-1] == "1").sum())
+            qtd_final_0 = int((df_relatorio["CÓDIGO"].str[-1] == "0").sum())
+            qtd_final_1 = int((df_relatorio["CÓDIGO"].str[-1] == "1").sum())
             qtd_outros = int(len(df_relatorio) - qtd_final_0 - qtd_final_1)
 
             # Horas programadas
