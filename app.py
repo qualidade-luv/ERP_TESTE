@@ -10983,25 +10983,30 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         """
         codigo_raw = row.get('CÓDIGO', row.get('CODIGO', ''))
         
-        # Converte para string de forma segura, tratando o problema do Pandas transformar em float
+        # Limpeza agressiva: transforma em string e remove tudo que não for número
         if pd.isna(codigo_raw):
-            codigo = ""
-        elif isinstance(codigo_raw, (int, float)):
-            codigo = str(int(codigo_raw)).strip()
+            codigo_limpo = ""
         else:
-            codigo = str(codigo_raw).strip()
+            # Se for float (ex: 1132041700.0), converte para inteiro primeiro
+            if isinstance(codigo_raw, float) and codigo_raw.is_integer():
+                codigo_raw = int(codigo_raw)
+            
+            codigo_str = str(codigo_raw).strip()
+            # Mantém apenas dígitos (remove pontos, traços, espaços, etc)
+            codigo_limpo = "".join(filter(str.isdigit, codigo_str))
 
-        if not codigo or codigo.lower() in ('nan', 'none', ''):
+        if not codigo_limpo:
+            # Se não sobrou nenhum número, fallback para APROVADO
             return row.get('APROVADO', 0)
 
-        ultimo_digito = codigo[-1]
+        ultimo_digito = codigo_limpo[-1]
 
         if ultimo_digito == '0':
             return row.get('APROVADO FINAL', row.get('APROVADO', 0))
         elif ultimo_digito == '1':
             return row.get('APROVADO', 0)
         else:
-            # Fallback para códigos que terminam com outros números ou letras
+            # Fallback para códigos que terminam com outros números
             return row.get('APROVADO', 0)
 
     # ======================
@@ -11265,7 +11270,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                     row["TURNO"],
                     row["REFERÊNCIA"],
                     f"{row['META']:,.0f}",
-                    f"{row['APROVADO_CALC']:,.0f}",   # <-- regra aplicada
+                    f"{row['APROVADO_CALC']:,.0f}",   # <-- regra aplicada no PDF
                     f"{row['TRS_EXCESSO']:.2f}%",
                     horas_totais_str,
                     horas_programadas_str
@@ -11273,7 +11278,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
 
             # Totais
             total_meta = df_filtrado['META'].sum()
-            total_aprovado = df_filtrado['APROVADO_CALC'].sum()   # <-- regra aplicada
+            total_aprovado = df_filtrado['APROVADO_CALC'].sum()   # <-- regra aplicada no PDF
             total_media_excesso = df_filtrado['TRS_EXCESSO'].mean()
             total_horas_trabalhadas = df_filtrado['HORAS_TOTAIS_DEC'].sum()
             total_horas_programadas = df_filtrado['HORAS_PROGRAMADAS_CALC'].sum()
@@ -11517,28 +11522,19 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                         lambda x: f"{int(x):02d}:{int((x % 1) * 60):02d}"
                     )
 
-                    colunas_preview = [
-                        "DATA", "TURNO", "REFERÊNCIA", "META", "APROVADO_CALC",
-                        "TRS_EXCESSO", "HORAS_TRABALHADAS_STR", "HORAS_PROGRAMADAS_STR"
-                    ]
-                    df_preview_display = df_preview[colunas_preview].copy()
+                    # Criar DataFrame exclusivo para exibição (evita conflito de nomes)
+                    df_preview_display = pd.DataFrame()
+                    df_preview_display["DATA"] = pd.to_datetime(df_preview["DATA"]).dt.strftime("%d/%m/%Y")
+                    df_preview_display["TURNO"] = df_preview["TURNO"]
+                    df_preview_display["REFERÊNCIA"] = df_preview["REFERÊNCIA"]
+                    df_preview_display["META (TRS 100%)"] = df_preview["META"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    df_preview_display["APROVADO UTILIZADO"] = df_preview["APROVADO_CALC"].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                    df_preview_display["TRS % (Excesso)"] = df_preview["TRS_EXCESSO"].apply(lambda x: f"{x:.2f}%" if x > 0 else "0.00%")
+                    df_preview_display["HORAS TRABALHADAS"] = df_preview["HORAS_TRABALHADAS_STR"]
+                    df_preview_display["HORAS PROGRAMADAS"] = df_preview["HORAS_PROGRAMADAS_STR"]
 
-                    df_preview_display.columns = [
-                        "DATA", "TURNO", "REFERÊNCIA", "META (TRS 100%)", "APROVADO",
-                        "TRS % (Excesso)", "HORAS TRABALHADAS", "HORAS PROGRAMADAS"
-                    ]
-
-                    df_preview_display["TRS % (Excesso)"] = df_preview_display["TRS % (Excesso)"].apply(
-                        lambda x: f"{x:.2f}%" if x > 0 else "0.00%"
-                    )
-                    df_preview_display["DATA"] = pd.to_datetime(df_preview_display["DATA"]).dt.strftime("%d/%m/%Y")
-
-                    for col in ["META (TRS 100%)", "APROVADO"]:
-                        df_preview_display[col] = df_preview_display[col].apply(
-                            lambda x: f"{x:,.0f}".replace(",", ".")
-                        )
-
-                    df_preview_display = df_preview_display[df_preview_display["TRS % (Excesso)"] != "0.00%"]
+                    # Filtra apenas as linhas com TRS > 100%
+                    df_preview_display = df_preview_display[df_preview["TRS_%"] > 100]
 
                     st.dataframe(df_preview_display.head(20), use_container_width=True, hide_index=True)
                     st.caption(f"Total: {len(df_relatorio)} registros | Exibindo apenas registros com TRS > 100%")
@@ -11573,7 +11569,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         - **TURNO**: Turno de produção (M, T, N)
         - **REFERÊNCIA**: Código da referência produzida
         - **META (TRS 100%)**: Meta de produção para TRS 100%
-        - **APROVADO**: Quantidade aprovada (calculada pela regra do final do código)
+        - **APROVADO UTILIZADO**: Quantidade aprovada (calculada pela regra do final do código)
         - **TRS % (Excesso)**: Percentual que excedeu 100%
         - **HORAS TRABALHADAS**: Horas efetivamente trabalhadas
         - **HORAS PROGRAMADAS**: Se ACERTOS = 02:45:00, considera 05:00:00; caso contrário, HORAS TOTAIS + ACERTOS + MANUT + 15 min
