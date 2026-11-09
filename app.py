@@ -10981,9 +10981,17 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         - Se o CÓDIGO termina em '1' → usa APROVADO
         - Caso contrário → usa APROVADO (fallback seguro)
         """
-        codigo = str(row.get('CÓDIGO', row.get('CODIGO', ''))).strip()
+        codigo_raw = row.get('CÓDIGO', row.get('CODIGO', ''))
+        
+        # Converte para string de forma segura, tratando o problema do Pandas transformar em float
+        if pd.isna(codigo_raw):
+            codigo = ""
+        elif isinstance(codigo_raw, (int, float)):
+            codigo = str(int(codigo_raw)).strip()
+        else:
+            codigo = str(codigo_raw).strip()
 
-        if not codigo or codigo.lower() in ('nan', 'none'):
+        if not codigo or codigo.lower() in ('nan', 'none', ''):
             return row.get('APROVADO', 0)
 
         ultimo_digito = codigo[-1]
@@ -10993,6 +11001,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         elif ultimo_digito == '1':
             return row.get('APROVADO', 0)
         else:
+            # Fallback para códigos que terminam com outros números ou letras
             return row.get('APROVADO', 0)
 
     # ======================
@@ -11040,6 +11049,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             if fmt in time_str:
                 return True
 
+        from datetime import time as dt_time
         if isinstance(time_val, dt_time):
             if time_val.hour == 2 and time_val.minute == 45 and time_val.second == 0:
                 return True
@@ -11461,7 +11471,9 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             df_relatorio["APROVADO_CALC"] = df_relatorio.apply(obter_aprovado_por_codigo, axis=1)
 
             # Contadores de auditoria
-            codigos_str = df_relatorio["CÓDIGO"].astype(str).str.strip()
+            codigos_str = df_relatorio["CÓDIGO"].apply(
+                lambda x: str(int(x)).strip() if isinstance(x, (int, float)) and not pd.isna(x) else str(x).strip()
+            )
             qtd_final_0 = int((codigos_str.str[-1] == "0").sum())
             qtd_final_1 = int((codigos_str.str[-1] == "1").sum())
             qtd_outros = int(len(df_relatorio) - qtd_final_0 - qtd_final_1)
