@@ -10936,58 +10936,86 @@ elif aba_selecionada == 'MAPEAMENTO DE HABILIDADES':
 elif aba_selecionada == 'PRÊMIO PRENSADOS':
     # ===== VERIFICAÇÃO DE ACESSO - APENAS NÍVEL 0 =====
     nivel_usuario = st.session_state.get('nivel', '')
-    
+
     if nivel_usuario != '0':
         st.error("⛔ **ACESSO NEGADO**")
         st.warning(f"""
         Esta seção é restrita a usuários com **Nível 0** (Administradores).
-        
+
         **Seu nível atual:** `{nivel_usuario if nivel_usuario else 'Não definido'}`
-        
+
         Para acessar esta funcionalidade, entre em contato com um administrador do sistema.
         """)
         if st.button("🔙 Voltar para página inicial"):
             st.rerun()
         st.stop()
-    
+
     # ===== SE PASSOU NA VERIFICAÇÃO, EXECUTA O MÓDULO =====
-    render_page_header("PRÊMIO PRENSADOS", f"Relatório de Prêmio · Atualizado {get_horario_brasilia()}", THEME['accent_lime'])
-    
+    render_page_header(
+        "PRÊMIO PRENSADOS",
+        f"Relatório de Prêmio · Atualizado {get_horario_brasilia()}",
+        THEME['accent_lime']
+    )
+
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, {THEME['bg_card']} 0%, {THEME['bg_card2']} 100%); 
-                padding: 15px 20px; border-radius: 10px; 
+    <div style="background: linear-gradient(135deg, {THEME['bg_card']} 0%, {THEME['bg_card2']} 100%);
+                padding: 15px 20px; border-radius: 10px;
                 border-left: 4px solid {THEME['accent_lime']}; margin: 10px 0 20px 0;">
         <span style="font-size: 18px; margin-right: 10px;">📊</span>
         <span style="font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: bold; color: {THEME['accent_lime']};">
             GERADOR DE RELATÓRIO DE PRÊMIO
         </span>
         <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {THEME['text_muted']}; margin-left: 15px;">
-            Apenas registros com TRS > 100%
+            Apenas registros com TRS > 100% (regra por final do código)
         </span>
     </div>
     """, unsafe_allow_html=True)
-    
+
     # ======================
-    # FUNÇÃO PARA CONVERTER TIME PARA HORAS DECIMAIS (LOCAL)
+    # REGRA DE NEGÓCIO — FINAL DO CÓDIGO DEFINE A COLUNA DE APROVADO
+    # ======================
+    def obter_aprovado_por_codigo(row):
+        """
+        Regra de negócio:
+        - Se o CÓDIGO termina em '0' → usa APROVADO FINAL
+        - Se o CÓDIGO termina em '1' → usa APROVADO
+        - Caso contrário → usa APROVADO (fallback seguro)
+        """
+        codigo = str(row.get('CÓDIGO', row.get('CODIGO', ''))).strip()
+
+        if not codigo or codigo.lower() in ('nan', 'none'):
+            return row.get('APROVADO', 0)
+
+        ultimo_digito = codigo[-1]
+
+        if ultimo_digito == '0':
+            return row.get('APROVADO FINAL', row.get('APROVADO', 0))
+        elif ultimo_digito == '1':
+            return row.get('APROVADO', 0)
+        else:
+            return row.get('APROVADO', 0)
+
+    # ======================
+    # FUNÇÃO AUXILIAR: CONVERSÃO DE TIME PARA HORAS DECIMAIS
     # ======================
     def time_to_decimal_local(time_val):
         """Converte time para horas decimais"""
         from datetime import time as dt_time
-        
+
         if pd.isna(time_val):
             return 0.0
         if isinstance(time_val, dt_time):
-            return time_val.hour + time_val.minute/60 + time_val.second/3600
+            return time_val.hour + time_val.minute / 60 + time_val.second / 3600
         if isinstance(time_val, datetime):
-            return time_val.hour + time_val.minute/60 + time_val.second/3600
+            return time_val.hour + time_val.minute / 60 + time_val.second / 3600
         if isinstance(time_val, pd.Timestamp):
-            return time_val.hour + time_val.minute/60 + time_val.second/3600
+            return time_val.hour + time_val.minute / 60 + time_val.second / 3600
         if isinstance(time_val, str):
             try:
                 for fmt in ["%H:%M:%S", "%H:%M", "%H:%M:%S.%f"]:
                     try:
                         t = datetime.strptime(time_val, fmt)
-                        return t.hour + t.minute/60 + t.second/3600
+                        return t.hour + t.minute / 60 + t.second / 3600
                     except:
                         continue
                 return float(time_val)
@@ -10997,92 +11025,88 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             return float(time_val)
         except:
             return 0.0
-    
+
     # ======================
-    # FUNÇÃO PARA VERIFICAR SE ACERTOS É 02:45:00
+    # REGRA: ACERTOS = 02:45:00 → HORAS PROGRAMADAS = 05:00:00
     # ======================
     def is_acertos_245(time_val):
         """Verifica se o valor de ACERTOS é 02:45:00"""
         if pd.isna(time_val):
             return False
-        
-        # Converter para string para comparação
+
         time_str = str(time_val).strip()
-        
-        # Verificar se é 02:45:00 em diferentes formatos
         formatos_245 = ["02:45:00", "2:45:00", "02:45", "2:45"]
         for fmt in formatos_245:
             if fmt in time_str:
                 return True
-        
-        # Verificar se é um objeto time com 2:45
+
         if isinstance(time_val, dt_time):
             if time_val.hour == 2 and time_val.minute == 45 and time_val.second == 0:
                 return True
-        
+
         return False
-    
-    # ======================
-    # FUNÇÃO PARA CALCULAR HORAS PROGRAMADAS COM REGRA ESPECIAL
-    # ======================
+
     def calcular_horas_programadas(row):
         """
         Calcula as horas programadas.
-        Se ACERTOS = 02:45:00, retorna 5.0 horas (05:00:00)
-        Caso contrário, usa: HORAS_TOTAIS_DEC + ACERTOS_DEC + MANUT_DEC + 0.25
+        Se ACERTOS = 02:45:00 → retorna 5.0 horas (05:00:00)
+        Caso contrário → HORAS_TOTAIS_DEC + ACERTOS_DEC + MANUT_DEC + 0.25
         """
-        # Verificar se ACERTOS é 02:45:00
         if 'ACERTOS' in row and is_acertos_245(row['ACERTOS']):
-            return 5.0  # 05:00:00 em horas decimais
-        
-        # Caso contrário, calcula normalmente
-        return row.get('HORAS_TOTAIS_DEC', 0.0) + row.get('ACERTOS_DEC', 0.0) + row.get('MANUT_DEC', 0.0) + 0.25
-    
+            return 5.0
+
+        return (
+            row.get('HORAS_TOTAIS_DEC', 0.0)
+            + row.get('ACERTOS_DEC', 0.0)
+            + row.get('MANUT_DEC', 0.0)
+            + 0.25
+        )
+
     # ======================
     # FILTROS NA INTERFACE
     # ======================
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-    
+
     with col_f1:
         data_ini = st.date_input(
             "📅 Data Inicial",
             value=datetime.now().date() - timedelta(days=30),
             key="premio_data_ini"
         )
-    
+
     with col_f2:
         data_fim = st.date_input(
             "📅 Data Final",
             value=datetime.now().date(),
             key="premio_data_fim"
         )
-    
+
     with col_f3:
         turno_premio = st.selectbox(
             "🕐 Turno",
             options=["(Todos)", "M", "T", "N"],
             key="premio_turno"
         )
-    
+
     with col_f4:
         prensa_tipo_premio = st.selectbox(
             "🏭 Tipo de Prensa",
             options=["(Todos)", "Semi-Automática", "Automática"],
             key="premio_prensa"
         )
-    
+
     # ======================
     # REFERÊNCIA E OPÇÕES
     # ======================
     col_r1, col_r2 = st.columns([2, 1])
-    
+
     with col_r1:
         referencia_premio = st.text_input(
             "🔍 Referência (parte do código)",
             placeholder="Digite parte da referência para filtrar...",
             key="premio_referencia"
         )
-    
+
     with col_r2:
         st.markdown("<br>", unsafe_allow_html=True)
         gerar_por_mes_premio = st.checkbox(
@@ -11090,7 +11114,7 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             value=False,
             key="premio_separar_mes"
         )
-    
+
     # ======================
     # BOTÃO GERAR RELATÓRIO
     # ======================
@@ -11102,52 +11126,54 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             use_container_width=True,
             key="btn_gerar_premio"
         )
-    
+
     # ======================
-    # FUNÇÃO PARA GERAR RELATÓRIO EM MEMÓRIA (PDF) COM COLUNAS AJUSTADAS
+    # FUNÇÃO PARA GERAR RELATÓRIO EM MEMÓRIA (PDF)
     # ======================
     def gerar_pdf_premio(df_dados, titulo_extra=""):
         """Gera PDF do relatório em memória e retorna os bytes"""
         from io import BytesIO
         from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib.units import cm, mm
+        from reportlab.lib.units import cm
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        
+
         buffer = BytesIO()
-        
-        # Usar orientação paisagem para caber mais colunas
+
         doc = SimpleDocTemplate(
             buffer,
             pagesize=landscape(A4),
-            leftMargin=1.5*cm,
-            rightMargin=1.5*cm,
-            topMargin=1.5*cm,
-            bottomMargin=1.5*cm
+            leftMargin=1.5 * cm,
+            rightMargin=1.5 * cm,
+            topMargin=1.5 * cm,
+            bottomMargin=1.5 * cm
         )
-        
+
         story = []
-        
         styles = getSampleStyleSheet()
+
         style_title = ParagraphStyle(
-            "title", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=14, spaceAfter=12, fontName='Helvetica-Bold'
+            "title", parent=styles["Heading1"], alignment=TA_CENTER,
+            fontSize=14, spaceAfter=12, fontName='Helvetica-Bold'
         )
         style_subtitle = ParagraphStyle(
-            "subtitle", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=10, spaceAfter=8, spaceBefore=10, fontName='Helvetica-Bold'
+            "subtitle", parent=styles["Heading2"], alignment=TA_LEFT,
+            fontSize=10, spaceAfter=8, spaceBefore=10, fontName='Helvetica-Bold'
         )
         style_filter = ParagraphStyle(
-            "filter", parent=styles["Normal"], fontSize=8, alignment=TA_LEFT, spaceAfter=8
+            "filter", parent=styles["Normal"], fontSize=8,
+            alignment=TA_LEFT, spaceAfter=8
         )
-        
-        # TÍTULO - "Prêmio Por Produtividade Prensados"
+
+        # TÍTULO
         titulo = "Prêmio Por Produtividade Prensados"
         if titulo_extra:
             titulo += f" - {titulo_extra}"
         story.append(Paragraph(titulo, style_title))
         story.append(Spacer(1, 0.2 * cm))
-        
+
         # FILTROS
         info_filtros = []
         if prensa_tipo_premio != "(Todos)":
@@ -11165,85 +11191,97 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
         if data_fim:
             info_filtros.append(f"Data final: {data_fim.strftime('%d/%m/%Y')}")
         info_filtros.append("✅ Apenas registros com TRS > 100%")
-        
+        info_filtros.append("📌 Regra: código final 0 → APROVADO FINAL | final 1 → APROVADO")
+
         if info_filtros:
             story.append(Paragraph("Filtros aplicados: " + " | ".join(info_filtros), style_filter))
             story.append(Spacer(1, 0.3 * cm))
-        
-        # ===== FUNÇÃO PARA GERAR TABELA COM COLUNAS AJUSTADAS =====
+
+        # ===== FUNÇÃO INTERNA: MONTAR TABELA =====
         def criar_tabela(df_tabela, titulo_mes=""):
             if df_tabela.empty:
                 return None
-            
-            # Calcular TRS
+
             df_calc = df_tabela.copy()
+
+            # Garantir colunas base
+            if "APROVADO FINAL" not in df_calc.columns:
+                df_calc["APROVADO FINAL"] = df_calc.get("APROVADO", 0)
+            if "APROVADO" not in df_calc.columns:
+                df_calc["APROVADO"] = 0
+            if "CÓDIGO" not in df_calc.columns and "CODIGO" in df_calc.columns:
+                df_calc["CÓDIGO"] = df_calc["CODIGO"]
+            if "CÓDIGO" not in df_calc.columns:
+                df_calc["CÓDIGO"] = ""
+
+            df_calc["APROVADO"] = pd.to_numeric(df_calc["APROVADO"], errors="coerce").fillna(0)
+            df_calc["APROVADO FINAL"] = pd.to_numeric(df_calc["APROVADO FINAL"], errors="coerce").fillna(0)
+
+            # Se por algum motivo APROVADO_CALC não existir, recalcula
+            if "APROVADO_CALC" not in df_calc.columns:
+                df_calc["APROVADO_CALC"] = df_calc.apply(obter_aprovado_por_codigo, axis=1)
+
             df_calc["TRS_%"] = 0.0
-            mask_meta_positiva = df_calc["META"] > 0
-            df_calc.loc[mask_meta_positiva, "TRS_%"] = (df_calc.loc[mask_meta_positiva, "APROVADO"] / df_calc.loc[mask_meta_positiva, "META"] * 100).round(2)
+            mask_meta = df_calc["META"] > 0
+            df_calc.loc[mask_meta, "TRS_%"] = (
+                df_calc.loc[mask_meta, "APROVADO_CALC"] / df_calc.loc[mask_meta, "META"] * 100
+            ).round(2)
+
             df_calc["TRS_EXCESSO"] = 0.0
-            df_calc.loc[mask_meta_positiva, "TRS_EXCESSO"] = (df_calc.loc[mask_meta_positiva, "TRS_%"] - 100).round(2)
+            df_calc.loc[mask_meta, "TRS_EXCESSO"] = (df_calc.loc[mask_meta, "TRS_%"] - 100).round(2)
             df_calc.loc[df_calc["TRS_EXCESSO"] < 0, "TRS_EXCESSO"] = 0
-            df_calc["PRÊMIO"] = df_calc["APROVADO"] - df_calc["META"]
-            
-            # Calcular HORAS PROGRAMADAS com a regra especial
-            # Se ACERTOS = 02:45:00, HORAS PROGRAMADAS = 05:00:00
-            df_calc["HORAS_PROGRAMADAS_CALC"] = df_calc.apply(calcular_horas_programadas, axis=1)
-            
+            df_calc["PRÊMIO"] = df_calc["APROVADO_CALC"] - df_calc["META"]
+
             df_filtrado = df_calc[df_calc["TRS_%"] > 100]
-            
+
             if df_filtrado.empty:
                 return None
-            
-            # Cabeçalhos com quebras de linha para caber melhor
+
             headers = [
-                "DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", 
+                "DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)",
                 "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRABALHADAS", "HORAS\nPROGRAMADAS"
             ]
-            
+
             dados_tabela = [headers]
-            
+
             for _, row in df_filtrado.iterrows():
                 horas_totais = row['HORAS_TOTAIS_DEC']
-                horas_programadas = row['HORAS_PROGRAMADAS_CALC']  # Usar o valor calculado com a regra
+                horas_programadas = row['HORAS_PROGRAMADAS_CALC']
                 horas_totais_str = f"{int(horas_totais):02d}:{int((horas_totais % 1) * 60):02d}"
                 horas_programadas_str = f"{int(horas_programadas):02d}:{int((horas_programadas % 1) * 60):02d}"
-                
+
                 dados_tabela.append([
                     row["DATA"].strftime("%d/%m/%Y"),
                     row["TURNO"],
                     row["REFERÊNCIA"],
                     f"{row['META']:,.0f}",
-                    f"{row['APROVADO']:,.0f}",
+                    f"{row['APROVADO_CALC']:,.0f}",   # <-- regra aplicada
                     f"{row['TRS_EXCESSO']:.2f}%",
                     horas_totais_str,
                     horas_programadas_str
                 ])
-            
+
             # Totais
             total_meta = df_filtrado['META'].sum()
-            total_aprovado = df_filtrado['APROVADO'].sum()
+            total_aprovado = df_filtrado['APROVADO_CALC'].sum()   # <-- regra aplicada
             total_media_excesso = df_filtrado['TRS_EXCESSO'].mean()
             total_horas_trabalhadas = df_filtrado['HORAS_TOTAIS_DEC'].sum()
             total_horas_programadas = df_filtrado['HORAS_PROGRAMADAS_CALC'].sum()
-            
+
             total_horas_trab_str = f"{int(total_horas_trabalhadas):02d}:{int((total_horas_trabalhadas % 1) * 60):02d}"
             total_horas_prog_str = f"{int(total_horas_programadas):02d}:{int((total_horas_programadas % 1) * 60):02d}"
-            
-            linha_total = [
-                "TOTAL",
-                "",
-                "",
+
+            dados_tabela.append([
+                "TOTAL", "", "",
                 f"{total_meta:,.0f}",
                 f"{total_aprovado:,.0f}",
                 f"{total_media_excesso:.2f}%",
                 total_horas_trab_str,
                 total_horas_prog_str
-            ]
-            dados_tabela.append(linha_total)
-            
-            # Larguras das colunas ajustadas para caber na página em paisagem
+            ])
+
             col_widths = [55, 35, 110, 60, 60, 55, 60, 60]
-            
+
             tabela = Table(dados_tabela, hAlign="LEFT", colWidths=col_widths)
             estilo = TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
@@ -11258,26 +11296,24 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ])
-            
-            # Destacar cores
+
             for i, row in enumerate(df_filtrado.itertuples(), start=1):
                 if row.PRÊMIO > 0:
                     estilo.add("TEXTCOLOR", (5, i), (5, i), colors.green)
                 if row.TRS_EXCESSO > 0:
                     estilo.add("TEXTCOLOR", (5, i), (5, i), colors.green)
-            
+
             estilo.add("BACKGROUND", (0, -1), (-1, -1), colors.lightgrey)
             estilo.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
             estilo.add("FONTSIZE", (0, -1), (-1, -1), 8)
             tabela.setStyle(estilo)
-            
+
             return tabela, df_filtrado
-        
+
         # ===== GERAR RELATÓRIO =====
         if gerar_por_mes_premio:
-            # Separar por mês
             meses_disponiveis = sorted(df_dados["MES_ANO"].unique())
-            
+
             total_registros = 0
             total_meta_geral = 0
             total_aprovado_geral = 0
@@ -11285,42 +11321,41 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
             total_horas_prog_geral = 0
             total_excesso_geral = 0
             qtd_meses_com_dados = 0
-            
+
             for mes_str in meses_disponiveis:
                 df_mes = df_dados[df_dados["MES_ANO"] == mes_str].copy()
                 resultado = criar_tabela(df_mes, mes_str)
-                
+
                 if resultado:
                     tabela, df_filtrado = resultado
                     story.append(Paragraph(f"MÊS: {mes_str}", style_subtitle))
                     story.append(tabela)
                     story.append(Spacer(1, 0.3 * cm))
-                    
+
                     total_registros += len(df_filtrado)
                     total_meta_geral += df_filtrado['META'].sum()
-                    total_aprovado_geral += df_filtrado['APROVADO'].sum()
+                    total_aprovado_geral += df_filtrado['APROVADO_CALC'].sum()
                     total_horas_trab_geral += df_filtrado['HORAS_TOTAIS_DEC'].sum()
                     total_horas_prog_geral += df_filtrado['HORAS_PROGRAMADAS_CALC'].sum()
                     total_excesso_geral += df_filtrado['TRS_EXCESSO'].mean()
                     qtd_meses_com_dados += 1
-            
-            # Resumo geral
+
             if qtd_meses_com_dados > 0:
                 story.append(Spacer(1, 0.5 * cm))
                 story.append(Paragraph("-" * 80, styles["Normal"]))
                 story.append(Spacer(1, 0.2 * cm))
                 story.append(Paragraph("RESUMO GERAL DO PERÍODO", style_subtitle))
                 story.append(Spacer(1, 0.2 * cm))
-                
+
                 total_excesso_medio = total_excesso_geral / qtd_meses_com_dados if qtd_meses_com_dados > 0 else 0
                 total_horas_trab_str = f"{int(total_horas_trab_geral):02d}:{int((total_horas_trab_geral % 1) * 60):02d}"
                 total_horas_prog_str = f"{int(total_horas_prog_geral):02d}:{int((total_horas_prog_geral % 1) * 60):02d}"
-                
+
                 dados_resumo = [
                     ["DATA", "TURNO", "REFERÊNCIA", "META\n(TRS 100%)", "APROVADO", "TRS %\n(Excesso)", "HORAS\nTRABALHADAS", "HORAS\nPROGRAMADAS"],
                     ["TOTAL GERAL", "", "", f"{total_meta_geral:,.0f}", f"{total_aprovado_geral:,.0f}", f"{total_excesso_medio:.2f}%", total_horas_trab_str, total_horas_prog_str]
                 ]
-                
+
                 col_widths_resumo = [55, 35, 110, 60, 60, 55, 60, 60]
                 tabela_resumo = Table(dados_resumo, hAlign="LEFT", colWidths=col_widths_resumo)
                 tabela_resumo.setStyle(TableStyle([
@@ -11337,143 +11372,168 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                 ]))
                 story.append(tabela_resumo)
         else:
-            # Relatório consolidado
             resultado = criar_tabela(df_dados)
             if resultado:
                 tabela, df_filtrado = resultado
                 story.append(tabela)
-        
+
         doc.build(story)
         buffer.seek(0)
         return buffer.getvalue()
-    
+
     # ======================
     # PROCESSAR DADOS E GERAR RELATÓRIO
     # ======================
     if gerar_relatorio_btn:
         with st.spinner("🔄 Carregando dados e processando relatório..."):
-            # Carregar dados
             df_base = carregar_dados_prensados()
-            
+
             if df_base.empty:
                 st.error("❌ Não foi possível carregar os dados da planilha.")
                 st.stop()
-            
-            # Aplicar filtros
+
             df_filtrado = df_base.copy()
-            
+
             # Filtro de data
             if data_ini:
                 df_filtrado = df_filtrado[df_filtrado["DATA"] >= pd.to_datetime(data_ini)]
             if data_fim:
                 df_filtrado = df_filtrado[df_filtrado["DATA"] <= pd.to_datetime(data_fim)]
-            
+
             # Filtro de turno
             if turno_premio != "(Todos)" and "TURNO" in df_filtrado.columns:
                 df_filtrado = df_filtrado[df_filtrado["TURNO"] == turno_premio]
-            
+
             # Filtro de referência
             if referencia_premio and "REFERÊNCIA" in df_filtrado.columns:
-                df_filtrado = df_filtrado[df_filtrado["REFERÊNCIA"].fillna('').str.lower().str.contains(referencia_premio.lower())]
-            
+                df_filtrado = df_filtrado[
+                    df_filtrado["REFERÊNCIA"].fillna('').str.lower().str.contains(referencia_premio.lower())
+                ]
+
             # Filtro de tipo de prensa
             if prensa_tipo_premio != "(Todos)" and "BOQUETA" in df_filtrado.columns:
                 if "Semi" in prensa_tipo_premio:
                     df_filtrado = df_filtrado[df_filtrado["BOQUETA"] == 1]
                 elif "Auto" in prensa_tipo_premio:
                     df_filtrado = df_filtrado[df_filtrado["BOQUETA"] == 2]
-            
-            # Verificar se há dados
+
             if df_filtrado.empty:
                 st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
                 st.stop()
-            
-            # Preparar dados para o relatório
+
             df_relatorio = df_filtrado.copy()
-            
-            # Renomear colunas para compatibilidade
-            if "APROVADO FINAL" in df_relatorio.columns:
-                df_relatorio["APROVADO"] = df_relatorio["APROVADO FINAL"]
-            
+
             # Garantir colunas necessárias
             colunas_necessarias = ["DATA", "TURNO", "REFERÊNCIA", "TRS 100%", "APROVADO", "HORAS TOTAIS", "ACERTOS", "MANUT."]
             for col in colunas_necessarias:
                 if col not in df_relatorio.columns:
                     st.error(f"❌ Coluna '{col}' não encontrada na planilha!")
                     st.stop()
-            
-            # Renomear para o formato esperado
+
+            # Renomear TRS 100% → META
             df_relatorio = df_relatorio.rename(columns={"TRS 100%": "META"})
-            
-            # Converter DATA para datetime se não for
+
+            # Converter DATA
             if not pd.api.types.is_datetime64_any_dtype(df_relatorio["DATA"]):
                 df_relatorio["DATA"] = pd.to_datetime(df_relatorio["DATA"])
-            
-            # Criar coluna de mês/ano
+
+            # Coluna MES_ANO
             df_relatorio["MES_ANO"] = df_relatorio["DATA"].dt.strftime("%m/%Y")
-            
-            # Converter horas usando a função local
+
+            # Conversões de tempo
             df_relatorio["HORAS_TOTAIS_DEC"] = df_relatorio["HORAS TOTAIS"].apply(time_to_decimal_local)
             df_relatorio["ACERTOS_DEC"] = df_relatorio["ACERTOS"].apply(time_to_decimal_local)
             df_relatorio["MANUT_DEC"] = df_relatorio["MANUT."].apply(time_to_decimal_local)
-            
-            # Gerar PDF em memória
+
+            # ===== APLICAR REGRA: FINAL DO CÓDIGO DEFINE A COLUNA =====
+            if "APROVADO FINAL" not in df_relatorio.columns:
+                df_relatorio["APROVADO FINAL"] = df_relatorio.get("APROVADO", 0)
+            if "APROVADO" not in df_relatorio.columns:
+                df_relatorio["APROVADO"] = 0
+            if "CÓDIGO" not in df_relatorio.columns and "CODIGO" in df_relatorio.columns:
+                df_relatorio["CÓDIGO"] = df_relatorio["CODIGO"]
+            elif "CÓDIGO" not in df_relatorio.columns:
+                df_relatorio["CÓDIGO"] = ""
+
+            df_relatorio["APROVADO"] = pd.to_numeric(df_relatorio["APROVADO"], errors="coerce").fillna(0)
+            df_relatorio["APROVADO FINAL"] = pd.to_numeric(df_relatorio["APROVADO FINAL"], errors="coerce").fillna(0)
+
+            df_relatorio["APROVADO_CALC"] = df_relatorio.apply(obter_aprovado_por_codigo, axis=1)
+
+            # Contadores de auditoria
+            codigos_str = df_relatorio["CÓDIGO"].astype(str).str.strip()
+            qtd_final_0 = int((codigos_str.str[-1] == "0").sum())
+            qtd_final_1 = int((codigos_str.str[-1] == "1").sum())
+            qtd_outros = int(len(df_relatorio) - qtd_final_0 - qtd_final_1)
+
+            # Horas programadas
+            df_relatorio["HORAS_PROGRAMADAS_CALC"] = df_relatorio.apply(calcular_horas_programadas, axis=1)
+
+            # Gerar PDF
             titulo_extra = f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
             pdf_bytes = gerar_pdf_premio(df_relatorio, titulo_extra)
-            
+
             if pdf_bytes:
                 st.success(f"✅ Relatório gerado com sucesso! {len(df_relatorio)} registros processados.")
-                
-                # Mostrar preview dos dados com as mesmas colunas do relatório
+
+                st.caption(
+                    f"📌 Regra aplicada — Códigos final **0**: {qtd_final_0} registro(s) usando `APROVADO FINAL` | "
+                    f"final **1**: {qtd_final_1} registro(s) usando `APROVADO` | "
+                    f"outros finais: {qtd_outros} registro(s) usando `APROVADO` (fallback)"
+                )
+
+                # ===== PREVIEW =====
                 with st.expander("📋 Preview dos dados processados", expanded=True):
-                    # Criar DataFrame de preview com as mesmas colunas do relatório
                     df_preview = df_relatorio.copy()
-                    
-                    # Calcular métricas para o preview
+
                     df_preview["TRS_%"] = 0.0
                     mask_meta = df_preview["META"] > 0
-                    df_preview.loc[mask_meta, "TRS_%"] = (df_preview.loc[mask_meta, "APROVADO"] / df_preview.loc[mask_meta, "META"] * 100).round(2)
+                    df_preview.loc[mask_meta, "TRS_%"] = (
+                        df_preview.loc[mask_meta, "APROVADO_CALC"] / df_preview.loc[mask_meta, "META"] * 100
+                    ).round(2)
+
                     df_preview["TRS_EXCESSO"] = 0.0
                     df_preview.loc[mask_meta, "TRS_EXCESSO"] = (df_preview.loc[mask_meta, "TRS_%"] - 100).round(2)
                     df_preview.loc[df_preview["TRS_EXCESSO"] < 0, "TRS_EXCESSO"] = 0
-                    
-                    # Calcular HORAS PROGRAMADAS com a regra especial
+
                     df_preview["HORAS_PROGRAMADAS_CALC"] = df_preview.apply(calcular_horas_programadas, axis=1)
-                    
-                    # Formatar horas para exibição
+
                     df_preview["HORAS_TRABALHADAS_STR"] = df_preview["HORAS_TOTAIS_DEC"].apply(
                         lambda x: f"{int(x):02d}:{int((x % 1) * 60):02d}"
                     )
                     df_preview["HORAS_PROGRAMADAS_STR"] = df_preview["HORAS_PROGRAMADAS_CALC"].apply(
                         lambda x: f"{int(x):02d}:{int((x % 1) * 60):02d}"
                     )
-                    
-                    # Selecionar colunas para preview
-                    colunas_preview = ["DATA", "TURNO", "REFERÊNCIA", "META", "APROVADO", "TRS_EXCESSO", "HORAS_TRABALHADAS_STR", "HORAS_PROGRAMADAS_STR"]
+
+                    colunas_preview = [
+                        "DATA", "TURNO", "REFERÊNCIA", "META", "APROVADO_CALC",
+                        "TRS_EXCESSO", "HORAS_TRABALHADAS_STR", "HORAS_PROGRAMADAS_STR"
+                    ]
                     df_preview_display = df_preview[colunas_preview].copy()
-                    
-                    # Renomear colunas para exibição
-                    df_preview_display.columns = ["DATA", "TURNO", "REFERÊNCIA", "META (TRS 100%)", "APROVADO", "TRS % (Excesso)", "HORAS TRABALHADAS", "HORAS PROGRAMADAS"]
-                    
-                    # Formatar a coluna TRS
-                    df_preview_display["TRS % (Excesso)"] = df_preview_display["TRS % (Excesso)"].apply(lambda x: f"{x:.2f}%" if x > 0 else "0.00%")
-                    
-                    # Formatar datas
+
+                    df_preview_display.columns = [
+                        "DATA", "TURNO", "REFERÊNCIA", "META (TRS 100%)", "APROVADO",
+                        "TRS % (Excesso)", "HORAS TRABALHADAS", "HORAS PROGRAMADAS"
+                    ]
+
+                    df_preview_display["TRS % (Excesso)"] = df_preview_display["TRS % (Excesso)"].apply(
+                        lambda x: f"{x:.2f}%" if x > 0 else "0.00%"
+                    )
                     df_preview_display["DATA"] = pd.to_datetime(df_preview_display["DATA"]).dt.strftime("%d/%m/%Y")
-                    
-                    # Formatar números
+
                     for col in ["META (TRS 100%)", "APROVADO"]:
-                        df_preview_display[col] = df_preview_display[col].apply(lambda x: f"{x:,.0f}".replace(",", "."))
-                    
-                    # Filtrar apenas TRS > 100% para o preview
+                        df_preview_display[col] = df_preview_display[col].apply(
+                            lambda x: f"{x:,.0f}".replace(",", ".")
+                        )
+
                     df_preview_display = df_preview_display[df_preview_display["TRS % (Excesso)"] != "0.00%"]
-                    
+
                     st.dataframe(df_preview_display.head(20), use_container_width=True, hide_index=True)
                     st.caption(f"Total: {len(df_relatorio)} registros | Exibindo apenas registros com TRS > 100%")
-                
-                # Botão de download
+
+                # ===== DOWNLOAD =====
                 nome_arquivo = f"Premio_Produtividade_Prensados_{datetime.now().strftime('%Y-%m-%d')}.pdf"
-                
+
                 col_dl1, col_dl2, col_dl3 = st.columns([1, 2, 1])
                 with col_dl2:
                     st.download_button(
@@ -11486,36 +11546,43 @@ elif aba_selecionada == 'PRÊMIO PRENSADOS':
                     )
             else:
                 st.error("❌ Erro ao gerar o relatório PDF.")
-    
+
     # ======================
     # INFORMAÇÕES ADICIONAIS
     # ======================
     with st.expander("ℹ️ Informações sobre o Relatório", expanded=False):
         st.markdown("""
         **📊 O que é este relatório?**
-        
+
         Este relatório gera um documento PDF com os registros de produção que **ultrapassaram 100% de TRS**.
-        
+
         **📋 Colunas do relatório:**
         - **DATA**: Data da produção
         - **TURNO**: Turno de produção (M, T, N)
         - **REFERÊNCIA**: Código da referência produzida
         - **META (TRS 100%)**: Meta de produção para TRS 100%
-        - **APROVADO**: Quantidade aprovada
-        - **TRS % (Excesso)**: Percentual que excedeu 100% (ex: 23.87% significa TRS 123.87%)
+        - **APROVADO**: Quantidade aprovada (calculada pela regra do final do código)
+        - **TRS % (Excesso)**: Percentual que excedeu 100%
         - **HORAS TRABALHADAS**: Horas efetivamente trabalhadas
         - **HORAS PROGRAMADAS**: Se ACERTOS = 02:45:00, considera 05:00:00; caso contrário, HORAS TOTAIS + ACERTOS + MANUT + 15 min
-        
+
+        **📌 Regra de negócio (final do CÓDIGO):**
+        | Final do CÓDIGO | Coluna usada no cálculo |
+        |-----------------|-------------------------|
+        | `0` | `APROVADO FINAL` |
+        | `1` | `APROVADO` |
+        | outros (2-9, vazio) | `APROVADO` (fallback) |
+
         **🎯 Filtros disponíveis:**
         - Período (Data Inicial e Final)
         - Turno
         - Referência (busca parcial)
         - Tipo de Prensa (Semi-Automática ou Automática)
-        
+
         **📆 Opção "Separar por mês":**
         Ao ativar esta opção, o relatório será organizado com uma seção para cada mês do período selecionado, facilitando a análise mensal.
         """)
-    
+
     st.markdown(f"""
     <div style="text-align:right;padding:16px 0 8px;
         font-family:'JetBrains Mono',monospace;font-size:10px;
